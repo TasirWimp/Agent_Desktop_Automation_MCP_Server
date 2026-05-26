@@ -25,7 +25,8 @@ Use for:
 - automation policy decisions,
 - target validation,
 - audit-tag generation,
-- tool-contract helper functions.
+- tool-contract helper functions,
+- UI planning packet readiness and residue behavior.
 
 ### Protocol Tests
 

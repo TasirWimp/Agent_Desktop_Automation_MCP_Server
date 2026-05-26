@@ -6,6 +6,7 @@ The current server exposes:
 
 - `desktop_capabilities` - reports runtime capabilities and safety posture.
 - `automation_policy_check` - classifies proposed desktop automation actions before execution.
+- `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
 
 Real desktop mutation tools are intentionally not enabled in the initial scaffold. Future tools should start narrow, require explicit user confirmation when they change desktop state, and update the safety model before implementation.
 

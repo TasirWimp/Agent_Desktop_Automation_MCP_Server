@@ -55,9 +55,9 @@ Expected files:
 
 ### ADMCP-004 First Read-Only Desktop Context Tool
 
-Goal: Add one narrow observation tool with no desktop mutation.
+Goal: Add one narrow observation or planning tool with no desktop mutation.
 
-Candidate: active-window metadata or environment context, depending on available stable Windows APIs.
+Candidate: active-window metadata, environment context, or closed-loop UI intersection planning packets, depending on available stable inputs.
 
 Requirements before implementation:
 
@@ -65,6 +65,13 @@ Requirements before implementation:
 - no credential or hidden input capture,
 - audit output defined,
 - tests planned.
+
+Current pilot:
+
+- `ui_intersection_plan` is a read-only planning tool.
+- It accepts semantic localization, cursor observation, and intersection signal packets.
+- It returns a policy-gated click candidate packet, location residue, and a policy reminder.
+- It does not capture frames, move the cursor, click, or execute desktop actions.
 
 ### ADMCP-005 Confirmed Low-Risk Desktop Action
 

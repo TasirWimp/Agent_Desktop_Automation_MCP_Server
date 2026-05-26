@@ -23,4 +23,6 @@ Every execution tool must document:
 
 ## Current Decision
 
-The initial server exposes only capability reporting and policy classification. It does not execute desktop actions.
+The server exposes capability reporting, policy classification, and read-only UI intersection planning. It does not execute desktop actions.
+
+`ui_intersection_plan` may prepare a policy-gated candidate packet from semantic localization and frame evidence. It must not move the cursor, click, capture screens, or claim success. Actual `mouse_input` remains a state-changing action that requires `automation_policy_check`, explicit user confirmation, and post-action verification.
