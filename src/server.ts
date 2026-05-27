@@ -12,6 +12,9 @@ import {
   semanticLocalizationPacketSchema
 } from "./uiPlanning/closedLoopUiTypes.js";
 import { buildUiIntersectionPlan } from "./uiPlanning/intersectionPolicy.js";
+import type { DesktopInteractionProvider } from "./providers/desktopProvider.js";
+import { MockDesktopProvider } from "./providers/mockDesktopProvider.js";
+import { registerObservationTools } from "./session/observationTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
 import { registerSessionTools } from "./session/sessionTools.js";
 
@@ -20,6 +23,7 @@ const serverVersion = "0.1.0";
 
 export interface CreateServerOptions {
   sessionStore?: InMemoryDesktopSessionStore;
+  desktopProvider?: DesktopInteractionProvider;
   now?: () => string;
   generateId?: (prefix: string) => string;
 }
@@ -39,6 +43,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   const sessionStore = options.sessionStore ?? new InMemoryDesktopSessionStore();
   const now = options.now ?? (() => new Date().toISOString());
   const generateId = options.generateId ?? ((prefix: string) => `${prefix}-${randomUUID()}`);
+  const desktopProvider = options.desktopProvider ?? new MockDesktopProvider();
   const server = new McpServer({
     name: serverName,
     version: serverVersion
@@ -67,9 +72,11 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           interactionSessions: true,
           sessionLifecycleTools: true,
           sessionAuditLog: true,
+          mockDesktopProvider: true,
           executeDesktopActions: false,
           closedLoopClickExecution: false,
-          desktopObserveTool: false,
+          desktopObserveTool: true,
+          realDesktopObservation: false,
           desktopMouseKeyboardTools: false,
           shellCommands: false,
           credentialAccess: false
@@ -90,6 +97,13 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
 
   registerSessionTools(server, {
     sessionStore,
+    now,
+    generateId
+  });
+
+  registerObservationTools(server, {
+    sessionStore,
+    desktopProvider,
     now,
     generateId
   });

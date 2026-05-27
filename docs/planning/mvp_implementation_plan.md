@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, and MCP session lifecycle tools.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, and mock provider-backed observation.
 
 ## Planning Document Roles
 
@@ -130,7 +130,7 @@ Extracted implementation slices:
 
 - ADMCP-007 Session Runtime And Audit Store - implemented.
 - ADMCP-008 Session MCP Tool Registration - implemented.
-- ADMCP-009 Mock Observation Provider - next recommended implementation.
+- ADMCP-009 Mock Observation Provider - implemented.
 - ADMCP-010 Mock Movement Probe Tool.
 - ADMCP-011 Mock Click And Type Tools.
 - ADMCP-012 Real Observation Provider Spike.
@@ -199,7 +199,7 @@ Delivered behavior:
 - Writes `session_started` and `session_stopped` audit events.
 - Keeps audit logs readable after session end.
 - Reports controlled tool errors without creating rejected sessions.
-- Keeps `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` unavailable.
+- Keeps `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` unavailable.
 
 Implemented files:
 
@@ -215,5 +215,49 @@ Verification:
 
 Residual scope:
 
-- No provider, observation capture, mouse movement, click, typing, OCR, accessibility, shell, or real OS backend behavior is implemented.
-- Current re-entry instructions cover session lifecycle and audit inspection only.
+- Mock provider-backed observation is registered by ADMCP-009.
+- No mouse movement, click, typing, OCR, accessibility, shell, real observation capture, or real OS backend behavior is implemented.
+- Current re-entry instructions cover session lifecycle, mock observation, and audit inspection only.
+
+### ADMCP-009 Mock Observation Provider
+
+Goal: Add `desktop_observe` using a deterministic mock provider.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Defines a `DesktopInteractionProvider` seam for observation and future action providers.
+- Adds `MockDesktopProvider` with deterministic bounded frame metadata.
+- Registers `desktop_observe` as an active-session observation tool.
+- Requires the session license to allow `observe`.
+- Validates observation target scope against the session license before provider calls.
+- Records observation packets in session state.
+- Writes `observation_recorded` audit events.
+- Supports `frame_session` and `single_frame` modes.
+- Supports optional MCP image content blocks with mock inline PNG data.
+- Binds provisional `active_window` observations to mock active-window identity for future policy checks.
+- Keeps real desktop capture, OCR, localization, mouse movement, clicking, typing, and background polling disabled.
+
+Implemented files:
+
+- `src/providers/desktopProvider.ts`
+- `src/providers/mockDesktopProvider.ts`
+- `src/session/observationTools.ts`
+- `src/server.ts`
+- `tests/mockDesktopProvider.test.ts`
+- `tests/protocol/desktopObserveTool.test.ts`
+- `docs/process/codex_desktop_interaction_reentry.md`
+
+Verification:
+
+- `npm run test -- tests/mockDesktopProvider.test.ts tests/protocol/desktopObserveTool.test.ts`
+
+Residual scope:
+
+- Provider output is mock evidence only and must not be treated as real screen capture.
+- `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are still unavailable.
+- Real observation is deferred to ADMCP-012 after action contracts and safety gates mature.
+- ADMCP-010 is the next implementation slice.

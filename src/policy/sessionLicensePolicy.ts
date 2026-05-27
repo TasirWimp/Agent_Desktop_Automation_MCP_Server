@@ -325,7 +325,7 @@ function scopeMatches(
   return normalize(allowedScope.value) === normalize(targetScope.value);
 }
 
-function isInsideAllowedScope(
+export function isDesktopInteractionScopeAllowed(
   license: DesktopInteractionSessionLicense,
   targetScope: DesktopInteractionScope
 ): boolean {
@@ -554,7 +554,7 @@ export function evaluateSessionActionPolicy(
     return result("escalate", [stop.reason], [...auditTags, "action_not_allowed"], [stop]);
   }
 
-  if (!isInsideAllowedScope(license, action.targetScope)) {
+  if (!isDesktopInteractionScopeAllowed(license, action.targetScope)) {
     const stop = stopCondition(
       "outside_allowed_scope",
       license.sessionId,

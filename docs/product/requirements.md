@@ -17,6 +17,7 @@ The MVP provides:
 - a policy-check tool for proposed desktop automation actions,
 - a read-only UI intersection planning tool for future closed-loop click candidates,
 - policy contracts for future task-scoped licensed desktop interaction sessions,
+- session lifecycle tools and deterministic mock observation packets,
 - documented safety boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
 
@@ -29,6 +30,7 @@ The MVP provides:
 - No system configuration changes.
 - No persistent background watcher or keylogger.
 - No unbounded autonomous desktop control outside a user-granted task license.
+- No real desktop capture in the current mock observation slice.
 
 ## Acceptance Criteria
 
@@ -39,4 +41,5 @@ The MVP provides:
 - `automation_policy_check` blocks shell commands, credential access, and system changes.
 - `ui_intersection_plan` returns planning, residue, and policy reminder packets without moving the cursor or clicking.
 - Session-license policy contracts require user confirmation to start a bounded task session and keep low-risk in-session actions auditable.
+- `desktop_observe` requires an active session, stays bounded, records mock observation packets, and does not capture the real desktop.
 - `npm run typecheck`, `npm run test`, and `npm run build` pass locally and in CI.

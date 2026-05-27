@@ -407,6 +407,8 @@ Acceptance criteria:
 
 Goal: add `desktop_observe` using a deterministic mock provider.
 
+Status: implemented.
+
 Depends on:
 
 - ADMCP-007,
@@ -428,6 +430,13 @@ Acceptance criteria:
 - audit event records observation,
 - optional image content uses MCP image blocks or resource links,
 - no OCR, localization, or OS capture.
+
+Implemented notes:
+
+- The first provider is `MockDesktopProvider`; it never captures real desktop pixels.
+- `desktop_observe` validates active session state, `observe` permission, and target scope before provider calls.
+- `active_window` observations are bound to mock window identity when provider metadata is available.
+- Output may include inline MCP image blocks only when `includeImages` is set.
 
 ### ADMCP-010 Mock Movement Probe Tool
 
@@ -548,6 +557,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-008, continue with ADMCP-009.
+After ADMCP-009, continue with ADMCP-010.
 
 That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real OS control last.

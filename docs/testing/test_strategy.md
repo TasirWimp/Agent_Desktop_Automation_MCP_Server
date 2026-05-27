@@ -52,8 +52,21 @@ Use for:
 - tool input validation,
 - tool output shape,
 - session lifecycle tool calls and audit-log behavior,
-- absence of unavailable desktop observe/action tools,
+- mock observation tool calls, bounded frame metadata, optional image content blocks, and audit events,
+- absence of unavailable desktop action tools,
 - transport smoke checks.
+
+After ADMCP-009, only desktop action tools should remain unavailable in protocol tests: `desktop_move_mouse`, `desktop_click`, and `desktop_type_text`.
+
+### Provider Tests
+
+Use for:
+
+- deterministic mock observation frame metadata,
+- provider capability reports,
+- observation frame-count and duration bounds,
+- absence of real desktop capture,
+- absence of real desktop mutation in mock action methods.
 
 ### Build And Type Checks
 
