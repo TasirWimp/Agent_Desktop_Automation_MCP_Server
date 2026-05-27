@@ -14,3 +14,8 @@ Key architecture documents:
 
 - `architecture/safety_model.md` - current action classes, blocked risks, and confirmation posture.
 - `architecture/licensed_desktop_interaction_sessions.md` - planned task-scoped desktop agency model for bounded observe-act-observe loops.
+
+Key planning documents:
+
+- `planning/mvp_implementation_plan.md` - current implementation slices and sequencing.
+- `planning/licensed_desktop_interaction_feature_design.md` - feature extraction design for session tools, provider seams, audit, observation, and future desktop control.

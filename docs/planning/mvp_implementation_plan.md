@@ -4,6 +4,12 @@
 
 Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, and session-license policy contracts.
 
+## Planning Document Roles
+
+- This file tracks implementation sequence, current status, and acceptance gates.
+- `licensed_desktop_interaction_feature_design.md` extracts detailed tool contracts, provider seams, runtime state, and feature slices from the licensed-session architecture.
+- `../architecture/licensed_desktop_interaction_sessions.md` remains the source of truth for the session safety and agency model.
+
 ## Feature Slices
 
 ### ADMCP-001 Repository And MCP Server Scaffold
@@ -101,27 +107,41 @@ Current policy slice:
 
 ### ADMCP-006 Provider-Backed Desktop Interaction Tools
 
-Goal: Add provider-backed MCP tools for the protected loop after the session policy is documented and tested.
+Goal: Track the transition from session policy contracts to provider-backed MCP tools for the protected loop.
 
-Planned tools:
+Design source:
 
-- `desktop_start_interaction_session`
-- `desktop_observe`
-- `desktop_move_mouse`
-- `desktop_click`
-- `desktop_type_text`
-- `desktop_end_interaction_session`
-- `desktop_session_audit_log`
+- `licensed_desktop_interaction_feature_design.md`
+
+Status:
+
+- Not started.
+- The detailed tool contracts and provider seam are defined in the design source.
+- Real OS observation and control remain disabled until later gated slices.
 
 Requirements before implementation:
 
-- mock provider tests,
-- protocol smoke tests,
-- explicit active-session state handling,
-- bounded observation behavior,
-- observed active-window identity binding before mutation,
-- observation existence, freshness, session id, scope, and frame-link validation against provider state,
-- repair-attempt accounting,
-- audit persistence contract,
-- stop and recovery behavior,
-- manual acceptance checks for any real desktop backend.
+- implement the extracted slices in order,
+- keep mock/provider-backed behavior separate from real OS control,
+- add protocol smoke tests as tools are registered,
+- preserve session scope, audit, observation cadence, and stop-condition behavior.
+
+Extracted implementation slices:
+
+- ADMCP-007 Session Runtime And Audit Store - next recommended implementation.
+- ADMCP-008 Session MCP Tool Registration.
+- ADMCP-009 Mock Observation Provider.
+- ADMCP-010 Mock Movement Probe Tool.
+- ADMCP-011 Mock Click And Type Tools.
+- ADMCP-012 Real Observation Provider Spike.
+- ADMCP-013 Real Control Provider Gate.
+
+Acceptance gate before real OS mutation:
+
+- active session state is enforced,
+- audit log is complete and queryable,
+- observation references are validated against provider state,
+- `active_window` is bound to concrete observed identity,
+- post-action observation is enforced for movement, click, and typing,
+- stop/escalation conditions are covered by tests,
+- manual acceptance checks are documented for the target backend.

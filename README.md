@@ -8,7 +8,7 @@ The current server exposes:
 - `automation_policy_check` - classifies proposed desktop automation actions before execution.
 - `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
 
-Real desktop mutation tools are intentionally not enabled in the initial scaffold. Future tools should start narrow, require explicit user confirmation when they change desktop state, and update the safety model before implementation.
+Real desktop mutation tools are intentionally not enabled in the initial scaffold. Future tools should start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
 The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
 
@@ -51,6 +51,7 @@ Role-specific Codex agents live in `.codex/agents/`:
 
 - `desktop_automation_planner`
 - `desktop_automation_protocol_worker`
+- `desktop_automation_session_worker`
 - `desktop_automation_tool_worker`
 - `desktop_automation_test_planner`
 - `desktop_automation_safety_reviewer`
