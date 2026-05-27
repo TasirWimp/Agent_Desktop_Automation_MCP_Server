@@ -14,6 +14,55 @@ observe -> infer -> act -> observe delta -> repair -> continue.
 
 Codex should be able to launch or use a project app inside a user-granted session, interact with the UI like a user, observe the result, and repair the implementation or test scenario. The server must not collapse into a screenshot utility and must not expose raw desktop control without a session license.
 
+## Interaction Transition Gates
+
+The observe-act-observe loop should be governed as a transition path between visual witnesses, not as isolated tool calls and not as a brittle coordinate-click sequence.
+
+Local transition shape:
+
+```text
+observation_i
+  -> action probe / state change
+    -> observation_i+1
+      -> transition audit
+        -> next licensed action or repair
+```
+
+This is the desktop-interaction analogue of a governed navigation transition: the system starts from a declared witness, performs a bounded licensed move, observes what changed, records residue, and only then decides whether the next non-observe action is licensed.
+
+Use repo-local names for the implementation. Do not import a broad CRPM or discourse-topology schema into this repo yet. The useful local object is an `interaction transition gate`, not a general theory object.
+
+An interaction transition gate should record:
+
+- session id,
+- action id,
+- transition status,
+- source observation id,
+- required follow-up observation,
+- follow-up observation id when available,
+- target scope,
+- intended semantic target when known,
+- protected observables,
+- expected evidence after the action,
+- observed delta summary when available,
+- residue and uncertainty notes.
+
+Initial transition statuses:
+
+- `pending_observation`: action has run or been simulated and must be followed by observation before any next non-observe action.
+- `observed`: follow-up observation exists and is attached to the transition.
+- `audited`: the follow-up observation has enough evidence for the next low-risk action or for a repair decision.
+- `blocked`: the transition cannot be closed inside the current evidence, scope, or risk limits.
+- `escalation_required`: the transition exposed a boundary condition that requires user review.
+
+Movement is the key first case. `desktop_move_mouse` is not merely cursor placement. It is a probe that changes the evidence surface by producing possible hover highlights, cursor changes, tooltips, focus states, enabled or disabled affordances, and other visual deltas. Therefore `move_mouse -> click` must pass through a transition gate:
+
+```text
+observe -> move_mouse -> observe transition delta -> click or repair
+```
+
+A bare `pendingPostActionObservation` boolean is acceptable only as an internal shortcut if it is backed by transition state that can identify which action requires follow-up observation, what evidence must be protected, what residue remains, and why the next action is allowed or blocked.
+
 ## External Pattern Inputs
 
 The web survey provides protocol and loop witnesses, not behavior to copy wholesale:
@@ -315,11 +364,14 @@ Minimum runtime state:
 - session license packet,
 - observation packets by observation id,
 - action packets by action id,
+- interaction transition gates by action id,
 - audit events by session id,
 - stop condition state,
 - provider capabilities.
 
 Initial runtime can be in-memory. Persistent audit storage is a later feature.
+
+Transition gate state is required for action tools. It is the runtime mechanism that prevents blind action chains such as `move_mouse -> click` without an intervening observation and transition audit.
 
 ## Provider Interface
 
@@ -442,6 +494,8 @@ Implemented notes:
 
 Goal: add `desktop_move_mouse` in mock/provider-backed mode.
 
+Status: implemented.
+
 Depends on:
 
 - ADMCP-009.
@@ -457,9 +511,20 @@ Acceptance criteria:
 - move requires fresh pre-action observation,
 - move validates session id, scope, freshness, and frame evidence,
 - move logs action request before provider call,
+- move creates an interaction transition gate in `pending_observation` state,
 - move returns `requiresPostActionObservation: true`,
-- subsequent non-observe action is blocked until post-movement observation exists,
+- subsequent non-observe action is blocked until post-movement observation is attached to the transition gate,
+- post-movement observation can close or escalate the transition based on scope, frame evidence, and residue,
 - mock provider does not move the real cursor.
+
+Implemented notes:
+
+- `desktop_move_mouse` is registered as a mock-only action tool.
+- The mock provider simulates cursor position in memory and does not move the real OS cursor.
+- Allowed movement records an action packet, increments action count, and creates a transition gate.
+- The transition gate blocks later non-observe actions until `desktop_observe` is called with `transitionActionId`.
+- Post-movement observation audits the transition gate using session id, scope, and frame evidence.
+- Click and type tools remain unavailable.
 
 ### ADMCP-011 Mock Click And Type Tools
 
@@ -557,6 +622,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-009, continue with ADMCP-010.
+After ADMCP-010, continue with ADMCP-011.
 
 That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real OS control last.

@@ -9,10 +9,11 @@ The current server exposes:
 - `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
 - `desktop_observe` - records a bounded mock observation frame session for an active interaction session.
+- `desktop_move_mouse` - simulates a bounded mock movement probe inside an active interaction session and requires follow-up observation.
 - `desktop_end_interaction_session` - ends an active interaction session.
 - `desktop_session_audit_log` - reads the session lifecycle audit log.
 
-Real desktop capture and mutation tools are intentionally not enabled in the initial scaffold. The current observation provider is deterministic and mock-only: it does not capture the real desktop, move the mouse, click, type, launch apps, or control the OS. Future tools should start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
+Real desktop capture and mutation tools are intentionally not enabled in the initial scaffold. The current provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click, type, launch apps, or control the OS. Future tools should start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
 The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
 

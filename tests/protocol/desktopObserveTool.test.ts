@@ -93,8 +93,13 @@ describe("desktop_observe MCP tool", () => {
 
       expect(structured.capabilities).toMatchObject({
         mockDesktopProvider: true,
+        mockDesktopMovement: true,
         desktopObserveTool: true,
+        desktopMoveMouseTool: true,
+        desktopClickTool: false,
+        desktopTypeTextTool: false,
         realDesktopObservation: false,
+        realDesktopMutation: false,
         desktopMouseKeyboardTools: false,
         executeDesktopActions: false
       });

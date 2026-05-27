@@ -12,7 +12,7 @@ The long-term interaction model is task-scoped licensed autonomy, not confirmati
 - `open_application`, `open_url`, `file_operation`, `keyboard_input`, `mouse_input` - desktop state changes. Require user confirmation when proposed outside a confirmed interaction session.
 - `shell_command`, `credential_access`, `system_change` - blocked in the initial model.
 
-Inside a future confirmed `desktop_interaction_session`, bounded low-risk actions such as observation, mouse movement, clicking visible controls in the allowed window, and typing generated test input may be licensed by the session instead of requiring repeated per-action confirmation.
+Inside a confirmed `desktop_interaction_session`, bounded low-risk actions such as observation, mouse movement, clicking visible controls in the allowed window, and typing generated test input may be licensed by the session instead of requiring repeated per-action confirmation as their tool contracts become available.
 
 ## Tool Contract Requirements
 
@@ -27,9 +27,11 @@ Every execution tool must document:
 
 ## Current Decision
 
-The server exposes capability reporting, policy classification, and read-only UI intersection planning. It also defines policy contracts for future licensed interaction sessions. It does not execute desktop actions.
+The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, and mock movement probes. It does not capture the real desktop or execute real desktop actions.
 
 `ui_intersection_plan` may prepare a policy-gated candidate packet from semantic localization and frame evidence. It must not move the cursor, click, capture screens, or claim success. Actual `mouse_input` remains a state-changing action that requires either single-action policy confirmation or an active session license, audit logging, scope checks, and post-action observation.
+
+`desktop_move_mouse` is currently mock-only. It simulates cursor position in provider memory, records an action packet, creates a transition gate, and requires post-movement observation before another non-observe action. It must not move the real cursor or control the OS.
 
 ## Session License Direction
 

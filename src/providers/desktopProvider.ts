@@ -52,10 +52,14 @@ export interface DesktopProviderActionRequest {
   sessionId: string;
   targetScope: DesktopInteractionScope;
   requestedAt: string;
+  point?: DesktopPoint;
+  intendedSemanticTarget?: string;
 }
 
 export interface DesktopProviderActionResult {
   executed: boolean;
+  simulated: boolean;
+  cursorPosition?: DesktopPoint;
   residue: string[];
 }
 

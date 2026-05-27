@@ -16,13 +16,13 @@ const observeRequest = {
 };
 
 describe("MockDesktopProvider", () => {
-  it("reports mock-only observation capabilities with no desktop mutation support", () => {
+  it("reports mock-only observation and simulated mouse capabilities with no real mutation support", () => {
     const provider = new MockDesktopProvider();
 
     expect(provider.getCapabilities()).toMatchObject({
       providerKind: "mock",
       supportsObservation: true,
-      supportsMouse: false,
+      supportsMouse: true,
       supportsClick: false,
       supportsTyping: false,
       realDesktopCapture: false,
@@ -63,7 +63,7 @@ describe("MockDesktopProvider", () => {
     expect(observation.residue).toEqual(
       expect.arrayContaining([
         "Mock observation only: no real desktop pixels were captured.",
-        "No OCR, localization, mouse movement, click, typing, or background polling occurred."
+        "No OCR, localization, real mouse movement, click, typing, or background polling occurred."
       ])
     );
   });
@@ -86,7 +86,41 @@ describe("MockDesktopProvider", () => {
     );
   });
 
-  it("does not execute action methods", async () => {
+  it("simulates mouse movement without mutating the real desktop", async () => {
+    const provider = new MockDesktopProvider();
+    const request = {
+      sessionId: "session-provider-001",
+      targetScope: observeRequest.targetScope,
+      requestedAt: "2026-05-27T10:00:01.000Z",
+      point: {
+        x: 120,
+        y: 90
+      },
+      intendedSemanticTarget: "Submit button"
+    };
+
+    await expect(provider.moveMouse(request)).resolves.toMatchObject({
+      executed: true,
+      simulated: true,
+      cursorPosition: {
+        x: 120,
+        y: 90
+      }
+    });
+    await expect(
+      provider.observe({
+        ...observeRequest,
+        observedAt: "2026-05-27T10:00:02.000Z"
+      })
+    ).resolves.toMatchObject({
+      cursorPosition: {
+        x: 120,
+        y: 90
+      }
+    });
+  });
+
+  it("does not execute click or typing methods", async () => {
     const provider = new MockDesktopProvider();
     const request = {
       sessionId: "session-provider-001",
@@ -94,14 +128,13 @@ describe("MockDesktopProvider", () => {
       requestedAt: "2026-05-27T10:00:01.000Z"
     };
 
-    await expect(provider.moveMouse(request)).resolves.toMatchObject({
-      executed: false
-    });
     await expect(provider.click(request)).resolves.toMatchObject({
-      executed: false
+      executed: false,
+      simulated: false
     });
     await expect(provider.typeText(request)).resolves.toMatchObject({
-      executed: false
+      executed: false,
+      simulated: false
     });
   });
 });

@@ -14,6 +14,7 @@ import {
 import { buildUiIntersectionPlan } from "./uiPlanning/intersectionPolicy.js";
 import type { DesktopInteractionProvider } from "./providers/desktopProvider.js";
 import { MockDesktopProvider } from "./providers/mockDesktopProvider.js";
+import { registerActionTools } from "./session/actionTools.js";
 import { registerObservationTools } from "./session/observationTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
 import { registerSessionTools } from "./session/sessionTools.js";
@@ -73,10 +74,15 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           sessionLifecycleTools: true,
           sessionAuditLog: true,
           mockDesktopProvider: true,
+          mockDesktopMovement: true,
           executeDesktopActions: false,
           closedLoopClickExecution: false,
           desktopObserveTool: true,
+          desktopMoveMouseTool: true,
+          desktopClickTool: false,
+          desktopTypeTextTool: false,
           realDesktopObservation: false,
+          realDesktopMutation: false,
           desktopMouseKeyboardTools: false,
           shellCommands: false,
           credentialAccess: false
@@ -102,6 +108,13 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   });
 
   registerObservationTools(server, {
+    sessionStore,
+    desktopProvider,
+    now,
+    generateId
+  });
+
+  registerActionTools(server, {
     sessionStore,
     desktopProvider,
     now,

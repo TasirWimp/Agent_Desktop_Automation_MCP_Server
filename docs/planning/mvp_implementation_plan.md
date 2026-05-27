@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, and mock provider-backed observation.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, and mock movement probes with transition gates.
 
 ## Planning Document Roles
 
@@ -131,7 +131,7 @@ Extracted implementation slices:
 - ADMCP-007 Session Runtime And Audit Store - implemented.
 - ADMCP-008 Session MCP Tool Registration - implemented.
 - ADMCP-009 Mock Observation Provider - implemented.
-- ADMCP-010 Mock Movement Probe Tool.
+- ADMCP-010 Mock Movement Probe Tool - implemented.
 - ADMCP-011 Mock Click And Type Tools.
 - ADMCP-012 Real Observation Provider Spike.
 - ADMCP-013 Real Control Provider Gate.
@@ -199,7 +199,7 @@ Delivered behavior:
 - Writes `session_started` and `session_stopped` audit events.
 - Keeps audit logs readable after session end.
 - Reports controlled tool errors without creating rejected sessions.
-- Keeps `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` unavailable.
+- Keeps `desktop_click` and `desktop_type_text` unavailable.
 
 Implemented files:
 
@@ -216,8 +216,9 @@ Verification:
 Residual scope:
 
 - Mock provider-backed observation is registered by ADMCP-009.
-- No mouse movement, click, typing, OCR, accessibility, shell, real observation capture, or real OS backend behavior is implemented.
-- Current re-entry instructions cover session lifecycle, mock observation, and audit inspection only.
+- Mock movement probe support is registered by ADMCP-010.
+- No real mouse movement, click, typing, OCR, accessibility, shell, real observation capture, or real OS backend behavior is implemented.
+- Current re-entry instructions cover session lifecycle, mock observation, mock movement probes, transition-gate observation, and audit inspection.
 
 ### ADMCP-009 Mock Observation Provider
 
@@ -239,7 +240,7 @@ Delivered behavior:
 - Supports `frame_session` and `single_frame` modes.
 - Supports optional MCP image content blocks with mock inline PNG data.
 - Binds provisional `active_window` observations to mock active-window identity for future policy checks.
-- Keeps real desktop capture, OCR, localization, mouse movement, clicking, typing, and background polling disabled.
+- Keeps real desktop capture, OCR, localization, real mouse movement, clicking, typing, and background polling disabled.
 
 Implemented files:
 
@@ -258,6 +259,54 @@ Verification:
 Residual scope:
 
 - Provider output is mock evidence only and must not be treated as real screen capture.
-- `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are still unavailable.
+- `desktop_click` and `desktop_type_text` are still unavailable.
 - Real observation is deferred to ADMCP-012 after action contracts and safety gates mature.
-- ADMCP-010 is the next implementation slice.
+- ADMCP-010 provides the mock movement probe used by later action slices.
+
+### ADMCP-010 Mock Movement Probe Tool
+
+Goal: Add `desktop_move_mouse` in mock/provider-backed mode.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Registers `desktop_move_mouse`.
+- Requires an active session.
+- Requires `move_mouse` to be allowed by the session license.
+- Requires a fresh pre-action observation id with matching session, scope, and frame evidence.
+- Logs `action_requested` before policy evaluation and provider calls.
+- Uses the session action policy evaluator before provider calls.
+- Simulates mouse movement in `MockDesktopProvider` memory only.
+- Records action packets and increments action count for allowed movement probes.
+- Creates an interaction transition gate in `pending_observation` state after each movement probe.
+- Blocks subsequent non-observe actions while a transition gate remains unaudited.
+- Extends `desktop_observe` with `transitionActionId` so post-movement observation can audit and close the transition gate.
+- Keeps real cursor movement, clicking, typing, OS capture, OCR, localization, shell, and OS mutation disabled.
+
+Implemented files:
+
+- `src/session/actionTools.ts`
+- `src/session/interactionTransitionGate.ts`
+- `src/session/sessionStore.ts`
+- `src/providers/desktopProvider.ts`
+- `src/providers/mockDesktopProvider.ts`
+- `src/session/observationTools.ts`
+- `src/server.ts`
+- `tests/protocol/desktopMoveMouseTool.test.ts`
+- `tests/mockDesktopProvider.test.ts`
+- `tests/sessionStore.test.ts`
+- `docs/process/codex_desktop_interaction_reentry.md`
+
+Verification:
+
+- `npm run test -- tests/sessionStore.test.ts tests/mockDesktopProvider.test.ts tests/protocol/desktopMoveMouseTool.test.ts tests/protocol/desktopObserveTool.test.ts tests/protocol/sessionTools.test.ts`
+
+Residual scope:
+
+- Movement is simulated provider state only and must not be treated as real cursor movement.
+- `desktop_click` and `desktop_type_text` are still unavailable.
+- Transition-gate audit is currently frame/scope based; richer visual-delta interpretation remains a future provider/model layer.
+- ADMCP-011 is the next implementation slice.

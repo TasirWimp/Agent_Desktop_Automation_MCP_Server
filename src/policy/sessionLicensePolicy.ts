@@ -332,6 +332,13 @@ export function isDesktopInteractionScopeAllowed(
   return license.allowedScopes.some((allowedScope) => scopeMatches(allowedScope, targetScope));
 }
 
+export function desktopInteractionScopesMatch(
+  firstScope: DesktopInteractionScope,
+  secondScope: DesktopInteractionScope
+): boolean {
+  return scopeMatches(firstScope, secondScope);
+}
+
 function hasRequiredAuditEvent(
   action: DesktopActionPacket,
   auditEvents: DesktopSessionAuditEvent[]

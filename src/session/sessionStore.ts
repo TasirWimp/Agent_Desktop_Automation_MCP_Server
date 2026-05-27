@@ -12,6 +12,11 @@ import {
   desktopSessionStopConditionSchema,
   evaluateSessionStartPolicy
 } from "../policy/sessionLicensePolicy.js";
+import {
+  type InteractionTransitionGate,
+  interactionTransitionGateSchema,
+  transitionGateBlocksNonObserveAction
+} from "./interactionTransitionGate.js";
 
 export type DesktopSessionStatus = "active" | "ended";
 
@@ -24,6 +29,8 @@ export type SessionStoreErrorCode =
   | "audit_event_already_exists"
   | "observation_already_exists"
   | "action_already_exists"
+  | "transition_gate_already_exists"
+  | "transition_gate_not_found"
   | "action_count_limit_reached"
   | "repair_attempt_limit_reached";
 
@@ -49,6 +56,7 @@ export interface DesktopSessionSnapshot {
   auditEvents: DesktopSessionAuditEvent[];
   observations: DesktopObservationPacket[];
   actions: DesktopActionPacket[];
+  transitionGates: InteractionTransitionGate[];
   stopConditions: DesktopSessionStopCondition[];
 }
 
@@ -73,6 +81,7 @@ interface DesktopSessionEntry {
   auditEvents: DesktopSessionAuditEvent[];
   observations: Map<string, DesktopObservationPacket>;
   actions: Map<string, DesktopActionPacket>;
+  transitionGates: Map<string, InteractionTransitionGate>;
   stopConditions: DesktopSessionStopCondition[];
 }
 
@@ -106,6 +115,7 @@ function snapshotFromEntry(entry: DesktopSessionEntry): DesktopSessionSnapshot {
     auditEvents: clone(entry.auditEvents),
     observations: clone([...entry.observations.values()]),
     actions: clone([...entry.actions.values()]),
+    transitionGates: clone([...entry.transitionGates.values()]),
     stopConditions: clone(entry.stopConditions)
   };
 }
@@ -145,6 +155,7 @@ export class InMemoryDesktopSessionStore {
       auditEvents: [],
       observations: new Map(),
       actions: new Map(),
+      transitionGates: new Map(),
       stopConditions: []
     };
 
@@ -264,6 +275,79 @@ export class InMemoryDesktopSessionStore {
 
   listActions(sessionId: string): DesktopActionPacket[] {
     return clone([...this.requireEntry(sessionId).actions.values()]);
+  }
+
+  recordTransitionGate(
+    transitionGateInput: InteractionTransitionGate
+  ): InteractionTransitionGate {
+    const transitionGate = interactionTransitionGateSchema.parse(transitionGateInput);
+    const entry = this.requireActiveEntry(transitionGate.sessionId);
+
+    if (entry.transitionGates.has(transitionGate.actionId)) {
+      throw new SessionStoreError(
+        "transition_gate_already_exists",
+        `Transition gate for action ${transitionGate.actionId} already exists.`
+      );
+    }
+
+    entry.transitionGates.set(transitionGate.actionId, clone(transitionGate));
+
+    return clone(transitionGate);
+  }
+
+  updateTransitionGate(
+    transitionGateInput: InteractionTransitionGate
+  ): InteractionTransitionGate {
+    const transitionGate = interactionTransitionGateSchema.parse(transitionGateInput);
+    const entry = this.requireActiveEntry(transitionGate.sessionId);
+
+    if (!entry.transitionGates.has(transitionGate.actionId)) {
+      throw new SessionStoreError(
+        "transition_gate_not_found",
+        `Transition gate for action ${transitionGate.actionId} does not exist.`
+      );
+    }
+
+    entry.transitionGates.set(transitionGate.actionId, clone(transitionGate));
+
+    return clone(transitionGate);
+  }
+
+  getTransitionGate(
+    sessionId: string,
+    actionId: string
+  ): InteractionTransitionGate | undefined {
+    const transitionGate = this.requireEntry(sessionId).transitionGates.get(actionId);
+    return transitionGate === undefined ? undefined : clone(transitionGate);
+  }
+
+  requireTransitionGate(
+    sessionId: string,
+    actionId: string
+  ): InteractionTransitionGate {
+    const transitionGate = this.requireEntry(sessionId).transitionGates.get(actionId);
+
+    if (transitionGate === undefined) {
+      throw new SessionStoreError(
+        "transition_gate_not_found",
+        `Transition gate for action ${actionId} does not exist.`
+      );
+    }
+
+    return clone(transitionGate);
+  }
+
+  listTransitionGates(sessionId: string): InteractionTransitionGate[] {
+    return clone([...this.requireEntry(sessionId).transitionGates.values()]);
+  }
+
+  findBlockingTransitionGate(sessionId: string): InteractionTransitionGate | undefined {
+    const entry = this.requireActiveEntry(sessionId);
+    const transitionGate = [...entry.transitionGates.values()].find(
+      transitionGateBlocksNonObserveAction
+    );
+
+    return transitionGate === undefined ? undefined : clone(transitionGate);
   }
 
   incrementActionCount(sessionId: string): number {

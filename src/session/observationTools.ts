@@ -14,6 +14,11 @@ import {
   type DesktopInteractionProvider
 } from "../providers/desktopProvider.js";
 import {
+  auditInteractionTransitionGate,
+  transitionGateBlocksNonObserveAction,
+  type InteractionTransitionGate
+} from "./interactionTransitionGate.js";
+import {
   InMemoryDesktopSessionStore,
   SessionStoreError,
   type DesktopSessionSnapshot
@@ -33,7 +38,8 @@ const observeInputSchema = z.object({
   maxFrames: z.number().int().positive().max(12).default(3),
   durationMs: z.number().int().nonnegative().max(5_000).default(250),
   frameFormat: z.literal("image/png").default("image/png"),
-  includeImages: z.boolean().default(false)
+  includeImages: z.boolean().default(false),
+  transitionActionId: z.string().min(1).optional()
 });
 
 function structuredResult(
@@ -148,6 +154,24 @@ function blockedObserveResult(
   );
 }
 
+function transitionGateNotPendingResult(
+  sessionId: string,
+  transitionGate: InteractionTransitionGate
+) {
+  return structuredResult(
+    {
+      sessionId,
+      status: "not_observed",
+      transitionGate,
+      residue: [
+        `Transition gate for action ${transitionGate.actionId} is already ${transitionGate.status}.`,
+        "No provider call was made and no desktop observation was recorded."
+      ]
+    },
+    true
+  );
+}
+
 export function registerObservationTools(
   server: McpServer,
   runtime: ObservationToolRuntime
@@ -170,6 +194,13 @@ export function registerObservationTools(
       try {
         const session = runtime.sessionStore.requireActiveSession(input.sessionId);
         const observedAt = runtime.now();
+        const transitionGate =
+          input.transitionActionId === undefined
+            ? undefined
+            : runtime.sessionStore.requireTransitionGate(
+                input.sessionId,
+                input.transitionActionId
+              );
 
         if (!session.license.allowedActions.includes("observe")) {
           return blockedObserveResult(input.sessionId, {
@@ -196,6 +227,13 @@ export function registerObservationTools(
             reason: "The requested observation target is outside the session's allowed scope.",
             residue: ["The session remains active. No provider call was made."]
           });
+        }
+
+        if (
+          transitionGate !== undefined &&
+          !transitionGateBlocksNonObserveAction(transitionGate)
+        ) {
+          return transitionGateNotPendingResult(input.sessionId, transitionGate);
         }
 
         const providerCapabilities = runtime.desktopProvider.getCapabilities();
@@ -241,6 +279,39 @@ export function registerObservationTools(
 
         const recordedObservation = runtime.sessionStore.recordObservation(observation);
         runtime.sessionStore.appendAuditEvent(auditEvent);
+        const auditedTransitionGate =
+          transitionGate === undefined
+            ? undefined
+            : runtime.sessionStore.updateTransitionGate(
+                auditInteractionTransitionGate(
+                  transitionGate,
+                  recordedObservation,
+                  runtime.now()
+                )
+              );
+        const postActionAuditEvent: DesktopSessionAuditEvent | undefined =
+          auditedTransitionGate === undefined
+            ? undefined
+            : {
+                eventId: runtime.generateId("event"),
+                sessionId: input.sessionId,
+                eventType:
+                  auditedTransitionGate.status === "audited"
+                    ? "post_action_observed"
+                    : "escalation_required",
+                occurredAt: runtime.now(),
+                actionId: auditedTransitionGate.actionId,
+                observationId: recordedObservation.observationId,
+                summary:
+                  auditedTransitionGate.status === "audited"
+                    ? "Post-action observation audited the interaction transition gate."
+                    : "Post-action observation could not close the interaction transition gate.",
+                residue: auditedTransitionGate.residue
+              };
+
+        if (postActionAuditEvent !== undefined) {
+          runtime.sessionStore.appendAuditEvent(postActionAuditEvent);
+        }
 
         return structuredResult(
           {
@@ -248,6 +319,8 @@ export function registerObservationTools(
             status: "observed",
             observation: recordedObservation,
             auditEvent,
+            transitionGate: auditedTransitionGate,
+            postActionAuditEvent,
             providerCapabilities,
             residue: [
               "Observation was recorded in session state and audit log.",

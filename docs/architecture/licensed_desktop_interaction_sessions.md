@@ -108,6 +108,8 @@ Observation must be bounded. There must be no hidden polling loop, no background
 
 Mouse movement is a probe. It can move roughly toward a semantic target, observe visual delta, and refine the next movement or click decision. A `move_mouse` action therefore requires post-movement observation before the next non-observe action. Clicks and typing require post-action observation before success can be claimed.
 
+State-changing actions should be mediated by interaction transition gates. A transition gate records the source observation, action id, target scope, protected observables, expected follow-up evidence, follow-up observation id, status, and residue. The next non-observe action is blocked until the relevant gate has been audited or escalated.
+
 Clicking is licensed by:
 
 - active session scope,

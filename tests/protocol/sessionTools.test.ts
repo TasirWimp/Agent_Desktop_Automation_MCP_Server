@@ -71,7 +71,7 @@ const startArguments = {
 };
 
 describe("session MCP tools", () => {
-  it("lists session lifecycle, audit, and observe tools without exposing desktop action tools", async () => {
+  it("lists session, observe, and mock movement tools without exposing click or type tools", async () => {
     const { client, server } = await createConnectedClient();
 
     try {
@@ -83,12 +83,12 @@ describe("session MCP tools", () => {
           "desktop_start_interaction_session",
           "desktop_end_interaction_session",
           "desktop_session_audit_log",
-          "desktop_observe"
+          "desktop_observe",
+          "desktop_move_mouse"
         ])
       );
       expect(toolNames).not.toEqual(
         expect.arrayContaining([
-          "desktop_move_mouse",
           "desktop_click",
           "desktop_type_text"
         ])

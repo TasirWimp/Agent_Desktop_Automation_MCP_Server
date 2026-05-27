@@ -10,6 +10,9 @@ import {
   InMemoryDesktopSessionStore,
   SessionStoreError
 } from "../src/session/sessionStore.js";
+import {
+  createPendingInteractionTransitionGate
+} from "../src/session/interactionTransitionGate.js";
 
 const baseLicense: DesktopInteractionSessionLicense = {
   sessionId: "session-001",
@@ -235,6 +238,46 @@ describe("InMemoryDesktopSessionStore", () => {
     expect(store.getAction(baseLicense.sessionId, "missing")).toBeUndefined();
   });
 
+  it("records, updates, and lists interaction transition gates by action id", () => {
+    const store = new InMemoryDesktopSessionStore();
+    store.createSession(baseLicense);
+    store.recordObservation(observationFixture("obs-001"));
+    const action = store.recordAction(
+      actionFixture("action-001", {
+        actionType: "move_mouse"
+      })
+    );
+    const transitionGate = createPendingInteractionTransitionGate({
+      transitionId: "transition-001",
+      action,
+      createdAt: "2026-05-27T10:00:04.000Z",
+      protectedObservables: ["cursor position"],
+      expectedEvidenceAfterAction: ["cursor position changed"],
+      residue: ["Post-movement observation is required."]
+    });
+
+    store.recordTransitionGate(transitionGate);
+
+    expect(store.getTransitionGate(baseLicense.sessionId, action.actionId)).toEqual(
+      transitionGate
+    );
+    expect(store.listTransitionGates(baseLicense.sessionId)).toHaveLength(1);
+    expect(store.findBlockingTransitionGate(baseLicense.sessionId)).toMatchObject({
+      actionId: action.actionId,
+      status: "pending_observation"
+    });
+
+    const updated = store.updateTransitionGate({
+      ...transitionGate,
+      status: "audited",
+      updatedAt: "2026-05-27T10:00:05.000Z",
+      followUpObservationId: "obs-after-001"
+    });
+
+    expect(updated.status).toBe("audited");
+    expect(store.findBlockingTransitionGate(baseLicense.sessionId)).toBeUndefined();
+  });
+
   it("tracks action and repair counts within session limits", () => {
     const store = new InMemoryDesktopSessionStore();
     store.createSession(baseLicense);
@@ -302,6 +345,17 @@ describe("InMemoryDesktopSessionStore", () => {
       () => store.appendAuditEvent(auditEvent("event-after-stop", "action_requested")),
       () => store.recordObservation(observationFixture("obs-001")),
       () => store.recordAction(actionFixture("action-001")),
+      () =>
+        store.recordTransitionGate(
+          createPendingInteractionTransitionGate({
+            transitionId: "transition-001",
+            action: actionFixture("action-001"),
+            createdAt: "2026-05-27T10:00:06.000Z",
+            protectedObservables: ["cursor position"],
+            expectedEvidenceAfterAction: ["cursor position changed"],
+            residue: ["Post-action observation is required."]
+          })
+        ),
       () => store.incrementActionCount(baseLicense.sessionId)
     ]) {
       expectStoreErrorFrom(mutate, "session_inactive");
