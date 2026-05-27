@@ -49,8 +49,8 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
       providerKind: "mock",
       supportsObservation: true,
       supportsMouse: true,
-      supportsClick: false,
-      supportsTyping: false,
+      supportsClick: true,
+      supportsTyping: true,
       realDesktopCapture: false,
       realDesktopMutation: false,
       maxFramesPerObservation: this.maxFramesPerObservation,
@@ -59,7 +59,8 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
         "Provider returns deterministic mock frame metadata.",
         "Provider does not capture the real desktop.",
         "Provider simulates mouse movement in memory only.",
-        "Provider does not move the real mouse, click, type, launch apps, or mutate OS state."
+        "Provider simulates click and typing results in memory only.",
+        "Provider does not move the real mouse, click the real desktop, type into the real desktop, launch apps, or mutate OS state."
       ]
     };
   }
@@ -72,7 +73,7 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
     );
     const residue = [
       "Mock observation only: no real desktop pixels were captured.",
-      "No OCR, localization, real mouse movement, click, typing, or background polling occurred.",
+      "No OCR, localization, real mouse movement, real click, real typing, or background polling occurred.",
       `Observation was bounded to ${effectiveFrameCount} frame(s) over ${effectiveDurationMs} ms.`
     ];
 
@@ -110,12 +111,40 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
     };
   }
 
-  async click(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
-    return this.unsupportedActionResult("click");
+  async click(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
+    if (request.point !== undefined) {
+      this.cursorPosition = request.point;
+    }
+
+    return {
+      executed: true,
+      simulated: true,
+      cursorPosition: this.cursorPosition,
+      clickedButton: request.button ?? "left",
+      residue: [
+        "Mock provider simulated click in memory only.",
+        "No real click or OS mutation occurred.",
+        ...(request.intendedSemanticTarget === undefined
+          ? []
+          : [`Intended semantic target: ${request.intendedSemanticTarget}.`])
+      ]
+    };
   }
 
-  async typeText(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
-    return this.unsupportedActionResult("type_text");
+  async typeText(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
+    return {
+      executed: true,
+      simulated: true,
+      typedTextLength: request.textLength ?? request.text?.length ?? 0,
+      residue: [
+        "Mock provider simulated text entry in memory only.",
+        "No real typing or OS mutation occurred.",
+        "Text content was not stored by the mock provider.",
+        ...(request.intendedSemanticTarget === undefined
+          ? []
+          : [`Intended semantic target: ${request.intendedSemanticTarget}.`])
+      ]
+    };
   }
 
   private effectiveFrameCount(request: DesktopObserveRequest): number {
@@ -149,16 +178,6 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
     };
   }
 
-  private unsupportedActionResult(actionName: string): DesktopProviderActionResult {
-    return {
-      executed: false,
-      simulated: false,
-      residue: [
-        `${actionName} is not supported by the mock observation provider.`,
-        "No real desktop mutation occurred."
-      ]
-    };
-  }
 }
 
 function addMilliseconds(timestamp: string, milliseconds: number): string {

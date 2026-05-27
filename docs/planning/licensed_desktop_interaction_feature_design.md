@@ -524,11 +524,13 @@ Implemented notes:
 - Allowed movement records an action packet, increments action count, and creates a transition gate.
 - The transition gate blocks later non-observe actions until `desktop_observe` is called with `transitionActionId`.
 - Post-movement observation audits the transition gate using session id, scope, and frame evidence.
-- Click and type tools remain unavailable.
+- ADMCP-011 registers mock click and type tools using the same transition-gate discipline.
 
 ### ADMCP-011 Mock Click And Type Tools
 
 Goal: add `desktop_click` and `desktop_type_text` in mock/provider-backed mode.
+
+Status: implemented.
 
 Depends on:
 
@@ -546,6 +548,15 @@ Acceptance criteria:
 - external/destructive/system risks block or escalate,
 - click/type require post-action observation before success,
 - mock provider does not click or type in the real OS.
+
+Implemented notes:
+
+- `desktop_click` and `desktop_type_text` are registered as mock-only action tools.
+- The mock provider simulates click and typing results in memory and does not click or type in the real OS.
+- Allowed click/type actions record action packets, increment action count, and create transition gates.
+- A prior unaudited transition gate blocks click/type before provider calls.
+- `desktop_type_text` records text length only; text content is not stored in action packets or audit events.
+- Credential-like, secret-like, or private text is blocked before provider calls.
 
 ### ADMCP-012 Real Observation Provider Spike
 
@@ -622,6 +633,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-010, continue with ADMCP-011.
+After ADMCP-011, continue with ADMCP-012.
 
 That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real OS control last.

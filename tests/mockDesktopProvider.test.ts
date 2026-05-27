@@ -16,15 +16,15 @@ const observeRequest = {
 };
 
 describe("MockDesktopProvider", () => {
-  it("reports mock-only observation and simulated mouse capabilities with no real mutation support", () => {
+  it("reports mock-only observation and simulated action capabilities with no real mutation support", () => {
     const provider = new MockDesktopProvider();
 
     expect(provider.getCapabilities()).toMatchObject({
       providerKind: "mock",
       supportsObservation: true,
       supportsMouse: true,
-      supportsClick: false,
-      supportsTyping: false,
+      supportsClick: true,
+      supportsTyping: true,
       realDesktopCapture: false,
       realDesktopMutation: false
     });
@@ -63,7 +63,7 @@ describe("MockDesktopProvider", () => {
     expect(observation.residue).toEqual(
       expect.arrayContaining([
         "Mock observation only: no real desktop pixels were captured.",
-        "No OCR, localization, real mouse movement, click, typing, or background polling occurred."
+        "No OCR, localization, real mouse movement, real click, real typing, or background polling occurred."
       ])
     );
   });
@@ -120,21 +120,34 @@ describe("MockDesktopProvider", () => {
     });
   });
 
-  it("does not execute click or typing methods", async () => {
+  it("simulates click and typing without mutating the real desktop", async () => {
     const provider = new MockDesktopProvider();
     const request = {
       sessionId: "session-provider-001",
       targetScope: observeRequest.targetScope,
-      requestedAt: "2026-05-27T10:00:01.000Z"
+      requestedAt: "2026-05-27T10:00:01.000Z",
+      point: {
+        x: 220,
+        y: 140
+      },
+      button: "left" as const,
+      textLength: 9,
+      text: "test text"
     };
 
     await expect(provider.click(request)).resolves.toMatchObject({
-      executed: false,
-      simulated: false
+      executed: true,
+      simulated: true,
+      cursorPosition: {
+        x: 220,
+        y: 140
+      },
+      clickedButton: "left"
     });
     await expect(provider.typeText(request)).resolves.toMatchObject({
-      executed: false,
-      simulated: false
+      executed: true,
+      simulated: true,
+      typedTextLength: 9
     });
   });
 });

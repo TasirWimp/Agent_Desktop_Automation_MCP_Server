@@ -27,11 +27,11 @@ Every execution tool must document:
 
 ## Current Decision
 
-The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, and mock movement probes. It does not capture the real desktop or execute real desktop actions.
+The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, and mock movement/click/type probes. It does not capture the real desktop or execute real desktop actions.
 
 `ui_intersection_plan` may prepare a policy-gated candidate packet from semantic localization and frame evidence. It must not move the cursor, click, capture screens, or claim success. Actual `mouse_input` remains a state-changing action that requires either single-action policy confirmation or an active session license, audit logging, scope checks, and post-action observation.
 
-`desktop_move_mouse` is currently mock-only. It simulates cursor position in provider memory, records an action packet, creates a transition gate, and requires post-movement observation before another non-observe action. It must not move the real cursor or control the OS.
+`desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are currently mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not move the real cursor, click the real desktop, type into the real desktop, or control the OS. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
 
 ## Session License Direction
 

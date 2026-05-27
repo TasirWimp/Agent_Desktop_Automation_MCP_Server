@@ -53,6 +53,9 @@ export interface DesktopProviderActionRequest {
   targetScope: DesktopInteractionScope;
   requestedAt: string;
   point?: DesktopPoint;
+  button?: "left" | "middle" | "right";
+  text?: string;
+  textLength?: number;
   intendedSemanticTarget?: string;
 }
 
@@ -60,6 +63,8 @@ export interface DesktopProviderActionResult {
   executed: boolean;
   simulated: boolean;
   cursorPosition?: DesktopPoint;
+  clickedButton?: "left" | "middle" | "right";
+  typedTextLength?: number;
   residue: string[];
 }
 

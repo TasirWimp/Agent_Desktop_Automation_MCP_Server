@@ -10,19 +10,23 @@ Available MCP tools:
 - `desktop_start_interaction_session`
 - `desktop_observe`
 - `desktop_move_mouse`
+- `desktop_click`
+- `desktop_type_text`
 - `desktop_end_interaction_session`
 - `desktop_session_audit_log`
 
 Unavailable MCP tools:
 
-- `desktop_click`
-- `desktop_type_text`
+- real desktop observation
+- real mouse movement
+- real clicking
+- real typing
 
-No tool currently captures the real desktop, moves the real mouse, clicks, types, launches apps, or controls the OS. `desktop_observe` and `desktop_move_mouse` are currently backed by a deterministic mock provider. Observation returns bounded frame-session metadata plus optional mock image blocks. Movement simulates cursor state in memory only.
+No tool currently captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are backed by a deterministic mock provider. Observation returns bounded frame-session metadata plus optional mock image blocks. Movement, clicking, and typing simulate provider state only.
 
 ## Current Session Workflow
 
-Use the session tools to create a bounded task license, record mock observation packets, run mock movement probes, and inspect the audit trail.
+Use the session tools to create a bounded task license, record mock observation packets, run mock movement/click/type probes, and inspect the audit trail.
 
 1. Call `desktop_start_interaction_session`.
 2. Include a concrete `userGoal`.
@@ -35,12 +39,14 @@ Use the session tools to create a bounded task license, record mock observation 
 9. Treat observation output as mock evidence only. It is useful for protocol and runtime testing, not visual inspection of the real desktop.
 10. Call `desktop_move_mouse` only after a fresh observation and pass that observation id as `preActionObservationId`.
 11. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state.
-12. After every movement probe, call `desktop_observe` with `transitionActionId` set to the movement action id.
-13. Do not call another non-observe action until the transition gate returns `audited`.
-14. Use `desktop_session_audit_log` to inspect the session trace.
-15. Use `desktop_end_interaction_session` when the task license should stop.
+12. Call `desktop_click` or `desktop_type_text` only after a fresh observation and only when no prior transition gate is pending.
+13. For `desktop_type_text`, use generated test input only. The tool records text length but not text content.
+14. After every movement, click, or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
+15. Do not call another non-observe action until the transition gate returns `audited`.
+16. Use `desktop_session_audit_log` to inspect the session trace.
+17. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, and mock movement audit events. It can exercise the mock `observe -> move -> observe transitionActionId` loop, but cannot click, type, capture the real desktop, or move the real cursor.
+The current implementation records session lifecycle, mock observation, mock movement, mock click, and mock typing audit events. It can exercise the mock `observe -> act -> observe transitionActionId` loop, but cannot capture the real desktop, move the real cursor, click the real desktop, or type into the real desktop.
 
 ## Stop Or Escalate
 
@@ -49,8 +55,9 @@ Stop or ask the user before continuing if:
 - user confirmation is absent,
 - visible-content acknowledgement is absent,
 - the requested scope is unrelated to the user's task,
-- a movement transition gate is blocked or cannot be audited from the available observation,
+- an interaction transition gate is blocked or cannot be audited from the available observation,
 - the request implies credentials, payments, messages, publishing, destructive operations, shell execution, or system settings,
+- `desktop_type_text` input is credential-like, secret-like, private, or not generated test input,
 - the user expects real desktop observation or control.
 
 ## Current Mock Loop
@@ -61,6 +68,8 @@ Executable mock sequence:
 2. Observe the scoped app/window with mock bounded frame evidence.
 3. Move as a mock probe only after fresh observation.
 4. Observe with `transitionActionId` to audit the movement transition.
-5. Inspect audit logs and stop the session.
+5. Click or type as a mock probe only after the transition gate is audited.
+6. Observe with `transitionActionId` to audit the click or typing transition.
+7. Inspect audit logs and stop the session.
 
-Future click and type tools must reuse the same transition gate discipline before any real desktop backend is enabled.
+Future real providers must reuse the same transition gate discipline before any real desktop backend is enabled.
