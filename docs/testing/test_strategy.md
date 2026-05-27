@@ -23,10 +23,21 @@ The repository uses:
 Use for:
 
 - automation policy decisions,
+- session license decisions,
 - target validation,
 - audit-tag generation,
 - tool-contract helper functions,
 - UI planning packet readiness and residue behavior.
+
+Session policy tests must cover:
+
+- session start requires user confirmation,
+- bounded mouse, click, observe, and typing actions are allowed inside a confirmed session scope,
+- actions outside the allowed scope are blocked or escalated,
+- credential, system, external-publishing, and destructive actions remain blocked,
+- every in-session action has an audit event,
+- every click has a pre-action observation and post-action observation,
+- low-risk in-session actions do not require repeated user confirmation.
 
 ### Protocol Tests
 

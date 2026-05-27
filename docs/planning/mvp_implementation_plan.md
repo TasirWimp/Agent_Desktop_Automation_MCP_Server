@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is being established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, and initial policy tests.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, and session-license policy contracts.
 
 ## Feature Slices
 
@@ -73,14 +73,50 @@ Current pilot:
 - It returns a policy-gated click candidate packet, location residue, and a policy reminder.
 - It does not capture frames, move the cursor, click, or execute desktop actions.
 
-### ADMCP-005 Confirmed Low-Risk Desktop Action
+### ADMCP-005 Licensed Desktop Interaction Session Policy
 
-Goal: Add one explicit user-confirmed action after the confirmation flow is documented.
+Goal: Evolve from single-action confirmation to task-scoped licensed desktop interaction sessions.
 
 Requirements before implementation:
 
-- confirmation contract,
-- target validation,
-- failure behavior,
-- audit output,
-- unit and protocol tests.
+- session license schema,
+- observation packet schema,
+- action packet schema,
+- audit event schema,
+- stop condition schema,
+- policy evaluator for session start,
+- policy evaluator for in-session action preflight and completion,
+- deterministic unit tests for scope, risk, audit, and post-action observation.
+
+Current policy slice:
+
+- User confirmation is required to start a bounded session.
+- Low-risk actions inside the allowed session scope do not require repeated per-action confirmation.
+- Mouse movement is modeled as a probe.
+- Clicks require active session scope, audit logging, low-risk classification, recoverability, and post-action observation.
+- Credential entry, system changes, and destructive operations remain blocked.
+- No real OS backend, clicking, typing, OCR, accessibility-tree interpretation, or autonomous background loop is implemented.
+
+### ADMCP-006 Provider-Backed Desktop Interaction Tools
+
+Goal: Add provider-backed MCP tools for the protected loop after the session policy is documented and tested.
+
+Planned tools:
+
+- `desktop_start_interaction_session`
+- `desktop_observe`
+- `desktop_move_mouse`
+- `desktop_click`
+- `desktop_type_text`
+- `desktop_end_interaction_session`
+- `desktop_session_audit_log`
+
+Requirements before implementation:
+
+- mock provider tests,
+- protocol smoke tests,
+- explicit active-session state handling,
+- bounded observation behavior,
+- audit persistence contract,
+- stop and recovery behavior,
+- manual acceptance checks for any real desktop backend.

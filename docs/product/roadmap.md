@@ -13,14 +13,15 @@
 - Define audit output for every tool call.
 - Add protocol-level smoke tests.
 
-## Phase 2: Confirmed Desktop Actions
+## Phase 2: Licensed Desktop Interaction Sessions
 
-- Add one confirmed action at a time, starting with low-risk targets.
-- Require explicit target, intent, and confirmation result.
-- Keep shell commands and system changes blocked unless a narrower contract is approved.
+- Add task-scoped interaction sessions with explicit user goal, allowed scope, risk limits, duration limits, action-count limits, observation cadence, and audit log.
+- Require user confirmation to start a session, not before every low-risk micro-action inside the license.
+- Add bounded observation, mouse movement, click, and typing tools behind a session license and provider seam.
+- Keep credentials, payments, external publishing, destructive operations outside scope, shell commands, and system changes blocked or escalated unless a narrower contract is approved.
 
 ## Phase 3: Workflow Automation
 
-- Compose narrow tools into documented workflows.
+- Compose session-licensed tools into observe-act-observe repair workflows.
 - Add replayable fixtures and regression tests.
 - Expand client setup documentation.

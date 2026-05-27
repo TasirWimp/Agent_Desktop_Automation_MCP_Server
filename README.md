@@ -10,6 +10,8 @@ The current server exposes:
 
 Real desktop mutation tools are intentionally not enabled in the initial scaffold. Future tools should start narrow, require explicit user confirmation when they change desktop state, and update the safety model before implementation.
 
+The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and clicks or typing require post-action observation before success can be claimed.
+
 ## Requirements
 
 - Node.js 22.12.x LTS or Node.js 24.0.0 or newer.

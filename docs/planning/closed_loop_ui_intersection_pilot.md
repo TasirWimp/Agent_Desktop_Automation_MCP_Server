@@ -6,7 +6,7 @@ Central rule:
 
 semantic envelope before movement;
 intersection witness before click;
-confirmation before mouse input;
+session license before mouse input;
 post-action verification before success claim.
 
 Core design statement:
@@ -40,7 +40,7 @@ A semantic packet should preserve ambiguity rather than hide it. Useful residue 
 
 Mouse movement should be treated as a reversible probe, not as action success. A future movement tool may approach a semantic envelope and let frame feedback test whether the pointer appears to intersect the intended target.
 
-This repository does not yet implement that movement tool. Before any movement is added, the tool contract must define target validation, user confirmation behavior, failure modes, audit output, and tests.
+This repository does not yet implement that movement tool. Before any movement is added, the tool contract must define session licensing, target validation, scope checks, failure modes, audit output, and tests.
 
 ## Intersection And Hover Witness
 
@@ -57,7 +57,7 @@ The witness licenses only a candidate click packet. It does not execute the clic
 
 ## Policy Gate
 
-Actual `mouse_input` remains a desktop state change. It must still pass `automation_policy_check`, require explicit user confirmation, and produce audit output. A planning packet can say "candidate click is policy-ready"; it cannot perform the click.
+Actual `mouse_input` remains a desktop state change. Outside a licensed session it must still pass `automation_policy_check` and require explicit user confirmation. Inside a future licensed session it may proceed only when the action stays inside session scope, has current visual evidence, is low risk and recoverable, leaves an audit trace, and requires post-action observation. A planning packet can say "candidate click is policy-ready"; it cannot perform the click.
 
 The current server exposes no real desktop mutation tools. This pilot keeps that boundary intact.
 
@@ -98,3 +98,5 @@ It intentionally does not add:
 - cursor movement,
 - mouse clicking,
 - autonomous loops.
+
+The later interaction-session architecture is documented in `../architecture/licensed_desktop_interaction_sessions.md`.

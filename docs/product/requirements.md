@@ -2,7 +2,11 @@
 
 ## Goal
 
-Build an MCP server that lets agents assist with desktop automation while preserving user control, auditability, and narrow tool boundaries.
+Build an MCP server that gives agents bounded desktop agency for UI-based development and testing while preserving user control, auditability, and narrow tool boundaries.
+
+The target loop is:
+
+observe -> infer -> act -> observe delta -> repair -> continue.
 
 ## MVP Scope
 
@@ -12,6 +16,7 @@ The MVP provides:
 - a capability-reporting tool,
 - a policy-check tool for proposed desktop automation actions,
 - a read-only UI intersection planning tool for future closed-loop click candidates,
+- policy contracts for future task-scoped licensed desktop interaction sessions,
 - documented safety boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
 
@@ -23,6 +28,7 @@ The MVP provides:
 - No destructive file operations.
 - No system configuration changes.
 - No persistent background watcher or keylogger.
+- No unbounded autonomous desktop control outside a user-granted task license.
 
 ## Acceptance Criteria
 
@@ -32,4 +38,5 @@ The MVP provides:
 - `automation_policy_check` requires confirmation for desktop state changes.
 - `automation_policy_check` blocks shell commands, credential access, and system changes.
 - `ui_intersection_plan` returns planning, residue, and policy reminder packets without moving the cursor or clicking.
+- Session-license policy contracts require user confirmation to start a bounded task session and keep low-risk in-session actions auditable.
 - `npm run typecheck`, `npm run test`, and `npm run build` pass locally and in CI.
