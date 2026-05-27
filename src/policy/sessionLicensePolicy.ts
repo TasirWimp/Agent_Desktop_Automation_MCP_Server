@@ -191,12 +191,17 @@ export const desktopSessionStopConditionTypes = [
   "invalid_session",
   "session_expired",
   "max_action_count_reached",
+  "max_repair_attempts_reached",
   "outside_allowed_scope",
   "action_not_allowed",
   "forbidden_action",
   "blocked_high_risk_action",
   "missing_pre_action_observation",
+  "stale_pre_action_observation",
+  "pre_action_observation_scope_mismatch",
+  "missing_frame_evidence",
   "missing_post_action_observation",
+  "post_action_observation_scope_mismatch",
   "missing_audit_event",
   "low_recoverability"
 ] as const;
@@ -232,7 +237,9 @@ export interface DesktopSessionPolicyResult {
 export interface DesktopSessionActionPolicyContext {
   phase: "preflight" | "completion";
   actionCountSoFar: number;
+  repairAttemptCount: number;
   auditEvents: DesktopSessionAuditEvent[];
+  observations: DesktopObservationPacket[];
   now: string;
 }
 
@@ -242,6 +249,15 @@ const hardBlockedActionTypes = new Set<DesktopSessionActionType>([
   "destructive_file_operation",
   "shell_command",
   "system_change"
+]);
+
+const stateChangingActionTypes = new Set<DesktopSessionActionType>([
+  "move_mouse",
+  "click",
+  "type_text",
+  "open_application",
+  "open_url",
+  "file_operation"
 ]);
 
 function stopCondition(
@@ -292,7 +308,12 @@ function scopeMatches(
   }
 
   if (allowedScope.kind === "active_window") {
-    return true;
+    const allowedWindowIdentity = normalize(allowedScope.value);
+    const targetWindowIdentity = normalize(targetScope.value);
+
+    return allowedWindowIdentity.length === 0
+      ? true
+      : targetWindowIdentity === allowedWindowIdentity;
   }
 
   if (allowedScope.kind === "workspace_path") {
@@ -333,6 +354,40 @@ function isExpired(license: DesktopInteractionSessionLicense, now: string): bool
   }
 
   return nowMs - startedMs > license.riskLimits.maxDurationMs || nowMs >= expiresMs;
+}
+
+function isObservationFresh(
+  license: DesktopInteractionSessionLicense,
+  observation: DesktopObservationPacket,
+  action: DesktopActionPacket
+): boolean {
+  const observedMs = Date.parse(observation.observedAt);
+  const requestedMs = Date.parse(action.requestedAt);
+
+  if (Number.isNaN(observedMs) || Number.isNaN(requestedMs)) {
+    return true;
+  }
+
+  return requestedMs - observedMs <= license.observationCadence.maxObservationGapMs;
+}
+
+function findObservation(
+  observations: DesktopObservationPacket[],
+  observationId: string | undefined
+): DesktopObservationPacket | undefined {
+  return observations.find((observation) => observation.observationId === observationId);
+}
+
+function postActionObservationReason(actionType: DesktopSessionActionType): string {
+  if (actionType === "move_mouse") {
+    return "Mouse movement is a probe and requires post-movement observation before the next non-observe action.";
+  }
+
+  if (actionType === "click" || actionType === "type_text") {
+    return "Clicking and typing require post-action observation before success can be claimed.";
+  }
+
+  return "State-changing actions require post-action observation before the next non-observe action.";
 }
 
 export function evaluateSessionStartPolicy(
@@ -477,6 +532,17 @@ export function evaluateSessionActionPolicy(
     return result("escalate", [stop.reason], [...auditTags, "max_action_count_reached"], [stop]);
   }
 
+  if (context.repairAttemptCount > license.riskLimits.maxConsecutiveRepairAttempts) {
+    const stop = stopCondition(
+      "max_repair_attempts_reached",
+      license.sessionId,
+      "The desktop interaction session repair-attempt limit has been reached.",
+      action.actionId
+    );
+
+    return result("escalate", [stop.reason], [...auditTags, "max_repair_attempts_reached"], [stop]);
+  }
+
   if (!license.allowedActions.includes(action.actionType)) {
     const stop = stopCondition(
       "action_not_allowed",
@@ -543,7 +609,9 @@ export function evaluateSessionActionPolicy(
     return result("block", [stop.reason], [...auditTags, "missing_audit_event"], [stop]);
   }
 
-  if (action.actionType !== "observe" && action.preActionObservationId === undefined) {
+  const isStateChangingAction = stateChangingActionTypes.has(action.actionType);
+
+  if (isStateChangingAction && action.preActionObservationId === undefined) {
     const stop = stopCondition(
       "missing_pre_action_observation",
       license.sessionId,
@@ -554,7 +622,74 @@ export function evaluateSessionActionPolicy(
     return result("block", [stop.reason], [...auditTags, "missing_pre_action_observation"], [stop]);
   }
 
-  const requiresPostActionObservation = action.actionType === "click" || action.actionType === "type_text";
+  if (isStateChangingAction) {
+    const preActionObservation = findObservation(
+      context.observations,
+      action.preActionObservationId
+    );
+
+    if (preActionObservation === undefined) {
+      const stop = stopCondition(
+        "missing_pre_action_observation",
+        license.sessionId,
+        "The referenced pre-action observation does not exist in the session context.",
+        action.actionId
+      );
+
+      return result("block", [stop.reason], [...auditTags, "missing_pre_action_observation"], [stop]);
+    }
+
+    if (preActionObservation.sessionId !== license.sessionId) {
+      const stop = stopCondition(
+        "invalid_session",
+        license.sessionId,
+        "The referenced pre-action observation belongs to a different session.",
+        action.actionId
+      );
+
+      return result("block", [stop.reason], [...auditTags, "observation_session_mismatch"], [stop]);
+    }
+
+    if (!scopeMatches(preActionObservation.targetScope, action.targetScope)) {
+      const stop = stopCondition(
+        "pre_action_observation_scope_mismatch",
+        license.sessionId,
+        "The referenced pre-action observation does not match the action target scope.",
+        action.actionId
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "pre_action_observation_scope_mismatch"],
+        [stop]
+      );
+    }
+
+    if (!isObservationFresh(license, preActionObservation, action)) {
+      const stop = stopCondition(
+        "stale_pre_action_observation",
+        license.sessionId,
+        "The referenced pre-action observation is older than the session observation cadence allows.",
+        action.actionId
+      );
+
+      return result("block", [stop.reason], [...auditTags, "stale_pre_action_observation"], [stop]);
+    }
+
+    if (preActionObservation.frames.length === 0) {
+      const stop = stopCondition(
+        "missing_frame_evidence",
+        license.sessionId,
+        "The referenced pre-action observation contains no frame evidence.",
+        action.actionId
+      );
+
+      return result("block", [stop.reason], [...auditTags, "missing_frame_evidence"], [stop]);
+    }
+  }
+
+  const requiresPostActionObservation = isStateChangingAction;
 
   if (
     context.phase === "completion" &&
@@ -564,7 +699,7 @@ export function evaluateSessionActionPolicy(
     const stop = stopCondition(
       "missing_post_action_observation",
       license.sessionId,
-      "Clicking and typing require post-action observation before success can be claimed.",
+      postActionObservationReason(action.actionType),
       action.actionId
     );
 
@@ -576,6 +711,60 @@ export function evaluateSessionActionPolicy(
       [],
       true
     );
+  }
+
+  if (context.phase === "completion" && requiresPostActionObservation) {
+    const postActionObservation = findObservation(
+      context.observations,
+      action.postActionObservationId
+    );
+
+    if (postActionObservation === undefined) {
+      const stop = stopCondition(
+        "missing_post_action_observation",
+        license.sessionId,
+        "The referenced post-action observation does not exist in the session context.",
+        action.actionId
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "missing_post_action_observation"],
+        [stop],
+        [],
+        true
+      );
+    }
+
+    if (postActionObservation.sessionId !== license.sessionId) {
+      const stop = stopCondition(
+        "invalid_session",
+        license.sessionId,
+        "The referenced post-action observation belongs to a different session.",
+        action.actionId
+      );
+
+      return result("block", [stop.reason], [...auditTags, "observation_session_mismatch"], [stop]);
+    }
+
+    if (!scopeMatches(postActionObservation.targetScope, action.targetScope)) {
+      const stop = stopCondition(
+        "post_action_observation_scope_mismatch",
+        license.sessionId,
+        "The referenced post-action observation does not match the action target scope.",
+        action.actionId
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "post_action_observation_scope_mismatch"],
+        [stop],
+        [],
+        true
+      );
+    }
   }
 
   return result(

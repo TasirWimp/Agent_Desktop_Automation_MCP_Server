@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type DesktopActionPacket,
   type DesktopInteractionSessionLicense,
+  type DesktopObservationPacket,
   type DesktopSessionActionType,
   type DesktopSessionAuditEvent,
   desktopActionPacketSchema,
@@ -64,6 +65,45 @@ function auditEventFor(actionId: string): DesktopSessionAuditEvent {
   };
 }
 
+function observationFixture(
+  observationId: string,
+  overrides: Partial<DesktopObservationPacket> = {}
+): DesktopObservationPacket {
+  return {
+    observationId,
+    sessionId: baseLicense.sessionId,
+    observedAt: "2026-05-27T10:00:01.500Z",
+    targetScope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    activeWindow: {
+      title: "Generated Test App",
+      processName: "node"
+    },
+    cursorPosition: {
+      x: 300,
+      y: 220
+    },
+    frames: [
+      {
+        index: 0,
+        capturedAt: "2026-05-27T10:00:01.500Z",
+        elapsedMs: 0,
+        mimeType: "image/png",
+        width: 1280,
+        height: 720,
+        byteLength: 128,
+        sha256: "framehash"
+      }
+    ],
+    lastActionDeltaSummary: "No prior action in this session.",
+    residue: [],
+    ...overrides,
+    observationId
+  };
+}
+
 function actionFixture(
   actionType: DesktopSessionActionType,
   overrides: Partial<DesktopActionPacket> = {}
@@ -106,7 +146,15 @@ function contextFor(action: DesktopActionPacket, phase: "preflight" | "completio
   return {
     phase,
     actionCountSoFar: 1,
+    repairAttemptCount: 0,
     auditEvents: [auditEventFor(action.actionId)],
+    observations: [
+      observationFixture("obs-before-001"),
+      observationFixture("obs-after-001", {
+        observedAt: "2026-05-27T10:00:02.500Z",
+        lastActionDeltaSummary: "The visible control highlighted after the action."
+      })
+    ],
     now: "2026-05-27T10:00:03.000Z"
   };
 }
@@ -121,37 +169,7 @@ describe("desktop interaction session schemas", () => {
     expect(() => desktopActionPacketSchema.parse(action)).not.toThrow();
     expect(() => desktopSessionAuditEventSchema.parse(auditEventFor(action.actionId))).not.toThrow();
     expect(() =>
-      desktopObservationPacketSchema.parse({
-        observationId: "obs-before-001",
-        sessionId: baseLicense.sessionId,
-        observedAt: "2026-05-27T10:00:01.500Z",
-        targetScope: {
-          kind: "window_title",
-          value: "Generated Test App"
-        },
-        activeWindow: {
-          title: "Generated Test App",
-          processName: "node"
-        },
-        cursorPosition: {
-          x: 300,
-          y: 220
-        },
-        frames: [
-          {
-            index: 0,
-            capturedAt: "2026-05-27T10:00:01.500Z",
-            elapsedMs: 0,
-            mimeType: "image/png",
-            width: 1280,
-            height: 720,
-            byteLength: 128,
-            sha256: "framehash"
-          }
-        ],
-        lastActionDeltaSummary: "No prior action in this session.",
-        residue: []
-      })
+      desktopObservationPacketSchema.parse(observationFixture("obs-before-001"))
     ).not.toThrow();
     expect(() =>
       desktopSessionStopConditionSchema.parse({
@@ -196,6 +214,7 @@ describe("evaluateSessionActionPolicy", () => {
 
     expect(moveResult.decision).toBe("allow");
     expect(moveResult.requiresUserConfirmation).toBe(false);
+    expect(moveResult.requiresPostActionObservation).toBe(true);
     expect(clickResult.decision).toBe("allow");
     expect(clickResult.requiresPostActionObservation).toBe(true);
   });
@@ -243,11 +262,106 @@ describe("evaluateSessionActionPolicy", () => {
 
   it("requires post-action observation before a click can be completed", () => {
     const action = actionFixture("click");
-    const result = evaluateSessionActionPolicy(baseLicense, action, contextFor(action, "completion"));
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action, "completion"),
+      observations: [observationFixture("obs-before-001")]
+    });
 
     expect(result.decision).toBe("block");
     expect(result.requiresPostActionObservation).toBe(true);
     expect(result.auditTags).toContain("missing_post_action_observation");
+  });
+
+  it("requires post-movement observation before a mouse movement can be completed", () => {
+    const action = actionFixture("move_mouse");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action, "completion"),
+      observations: [observationFixture("obs-before-001")]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.requiresPostActionObservation).toBe(true);
+    expect(result.reasons[0]).toContain("Mouse movement is a probe");
+  });
+
+  it("allows mouse movement completion when post-movement observation exists", () => {
+    const action = actionFixture("move_mouse", {
+      postActionObservationId: "obs-after-001"
+    });
+    const result = evaluateSessionActionPolicy(baseLicense, action, contextFor(action, "completion"));
+
+    expect(result.decision).toBe("allow");
+    expect(result.requiresPostActionObservation).toBe(true);
+  });
+
+  it("blocks state-changing actions when the pre-action observation is stale", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [
+        observationFixture("obs-before-001", {
+          observedAt: "2026-05-27T09:59:50.000Z"
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("stale_pre_action_observation");
+  });
+
+  it("blocks state-changing actions when the pre-action observation scope does not match", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [
+        observationFixture("obs-before-001", {
+          targetScope: {
+            kind: "window_title",
+            value: "Different Window"
+          }
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("pre_action_observation_scope_mismatch");
+  });
+
+  it("blocks state-changing actions when the pre-action observation has no frame evidence", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [
+        observationFixture("obs-before-001", {
+          frames: []
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("missing_frame_evidence");
+  });
+
+  it("keeps bound active-window scope from following focus into another window identity", () => {
+    const license: DesktopInteractionSessionLicense = {
+      ...baseLicense,
+      allowedScopes: [
+        {
+          kind: "active_window",
+          value: "window-identity-generated-app"
+        }
+      ]
+    };
+    const action = actionFixture("click", {
+      targetScope: {
+        kind: "active_window",
+        value: "window-identity-private-window"
+      }
+    });
+    const result = evaluateSessionActionPolicy(license, action, contextFor(action));
+
+    expect(result.decision).toBe("escalate");
+    expect(result.auditTags).toContain("outside_allowed_scope");
   });
 
   it("does not require repeated user confirmation for low-risk actions inside a confirmed session", () => {

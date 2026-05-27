@@ -36,7 +36,9 @@ Session policy tests must cover:
 - actions outside the allowed scope are blocked or escalated,
 - credential, system, external-publishing, and destructive actions remain blocked,
 - every in-session action has an audit event,
-- every click has a pre-action observation and post-action observation,
+- every state-changing action has a fresh pre-action observation,
+- every state-changing action has post-action observation before completion,
+- observation references match session id, target scope, freshness limits, and frame-evidence expectations,
 - low-risk in-session actions do not require repeated user confirmation.
 
 ### Protocol Tests

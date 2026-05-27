@@ -36,6 +36,8 @@ A `desktop_interaction_session` defines the task boundary before low-risk action
 
 Starting a session requires explicit user confirmation. Within a confirmed session, the agent may perform bounded low-risk actions without asking before every micro-action when those actions stay inside the license.
 
+`active_window` is a provisional scope kind. Mock policy may use it as shorthand, but a real provider must bind it to a concrete observed window identity, such as title, process, window id, or a stable provider-specific handle, before allowing desktop mutation. An unbound active-window license must not silently follow focus into unrelated private windows.
+
 Examples of session-licensed low-risk actions:
 
 - capture screenshots or frame sequences,
@@ -101,10 +103,10 @@ Observation must be bounded. There must be no hidden polling loop, no background
 - log the pre-action observation id,
 - log the intended semantic target when known,
 - execute only if the session license permits it,
-- require post-action observation for clicks and other state-changing actions,
+- require post-action observation for every state-changing action,
 - return an action result with residue.
 
-Mouse movement is a probe. It can move roughly toward a semantic target, observe visual delta, and refine the next movement or click decision.
+Mouse movement is a probe. It can move roughly toward a semantic target, observe visual delta, and refine the next movement or click decision. A `move_mouse` action therefore requires post-movement observation before the next non-observe action. Clicks and typing require post-action observation before success can be claimed.
 
 Clicking is licensed by:
 
@@ -115,6 +117,8 @@ Clicking is licensed by:
 - recoverability,
 - audit logging,
 - post-action verification.
+
+The current policy slice validates observation references when observation packets are supplied to the evaluator. Future provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop mutation.
 
 ## Relationship To Existing Policy
 
@@ -127,7 +131,8 @@ The session policy evolves that model:
 - boundary crossings stop or escalate,
 - blocked action classes remain blocked,
 - every action is auditable,
-- every click must be followed by observation before success is claimed.
+- every state-changing action must be followed by observation,
+- every click or typing action must be followed by observation before success is claimed.
 
 ## First Safe Implementation Slice
 

@@ -42,6 +42,8 @@ Mouse movement should be treated as a reversible probe, not as action success. A
 
 This repository does not yet implement that movement tool. Before any movement is added, the tool contract must define session licensing, target validation, scope checks, failure modes, audit output, and tests.
 
+A movement probe must be followed by observation before the next non-observe action. The post-movement frame delta is the evidence used to decide whether to move again, click, or repair.
+
 ## Intersection And Hover Witness
 
 Frame-stream evidence can create an intersection or hover witness when several signals agree:

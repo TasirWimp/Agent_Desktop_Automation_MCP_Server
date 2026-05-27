@@ -41,4 +41,6 @@ Core boundary:
 - Low-risk actions inside the allowed app, window, process, or workspace scope can proceed without repeated user confirmation.
 - Boundary crossings require stop or escalation.
 - Credential entry, payment, external publishing, destructive operations outside scope, unrelated private windows, and system changes remain blocked or escalated.
+- `active_window` scope is provisional until a real provider binds it to a concrete observed window identity before mutation.
+- Provider-backed tools must validate observation existence, freshness, session id, scope, and frame linkage before state-changing actions.
 - No background capture, hidden polling loop, OCR dependency, or real OS backend is part of the current implementation.

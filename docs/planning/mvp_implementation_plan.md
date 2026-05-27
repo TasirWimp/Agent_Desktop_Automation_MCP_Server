@@ -92,8 +92,10 @@ Current policy slice:
 
 - User confirmation is required to start a bounded session.
 - Low-risk actions inside the allowed session scope do not require repeated per-action confirmation.
-- Mouse movement is modeled as a probe.
-- Clicks require active session scope, audit logging, low-risk classification, recoverability, and post-action observation.
+- Mouse movement is modeled as a probe that requires post-movement observation before the next non-observe action.
+- Clicks and typing require active session scope, audit logging, low-risk classification, recoverability, and post-action observation before success can be claimed.
+- State-changing actions require a fresh pre-action observation reference.
+- The policy evaluator validates observation existence, freshness, session id, scope, and frame evidence when observation packets are supplied.
 - Credential entry, system changes, and destructive operations remain blocked.
 - No real OS backend, clicking, typing, OCR, accessibility-tree interpretation, or autonomous background loop is implemented.
 
@@ -117,6 +119,9 @@ Requirements before implementation:
 - protocol smoke tests,
 - explicit active-session state handling,
 - bounded observation behavior,
+- observed active-window identity binding before mutation,
+- observation existence, freshness, session id, scope, and frame-link validation against provider state,
+- repair-attempt accounting,
 - audit persistence contract,
 - stop and recovery behavior,
 - manual acceptance checks for any real desktop backend.
