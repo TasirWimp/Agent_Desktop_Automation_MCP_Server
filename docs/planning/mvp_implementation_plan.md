@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, and session-license policy contracts.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, and MCP session lifecycle tools.
 
 ## Planning Document Roles
 
@@ -128,9 +128,9 @@ Requirements before implementation:
 
 Extracted implementation slices:
 
-- ADMCP-007 Session Runtime And Audit Store - next recommended implementation.
-- ADMCP-008 Session MCP Tool Registration.
-- ADMCP-009 Mock Observation Provider.
+- ADMCP-007 Session Runtime And Audit Store - implemented.
+- ADMCP-008 Session MCP Tool Registration - implemented.
+- ADMCP-009 Mock Observation Provider - next recommended implementation.
 - ADMCP-010 Mock Movement Probe Tool.
 - ADMCP-011 Mock Click And Type Tools.
 - ADMCP-012 Real Observation Provider Spike.
@@ -145,3 +145,75 @@ Acceptance gate before real OS mutation:
 - post-action observation is enforced for movement, click, and typing,
 - stop/escalation conditions are covered by tests,
 - manual acceptance checks are documented for the target backend.
+
+### ADMCP-007 Session Runtime And Audit Store
+
+Goal: Add in-memory session state for licenses, observations, actions, audit events, counters, and stop state.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Creates active sessions only after session-start policy allows.
+- Rejects duplicate, missing, inactive, and policy-rejected sessions.
+- Keeps audit events readable and returns defensive copies.
+- Records and looks up observations and actions by id.
+- Tracks action count and repair-attempt count against session risk limits.
+- Records stop conditions.
+- Builds action-policy context snapshots from stored audit events, observations, and counters.
+- Ends sessions and rejects further mutation while keeping the audit log readable.
+
+Implemented files:
+
+- `src/session/sessionStore.ts`
+- `tests/sessionStore.test.ts`
+
+Verification:
+
+- `npm run test -- tests/sessionStore.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- MCP session lifecycle tools are registered by ADMCP-008.
+- No provider, observation capture, mouse movement, click, typing, OCR, accessibility, shell, or real OS backend behavior is implemented.
+- Re-entry instructions are available for current session lifecycle tools.
+
+### ADMCP-008 Session MCP Tool Registration
+
+Goal: Expose start, end, and audit-log tools without OS observation or mutation.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Registers `desktop_start_interaction_session`.
+- Registers `desktop_end_interaction_session`.
+- Registers `desktop_session_audit_log`.
+- Lists session tools through MCP `tools/list`.
+- Starts only confirmed sessions with visible-content acknowledgement.
+- Writes `session_started` and `session_stopped` audit events.
+- Keeps audit logs readable after session end.
+- Reports controlled tool errors without creating rejected sessions.
+- Keeps `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` unavailable.
+
+Implemented files:
+
+- `src/session/sessionTools.ts`
+- `src/server.ts`
+- `tests/protocol/sessionTools.test.ts`
+- `docs/process/codex_desktop_interaction_reentry.md`
+
+Verification:
+
+- `npm run test -- tests/protocol/sessionTools.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- No provider, observation capture, mouse movement, click, typing, OCR, accessibility, shell, or real OS backend behavior is implemented.
+- Current re-entry instructions cover session lifecycle and audit inspection only.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -11,9 +12,17 @@ import {
   semanticLocalizationPacketSchema
 } from "./uiPlanning/closedLoopUiTypes.js";
 import { buildUiIntersectionPlan } from "./uiPlanning/intersectionPolicy.js";
+import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
+import { registerSessionTools } from "./session/sessionTools.js";
 
 const serverName = "agent-desktop-automation";
 const serverVersion = "0.1.0";
+
+export interface CreateServerOptions {
+  sessionStore?: InMemoryDesktopSessionStore;
+  now?: () => string;
+  generateId?: (prefix: string) => string;
+}
 
 function jsonText(value: unknown) {
   return {
@@ -26,7 +35,10 @@ function jsonText(value: unknown) {
   };
 }
 
-export function createServer(): McpServer {
+export function createServer(options: CreateServerOptions = {}): McpServer {
+  const sessionStore = options.sessionStore ?? new InMemoryDesktopSessionStore();
+  const now = options.now ?? (() => new Date().toISOString());
+  const generateId = options.generateId ?? ((prefix: string) => `${prefix}-${randomUUID()}`);
   const server = new McpServer({
     name: serverName,
     version: serverVersion
@@ -52,8 +64,13 @@ export function createServer(): McpServer {
         capabilities: {
           observe: true,
           uiPlanning: true,
+          interactionSessions: true,
+          sessionLifecycleTools: true,
+          sessionAuditLog: true,
           executeDesktopActions: false,
           closedLoopClickExecution: false,
+          desktopObserveTool: false,
+          desktopMouseKeyboardTools: false,
           shellCommands: false,
           credentialAccess: false
         },
@@ -70,6 +87,12 @@ export function createServer(): McpServer {
         }
       })
   );
+
+  registerSessionTools(server, {
+    sessionStore,
+    now,
+    generateId
+  });
 
   server.registerTool(
     "automation_policy_check",

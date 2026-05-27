@@ -24,6 +24,9 @@ Use for:
 
 - automation policy decisions,
 - session license decisions,
+- session runtime state transitions,
+- audit event append and retrieval behavior,
+- inactive-session rejection,
 - target validation,
 - audit-tag generation,
 - tool-contract helper functions,
@@ -48,6 +51,8 @@ Use for:
 - MCP tool registration,
 - tool input validation,
 - tool output shape,
+- session lifecycle tool calls and audit-log behavior,
+- absence of unavailable desktop observe/action tools,
 - transport smoke checks.
 
 ### Build And Type Checks

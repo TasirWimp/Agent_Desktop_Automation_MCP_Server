@@ -7,6 +7,9 @@ The current server exposes:
 - `desktop_capabilities` - reports runtime capabilities and safety posture.
 - `automation_policy_check` - classifies proposed desktop automation actions before execution.
 - `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
+- `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
+- `desktop_end_interaction_session` - ends an active interaction session.
+- `desktop_session_audit_log` - reads the session lifecycle audit log.
 
 Real desktop mutation tools are intentionally not enabled in the initial scaffold. Future tools should start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
@@ -66,6 +69,7 @@ They coordinate through repository docs, commits, and completion summaries.
 .github/workflows/      GitHub Actions CI
 docs/                   Product, process, planning, testing, and architecture docs
 src/policy/             Safety and policy logic
+src/session/            Licensed session runtime and lifecycle tool helpers
 src/server.ts           MCP server and tool registration
 src/index.ts            stdio transport entrypoint
 tests/                  Vitest tests

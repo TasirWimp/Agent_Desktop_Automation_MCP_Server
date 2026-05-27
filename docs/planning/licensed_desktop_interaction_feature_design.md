@@ -548,6 +548,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-Start with ADMCP-007, then ADMCP-008.
+After ADMCP-008, continue with ADMCP-009.
 
-That gives the repo a real session runtime and audit surface before adding even mock observation. It also keeps the implementation aligned with the core design: session license first, observations and actions second, real OS control last.
+That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real OS control last.

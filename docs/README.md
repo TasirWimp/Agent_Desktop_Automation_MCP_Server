@@ -19,3 +19,7 @@ Key planning documents:
 
 - `planning/mvp_implementation_plan.md` - current implementation slices and sequencing.
 - `planning/licensed_desktop_interaction_feature_design.md` - feature extraction design for session tools, provider seams, audit, observation, and future desktop control.
+
+Key process documents:
+
+- `process/codex_desktop_interaction_reentry.md` - current operating instructions for Codex when using available desktop interaction session tools.
