@@ -10,6 +10,7 @@ import {
   type DesktopSessionStopCondition
 } from "../policy/sessionLicensePolicy.js";
 import {
+  DesktopProviderError,
   desktopObservationModes,
   type DesktopInteractionProvider
 } from "../providers/desktopProvider.js";
@@ -61,6 +62,19 @@ function structuredResult(
 }
 
 function observationToolError(error: unknown) {
+  if (error instanceof DesktopProviderError) {
+    return structuredResult(
+      {
+        error: {
+          code: error.code,
+          message: error.message
+        },
+        residue: error.residue
+      },
+      true
+    );
+  }
+
   if (error instanceof SessionStoreError) {
     return structuredResult(
       {
@@ -104,6 +118,10 @@ function sessionExpired(session: DesktopSessionSnapshot, now: string): boolean {
 function observedWindowIdentity(
   activeWindow: DesktopObservationPacket["activeWindow"]
 ): string | undefined {
+  if (activeWindow?.windowId !== undefined && activeWindow.windowId.trim().length > 0) {
+    return activeWindow.windowId;
+  }
+
   const parts = [activeWindow?.processName, activeWindow?.title].filter(
     (part): part is string => part !== undefined && part.trim().length > 0
   );
@@ -273,7 +291,7 @@ export function registerObservationTools(
           eventType: "observation_recorded",
           occurredAt: runtime.now(),
           observationId: observation.observationId,
-          summary: `Recorded ${observation.frames.length} bounded mock observation frame(s).`,
+          summary: `Recorded ${observation.frames.length} bounded ${providerCapabilities.providerKind} observation frame(s).`,
           residue: observation.residue
         };
 
@@ -324,7 +342,7 @@ export function registerObservationTools(
             providerCapabilities,
             residue: [
               "Observation was recorded in session state and audit log.",
-              "No mouse movement, click, typing, OCR, localization, OS capture, or background polling occurred."
+              "No mouse movement, click, typing, OCR, localization, or background polling occurred."
             ]
           },
           false,

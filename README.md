@@ -19,6 +19,18 @@ Real desktop capture and mutation tools are intentionally not enabled in the ini
 
 The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
 
+## Real Observation Spike
+
+The default provider is mock. A Windows active-window observation spike is available only when explicitly enabled:
+
+```powershell
+$env:ADMCP_DESKTOP_PROVIDER = "windows-active-window"
+$env:ADMCP_ENABLE_REAL_OBSERVATION = "true"
+npm run dev
+```
+
+The spike captures bounded visible active-window PNG frames through `desktop_observe`. It does not enable real mouse movement, clicking, typing, app launching, shell tools, OCR, localization, hidden polling, or background capture.
+
 ## Requirements
 
 - Node.js 22.12.x LTS or Node.js 24.0.0 or newer.

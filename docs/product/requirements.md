@@ -17,7 +17,7 @@ The MVP provides:
 - a policy-check tool for proposed desktop automation actions,
 - a read-only UI intersection planning tool for future closed-loop click candidates,
 - policy contracts for future task-scoped licensed desktop interaction sessions,
-- session lifecycle tools, deterministic mock observation packets, and mock movement/click/type probes,
+- session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, and an opt-in Windows real-observation spike,
 - documented safety boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
 
@@ -31,6 +31,7 @@ The MVP provides:
 - No persistent background watcher or keylogger.
 - No unbounded autonomous desktop control outside a user-granted task license.
 - No real desktop capture, real cursor movement, real clicking, or real typing in the current mock provider slices.
+- No real desktop capture unless the Windows active-window observation spike is explicitly enabled.
 
 ## Acceptance Criteria
 
@@ -45,4 +46,5 @@ The MVP provides:
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and does not move the real cursor.
 - `desktop_click` and `desktop_type_text` require fresh pre-action observation, record interaction transition gates, require post-action observation, and do not click or type in the real desktop.
 - `desktop_type_text` blocks credential-like or secret-like text before provider calls and does not store text content in action packets or audit events.
+- The Windows real-observation spike is disabled by default, requires explicit environment configuration, captures bounded active-window frames only, and keeps real desktop mutation disabled.
 - `npm run typecheck`, `npm run test`, and `npm run build` pass locally and in CI.

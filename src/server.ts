@@ -13,7 +13,7 @@ import {
 } from "./uiPlanning/closedLoopUiTypes.js";
 import { buildUiIntersectionPlan } from "./uiPlanning/intersectionPolicy.js";
 import type { DesktopInteractionProvider } from "./providers/desktopProvider.js";
-import { MockDesktopProvider } from "./providers/mockDesktopProvider.js";
+import { createDefaultDesktopProvider } from "./providers/defaultDesktopProvider.js";
 import { registerActionTools } from "./session/actionTools.js";
 import { registerObservationTools } from "./session/observationTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
@@ -44,7 +44,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   const sessionStore = options.sessionStore ?? new InMemoryDesktopSessionStore();
   const now = options.now ?? (() => new Date().toISOString());
   const generateId = options.generateId ?? ((prefix: string) => `${prefix}-${randomUUID()}`);
-  const desktopProvider = options.desktopProvider ?? new MockDesktopProvider();
+  const desktopProvider = options.desktopProvider ?? createDefaultDesktopProvider();
+  const desktopProviderCapabilities = desktopProvider.getCapabilities();
   const server = new McpServer({
     name: serverName,
     version: serverVersion
@@ -67,24 +68,31 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           platform: process.platform,
           node: process.version
         },
+        provider: desktopProviderCapabilities,
         capabilities: {
           observe: true,
           uiPlanning: true,
           interactionSessions: true,
           sessionLifecycleTools: true,
           sessionAuditLog: true,
-          mockDesktopProvider: true,
-          mockDesktopMovement: true,
-          mockDesktopClick: true,
-          mockDesktopTyping: true,
+          mockDesktopProvider: desktopProviderCapabilities.providerKind === "mock",
+          mockDesktopMovement:
+            desktopProviderCapabilities.providerKind === "mock" &&
+            desktopProviderCapabilities.supportsMouse,
+          mockDesktopClick:
+            desktopProviderCapabilities.providerKind === "mock" &&
+            desktopProviderCapabilities.supportsClick,
+          mockDesktopTyping:
+            desktopProviderCapabilities.providerKind === "mock" &&
+            desktopProviderCapabilities.supportsTyping,
           executeDesktopActions: false,
           closedLoopClickExecution: false,
           desktopObserveTool: true,
           desktopMoveMouseTool: true,
           desktopClickTool: true,
           desktopTypeTextTool: true,
-          realDesktopObservation: false,
-          realDesktopMutation: false,
+          realDesktopObservation: desktopProviderCapabilities.realDesktopCapture,
+          realDesktopMutation: desktopProviderCapabilities.realDesktopMutation,
           desktopMouseKeyboardTools: false,
           shellCommands: false,
           credentialAccess: false

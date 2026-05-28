@@ -562,6 +562,8 @@ Implemented notes:
 
 Goal: evaluate a bounded real frame observation backend without enabling mutation.
 
+Status: implemented.
+
 Depends on:
 
 - ADMCP-009.
@@ -580,6 +582,16 @@ Acceptance criteria:
 - visible-content warning is preserved,
 - no hidden polling loop,
 - no mouse or keyboard control.
+
+Implemented notes:
+
+- Adds an opt-in Windows active-window observation provider selected only by `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true`.
+- Default server behavior remains mock-only.
+- Real observation uses `desktop_observe`; no new real control tools are registered.
+- Provider validates active-window scope before capture for `window_title`, `process_name`, and bound `active_window` requests.
+- Provider returns controlled errors for unsupported platform, permission/capture failures, and scope mismatch.
+- Real observation frames are bounded by `maxFrames`, `durationMs`, and provider caps.
+- Manual acceptance checklist lives in `../testing/manual_real_observation_checklist.md`.
 
 ### ADMCP-013 Real Control Provider Gate
 
@@ -633,6 +645,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-011, continue with ADMCP-012.
+After ADMCP-012, continue with ADMCP-013.
 
 That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real OS control last.

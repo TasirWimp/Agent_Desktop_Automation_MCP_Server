@@ -27,6 +27,23 @@ export interface DesktopProviderCapabilities {
   residue: string[];
 }
 
+export type DesktopProviderErrorCode =
+  | "real_observation_unavailable"
+  | "permission_denied"
+  | "scope_mismatch"
+  | "capture_failed";
+
+export class DesktopProviderError extends Error {
+  constructor(
+    public readonly code: DesktopProviderErrorCode,
+    message: string,
+    public readonly residue: string[] = []
+  ) {
+    super(message);
+    this.name = "DesktopProviderError";
+  }
+}
+
 export interface DesktopObserveRequest {
   sessionId: string;
   targetScope: DesktopInteractionScope;

@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, and mock action probes with transition gates.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, and an opt-in Windows real-observation spike.
 
 ## Planning Document Roles
 
@@ -103,7 +103,7 @@ Current policy slice:
 - State-changing actions require a fresh pre-action observation reference.
 - The policy evaluator validates observation existence, freshness, session id, scope, and frame evidence when observation packets are supplied.
 - Credential entry, system changes, and destructive operations remain blocked.
-- No real OS backend, real clicking, real typing, OCR, accessibility-tree interpretation, or autonomous background loop is implemented.
+- No real OS mutation backend, real clicking, real typing, OCR, accessibility-tree interpretation, or autonomous background loop is implemented.
 
 ### ADMCP-006 Provider-Backed Desktop Interaction Tools
 
@@ -133,7 +133,7 @@ Extracted implementation slices:
 - ADMCP-009 Mock Observation Provider - implemented.
 - ADMCP-010 Mock Movement Probe Tool - implemented.
 - ADMCP-011 Mock Click And Type Tools - implemented.
-- ADMCP-012 Real Observation Provider Spike.
+- ADMCP-012 Real Observation Provider Spike - implemented.
 - ADMCP-013 Real Control Provider Gate.
 
 Acceptance gate before real OS mutation:
@@ -217,7 +217,7 @@ Residual scope:
 
 - Mock provider-backed observation is registered by ADMCP-009.
 - Mock movement probe support is registered by ADMCP-010.
-- No real mouse movement, real click, real typing, OCR, accessibility, shell, real observation capture, or real OS backend behavior is implemented.
+- No real mouse movement, real click, real typing, OCR, accessibility, shell, real observation capture, or real OS mutation backend behavior is implemented.
 - Current re-entry instructions cover session lifecycle, mock observation, mock action probes, transition-gate observation, and audit inspection.
 
 ### ADMCP-009 Mock Observation Provider
@@ -260,7 +260,7 @@ Residual scope:
 
 - Provider output is mock evidence only and must not be treated as real screen capture.
 - Mock click and type support is registered by ADMCP-011.
-- Real observation is deferred to ADMCP-012 after action contracts and safety gates mature.
+- Real observation is implemented by ADMCP-012 as an opt-in spike.
 - ADMCP-010 provides the mock movement probe used by later action slices.
 
 ### ADMCP-010 Mock Movement Probe Tool
@@ -357,5 +357,53 @@ Residual scope:
 
 - Click and typing are simulated provider state only and must not be treated as real desktop input.
 - Transition-gate audit is currently frame/scope based; richer visual-delta interpretation remains a future provider/model layer.
-- Real observation is deferred to ADMCP-012.
+- Real observation is implemented by ADMCP-012 as an opt-in spike.
 - Real desktop mutation remains deferred to ADMCP-013 or later.
+
+### ADMCP-012 Real Observation Provider Spike
+
+Goal: Evaluate a bounded real frame observation backend without enabling mutation.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Adds `WindowsDesktopObservationProvider`.
+- Adds `createDefaultDesktopProvider`.
+- Keeps the default provider mock-only.
+- Enables Windows real observation only when both `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set.
+- Captures bounded visible active-window PNG frames through `desktop_observe`.
+- Validates active-window metadata against `window_title`, `process_name`, or bound `active_window` target scope before capture.
+- Binds `active_window` observations to concrete `windowId` metadata when available.
+- Reports controlled provider errors for unsupported platform, permission/capture failures, and scope mismatch.
+- Exposes dynamic provider capabilities through `desktop_capabilities`.
+- Keeps real mouse movement, real clicking, real typing, OCR, localization, hidden polling, background capture, app launching, shell tools, and OS mutation disabled.
+- Adds a manual acceptance checklist for the real-observation spike.
+
+Implemented files:
+
+- `src/providers/windowsDesktopObservationProvider.ts`
+- `src/providers/defaultDesktopProvider.ts`
+- `src/providers/desktopProvider.ts`
+- `src/policy/sessionLicensePolicy.ts`
+- `src/session/observationTools.ts`
+- `src/server.ts`
+- `tests/windowsDesktopObservationProvider.test.ts`
+- `tests/defaultDesktopProvider.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `docs/testing/manual_real_observation_checklist.md`
+- `docs/process/codex_desktop_interaction_reentry.md`
+
+Verification:
+
+- `npm run test -- tests/defaultDesktopProvider.test.ts tests/windowsDesktopObservationProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts tests/protocol/desktopObserveTool.test.ts`
+
+Residual scope:
+
+- Real observation is Windows active-window only.
+- Real observation is opt-in and disabled by default.
+- Real observation manual acceptance is documented but not automated.
+- Real mouse movement, clicking, typing, shell, app launching, and OS mutation remain disabled.
+- ADMCP-013 is the next implementation slice.

@@ -70,6 +70,7 @@ Use for:
 - absence of real desktop capture,
 - absence of real desktop mutation in mock action methods,
 - simulated click and typing results without real desktop mutation.
+- Windows real-observation provider tests with fake backends for active-window metadata, bounded frames, scope mismatch, permission failures, and provider selection.
 
 ### Build And Type Checks
 
@@ -89,6 +90,8 @@ Use only when a tool interacts with the local desktop. Each manual check must in
 - target,
 - expected visible result,
 - rollback or cleanup step when relevant.
+
+For ADMCP-012, use `manual_real_observation_checklist.md`. Real observation manual checks must verify bounded active-window capture, visible-content acknowledgement, controlled scope mismatch, no hidden polling, and no real desktop mutation.
 
 ## Reporting Requirements
 

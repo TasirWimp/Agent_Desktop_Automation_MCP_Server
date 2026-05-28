@@ -90,6 +90,15 @@ export const desktopPointSchema = z.object({
 
 export type DesktopPoint = z.infer<typeof desktopPointSchema>;
 
+export const desktopRectangleSchema = z.object({
+  left: z.number().finite(),
+  top: z.number().finite(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive()
+});
+
+export type DesktopRectangle = z.infer<typeof desktopRectangleSchema>;
+
 export const desktopFrameArtifactSchema = z.object({
   index: z.number().int().nonnegative(),
   capturedAt: z.string().min(1),
@@ -105,9 +114,11 @@ export const desktopFrameArtifactSchema = z.object({
 export type DesktopFrameArtifact = z.infer<typeof desktopFrameArtifactSchema>;
 
 export const desktopWindowMetadataSchema = z.object({
+  windowId: z.string().optional(),
   title: z.string().optional(),
   processName: z.string().optional(),
-  appName: z.string().optional()
+  appName: z.string().optional(),
+  bounds: desktopRectangleSchema.optional()
 });
 
 export type DesktopWindowMetadata = z.infer<typeof desktopWindowMetadataSchema>;

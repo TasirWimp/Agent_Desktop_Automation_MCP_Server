@@ -17,12 +17,18 @@ Available MCP tools:
 
 Unavailable MCP tools:
 
-- real desktop observation
 - real mouse movement
 - real clicking
 - real typing
 
-No tool currently captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are backed by a deterministic mock provider. Observation returns bounded frame-session metadata plus optional mock image blocks. Movement, clicking, and typing simulate provider state only.
+Default server behavior is mock-only. By default, no tool captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are backed by a deterministic mock provider unless the server is started with the real-observation spike enabled.
+
+Real observation spike:
+
+- Opt-in only with `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true`.
+- Captures bounded visible active-window PNG frames through `desktop_observe`.
+- Requires an active session, visible-content acknowledgement, allowed observation scope, and bounded frame/duration inputs.
+- Does not enable real mouse movement, real clicking, real typing, OCR, localization, hidden polling, background capture, app launching, shell tools, or OS mutation.
 
 ## Current Session Workflow
 
@@ -36,7 +42,7 @@ Use the session tools to create a bounded task license, record mock observation 
 6. Call `desktop_observe` only after the session is active.
 7. Keep `mode: "frame_session"` unless a single-frame witness is explicitly enough for the test.
 8. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
-9. Treat observation output as mock evidence only. It is useful for protocol and runtime testing, not visual inspection of the real desktop.
+9. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
 10. Call `desktop_move_mouse` only after a fresh observation and pass that observation id as `preActionObservationId`.
 11. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state.
 12. Call `desktop_click` or `desktop_type_text` only after a fresh observation and only when no prior transition gate is pending.
@@ -58,7 +64,8 @@ Stop or ask the user before continuing if:
 - an interaction transition gate is blocked or cannot be audited from the available observation,
 - the request implies credentials, payments, messages, publishing, destructive operations, shell execution, or system settings,
 - `desktop_type_text` input is credential-like, secret-like, private, or not generated test input,
-- the user expects real desktop observation or control.
+- the user expects real desktop control,
+- real observation is enabled but the active window does not match the requested scope.
 
 ## Current Mock Loop
 
@@ -73,3 +80,7 @@ Executable mock sequence:
 7. Inspect audit logs and stop the session.
 
 Future real providers must reuse the same transition gate discipline before any real desktop backend is enabled.
+
+## Real Observation Manual Check
+
+Use `../testing/manual_real_observation_checklist.md` before relying on the Windows real-observation spike outside unit tests.

@@ -33,6 +33,8 @@ The server exposes capability reporting, policy classification, read-only UI int
 
 `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are currently mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not move the real cursor, click the real desktop, type into the real desktop, or control the OS. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
 
+`desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, validates active-window scope before capture, and does not enable real desktop mutation.
+
 ## Session License Direction
 
 The planned session model is documented in `licensed_desktop_interaction_sessions.md`.
@@ -45,4 +47,4 @@ Core boundary:
 - Credential entry, payment, external publishing, destructive operations outside scope, unrelated private windows, and system changes remain blocked or escalated.
 - `active_window` scope is provisional until a real provider binds it to a concrete observed window identity before mutation.
 - Provider-backed tools must validate observation existence, freshness, session id, scope, and frame linkage before state-changing actions.
-- No background capture, hidden polling loop, OCR dependency, or real OS backend is part of the current implementation.
+- No background capture, hidden polling loop, OCR dependency, or real OS mutation backend is part of the current implementation.

@@ -149,4 +149,4 @@ The first safe slice should add schemas, policy evaluators, tests, and mock/prov
 - policy evaluator for in-session action preflight and completion,
 - deterministic tests for scope, risk, audit, and post-action observation requirements.
 
-This slice should not implement a real OS backend, real clicking, real typing, OCR, accessibility-tree interpretation, or autonomous background loops.
+This slice should not implement a real OS mutation backend, real clicking, real typing, OCR, accessibility-tree interpretation, or autonomous background loops.
