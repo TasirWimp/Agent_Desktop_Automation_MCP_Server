@@ -36,13 +36,15 @@ Semantic localization is still useful as a coarse search basin. It can name the 
 
 A semantic packet should preserve ambiguity rather than hide it. Useful residue includes similar labels nearby, uncertain icon meaning, possible overlay interference, and missing accessibility metadata.
 
-## Pointer Movement As A Future Probe
+## Pointer Movement As A Probe
 
-Mouse movement should be treated as a reversible probe, not as action success. A future movement tool may approach a semantic envelope and let frame feedback test whether the pointer appears to intersect the intended target.
+Mouse movement should be treated as a reversible probe, not as action success. The current Windows provider can move the real cursor only when explicitly enabled, and that movement may approach a semantic envelope so frame feedback can test whether the pointer appears to intersect the intended target.
 
-This repository does not yet implement that movement tool. Before any movement is added, the tool contract must define session licensing, target validation, scope checks, failure modes, audit output, and tests.
+The movement tool remains governed by session licensing, target validation, scope checks, failure modes, audit output, and tests. It does not license click or typing.
 
 A movement probe must be followed by observation before the next non-observe action. The post-movement frame delta is the evidence used to decide whether to move again, click, or repair.
+
+The first real path-finding try supports this model. Relative movement from the observed cursor toward the `File` menu produced useful intermediate evidence: a wrong-target `Search` hover showed the cursor had intersected the wrong UI element, and a later `File` hover showed target intersection. The latter is useful witness evidence, but it is still not a real-click license.
 
 ## Intersection And Hover Witness
 
@@ -61,7 +63,7 @@ The witness licenses only a candidate click packet. It does not execute the clic
 
 Actual `mouse_input` remains a desktop state change. Outside a licensed session it must still pass `automation_policy_check` and require explicit user confirmation. Inside a future licensed session it may proceed only when the action stays inside session scope, has current visual evidence, is low risk and recoverable, leaves an audit trace, and requires post-action observation. A planning packet can say "candidate click is policy-ready"; it cannot perform the click.
 
-The current server exposes no real desktop mutation tools. This pilot keeps that boundary intact.
+The current server exposes only opt-in real observation and opt-in real mouse movement as a non-durable pointer probe. It exposes no real click or typing backend. This pilot keeps that boundary intact.
 
 ## Post-Action Verification
 

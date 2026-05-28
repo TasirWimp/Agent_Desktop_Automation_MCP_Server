@@ -34,12 +34,15 @@ export interface WindowsCapturedFrame extends WindowsActiveWindowSnapshot {
 
 export interface WindowsObservationBackend {
   getActiveWindow(): Promise<WindowsActiveWindowSnapshot>;
+  getCursorPosition(): Promise<DesktopPoint>;
   captureActiveWindowPng(): Promise<WindowsCapturedFrame>;
+  moveMouseTo(point: DesktopPoint): Promise<DesktopPoint>;
 }
 
 export interface WindowsDesktopObservationProviderOptions {
   backend?: WindowsObservationBackend;
   platform?: NodeJS.Platform;
+  enableRealMouseMovement?: boolean;
   maxFramesPerObservation?: number;
   maxObservationDurationMs?: number;
   frameDelay?: (milliseconds: number) => Promise<void>;
@@ -48,6 +51,7 @@ export interface WindowsDesktopObservationProviderOptions {
 export class WindowsDesktopObservationProvider implements DesktopInteractionProvider {
   private readonly backend: WindowsObservationBackend;
   private readonly platform: NodeJS.Platform;
+  private readonly enableRealMouseMovement: boolean;
   private readonly maxFramesPerObservation: number;
   private readonly maxObservationDurationMs: number;
   private readonly frameDelay: (milliseconds: number) => Promise<void>;
@@ -55,6 +59,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   constructor(options: WindowsDesktopObservationProviderOptions = {}) {
     this.backend = options.backend ?? new PowerShellWindowsObservationBackend();
     this.platform = options.platform ?? process.platform;
+    this.enableRealMouseMovement = options.enableRealMouseMovement ?? false;
     this.maxFramesPerObservation = options.maxFramesPerObservation ?? 6;
     this.maxObservationDurationMs = options.maxObservationDurationMs ?? 2_000;
     this.frameDelay = options.frameDelay ?? delay;
@@ -65,16 +70,20 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       providerName: "windows_active_window_observation_provider",
       providerKind: "real",
       supportsObservation: true,
-      supportsMouse: false,
+      supportsMouse: this.enableRealMouseMovement,
       supportsClick: false,
       supportsTyping: false,
       realDesktopCapture: true,
+      realDesktopMouseMovement: this.enableRealMouseMovement,
       realDesktopMutation: false,
       maxFramesPerObservation: this.maxFramesPerObservation,
       maxObservationDurationMs: this.maxObservationDurationMs,
       residue: [
         "Provider captures bounded visible active-window frames only when explicitly selected.",
-        "Provider does not move the mouse, click, type, launch apps, or mutate OS state.",
+        this.enableRealMouseMovement
+          ? "Provider may move the real mouse pointer as an opt-in active-window-scoped probe."
+          : "Provider does not move the real mouse pointer unless the explicit movement gate is enabled.",
+        "Provider does not click, type, launch apps, or make durable desktop changes.",
         "Provider performs no OCR, localization, hidden polling, or background capture."
       ]
     };
@@ -122,19 +131,55 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       targetScope: request.targetScope,
       observedAt: request.observedAt,
       activeWindow: toWindowMetadata(latestActiveWindow),
+      cursorPosition: await this.safeGetLocalCursorPosition(latestActiveWindow),
       frames,
       lastActionDeltaSummary:
         "Real active-window observation captured bounded frame evidence; no OCR or localization was performed.",
       residue: [
         "Real visible active-window capture occurred inside the bounded provider call.",
         `Observation was bounded to ${frames.length} frame(s) over ${durationMs} ms.`,
+        "Cursor position is reported in active-window frame coordinates when available.",
         "No mouse movement, click, typing, OCR, localization, hidden polling, or background capture occurred."
       ]
     };
   }
 
-  async moveMouse(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
-    return unsupportedActionResult("move_mouse");
+  async moveMouse(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
+    if (!this.enableRealMouseMovement) {
+      return unsupportedActionResult("move_mouse");
+    }
+
+    this.ensureAvailable();
+
+    if (request.point === undefined) {
+      throw new DesktopProviderError(
+        "invalid_action_target",
+        "Mouse movement requires a target point.",
+        ["No real cursor movement occurred."]
+      );
+    }
+
+    const activeWindow = await this.safeGetActiveWindow();
+    this.assertTargetScopeMatchesActiveWindow(request.targetScope, activeWindow);
+    const screenPoint = pointToActiveWindowScreenPoint(request.point, activeWindow);
+    const movedCursor = await this.safeMoveMouseTo(screenPoint);
+    const postMoveActiveWindow = await this.safeGetActiveWindow();
+    this.assertTargetScopeMatchesActiveWindow(request.targetScope, postMoveActiveWindow);
+
+    return {
+      executed: true,
+      simulated: false,
+      cursorPosition: cursorToActiveWindowPoint(movedCursor, postMoveActiveWindow),
+      residue: [
+        "Real mouse pointer movement occurred as an opt-in bounded probe.",
+        "Requested point was interpreted in active-window frame coordinates.",
+        "No click, typing, app launch, shell command, or durable desktop mutation occurred.",
+        "A post-movement observation is required before the next non-observe action.",
+        ...(request.intendedSemanticTarget === undefined
+          ? []
+          : [`Intended semantic target: ${request.intendedSemanticTarget}.`])
+      ]
+    };
   }
 
   async click(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
@@ -171,6 +216,24 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     }
   }
 
+  private async safeGetLocalCursorPosition(
+    activeWindow: WindowsActiveWindowSnapshot
+  ): Promise<DesktopPoint> {
+    try {
+      return cursorToActiveWindowPoint(await this.backend.getCursorPosition(), activeWindow);
+    } catch (error: unknown) {
+      throw providerCaptureError(error, "Failed to read cursor position.");
+    }
+  }
+
+  private async safeMoveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
+    try {
+      return await this.backend.moveMouseTo(point);
+    } catch (error: unknown) {
+      throw providerCaptureError(error, "Failed to move the mouse pointer.");
+    }
+  }
+
   private assertTargetScopeMatchesActiveWindow(
     targetScope: DesktopInteractionScope,
     activeWindow: WindowsActiveWindowSnapshot
@@ -196,8 +259,16 @@ class PowerShellWindowsObservationBackend implements WindowsObservationBackend {
     return runPowerShellJson<WindowsActiveWindowSnapshot>(activeWindowMetadataScript);
   }
 
+  async getCursorPosition(): Promise<DesktopPoint> {
+    return runPowerShellJson<DesktopPoint>(cursorPositionScript);
+  }
+
   async captureActiveWindowPng(): Promise<WindowsCapturedFrame> {
     return runPowerShellJson<WindowsCapturedFrame>(activeWindowCaptureScript);
+  }
+
+  async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
+    return runPowerShellJson<DesktopPoint>(moveMouseScript(point));
   }
 }
 
@@ -237,8 +308,61 @@ function providerCaptureError(error: unknown, fallbackMessage: string): DesktopP
   return new DesktopProviderError(
     denied ? "permission_denied" : "capture_failed",
     message,
-    ["No desktop frame was recorded for the session."]
+    ["No desktop frame or pointer movement was recorded for the session."]
   );
+}
+
+function pointToActiveWindowScreenPoint(
+  point: DesktopPoint,
+  activeWindow: WindowsActiveWindowSnapshot
+): DesktopPoint {
+  const bounds = activeWindow.bounds;
+
+  if (bounds === undefined) {
+    throw new DesktopProviderError(
+      "invalid_action_target",
+      "Active-window bounds are required before moving the mouse pointer.",
+      ["No real cursor movement occurred."]
+    );
+  }
+
+  if (
+    point.x < 0 ||
+    point.y < 0 ||
+    point.x >= bounds.width ||
+    point.y >= bounds.height
+  ) {
+    throw new DesktopProviderError(
+      "invalid_action_target",
+      "The requested mouse point is outside the active-window capture frame.",
+      [
+        "No real cursor movement occurred.",
+        `Requested point: x=${point.x}, y=${point.y}.`,
+        `Active-window frame: width=${bounds.width}, height=${bounds.height}.`
+      ]
+    );
+  }
+
+  return {
+    x: Math.round(bounds.left + point.x),
+    y: Math.round(bounds.top + point.y)
+  };
+}
+
+function cursorToActiveWindowPoint(
+  cursorPosition: DesktopPoint,
+  activeWindow: WindowsActiveWindowSnapshot
+): DesktopPoint {
+  const bounds = activeWindow.bounds;
+
+  if (bounds === undefined) {
+    return cursorPosition;
+  }
+
+  return {
+    x: cursorPosition.x - bounds.left,
+    y: cursorPosition.y - bounds.top
+  };
 }
 
 function scopeMatchesActiveWindow(
@@ -337,12 +461,24 @@ public class AdmcpWin32 {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool GetCursorPos(out POINT lpPoint);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool SetCursorPos(int x, int y);
+
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT {
     public int Left;
     public int Top;
     public int Right;
     public int Bottom;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct POINT {
+    public int X;
+    public int Y;
   }
 }
 "@
@@ -379,12 +515,29 @@ function Get-AdmcpActiveWindow {
     }
   }
 }
+
+function Get-AdmcpCursorPosition {
+  $point = New-Object AdmcpWin32+POINT
+  if (-not [AdmcpWin32]::GetCursorPos([ref]$point)) {
+    throw "Could not read cursor position."
+  }
+
+  [pscustomobject]@{
+    x = $point.X
+    y = $point.Y
+  }
+}
 `;
 
 const activeWindowMetadataScript = String.raw`
 ${activeWindowPreamble}
 $window = Get-AdmcpActiveWindow
 $window | ConvertTo-Json -Compress -Depth 6
+`;
+
+const cursorPositionScript = String.raw`
+${activeWindowPreamble}
+Get-AdmcpCursorPosition | ConvertTo-Json -Compress -Depth 6
 `;
 
 const activeWindowCaptureScript = String.raw`
@@ -405,3 +558,16 @@ try {
   $stream.Dispose()
 }
 `;
+
+function moveMouseScript(point: DesktopPoint): string {
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+
+  return String.raw`
+${activeWindowPreamble}
+if (-not [AdmcpWin32]::SetCursorPos(${x}, ${y})) {
+  throw "Could not move cursor position."
+}
+Get-AdmcpCursorPosition | ConvertTo-Json -Compress -Depth 6
+`;
+}

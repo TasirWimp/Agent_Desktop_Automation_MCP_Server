@@ -9,6 +9,7 @@ import {
   type WindowsCapturedFrame,
   type WindowsObservationBackend
 } from "../../src/providers/windowsDesktopObservationProvider.js";
+import type { DesktopPoint } from "../../src/policy/sessionLicensePolicy.js";
 
 const fixedNow = "2026-05-28T10:00:00.000Z";
 const pngBase64 =
@@ -29,11 +30,25 @@ const activeWindow: WindowsActiveWindowSnapshot = {
 
 class FakeWindowsBackend implements WindowsObservationBackend {
   public captureCount = 0;
+  public movedPoints: DesktopPoint[] = [];
+  private cursorPosition: DesktopPoint;
 
-  constructor(private readonly metadata: WindowsActiveWindowSnapshot = activeWindow) {}
+  constructor(
+    private readonly metadata: WindowsActiveWindowSnapshot = activeWindow,
+    cursorPosition: DesktopPoint = {
+      x: activeWindow.bounds.left + 12,
+      y: activeWindow.bounds.top + 8
+    }
+  ) {
+    this.cursorPosition = cursorPosition;
+  }
 
   async getActiveWindow(): Promise<WindowsActiveWindowSnapshot> {
     return this.metadata;
+  }
+
+  async getCursorPosition(): Promise<DesktopPoint> {
+    return this.cursorPosition;
   }
 
   async captureActiveWindowPng(): Promise<WindowsCapturedFrame> {
@@ -43,9 +58,19 @@ class FakeWindowsBackend implements WindowsObservationBackend {
       dataBase64: pngBase64
     };
   }
+
+  async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
+    this.movedPoints.push(point);
+    this.cursorPosition = point;
+
+    return this.cursorPosition;
+  }
 }
 
-async function createConnectedClient(backend = new FakeWindowsBackend()) {
+async function createConnectedClient(
+  backend = new FakeWindowsBackend(),
+  enableRealMouseMovement = false
+) {
   const sessionStore = new InMemoryDesktopSessionStore();
   let idCounter = 0;
   const server = createServer({
@@ -53,6 +78,7 @@ async function createConnectedClient(backend = new FakeWindowsBackend()) {
     desktopProvider: new WindowsDesktopObservationProvider({
       backend,
       platform: "win32",
+      enableRealMouseMovement,
       frameDelay: async () => undefined
     }),
     now: () => fixedNow,
@@ -139,6 +165,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       expect(structured.provider).toMatchObject({
         providerKind: "real",
         realDesktopCapture: true,
+        realDesktopMouseMovement: false,
         realDesktopMutation: false,
         supportsMouse: false,
         supportsClick: false,
@@ -147,6 +174,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       expect(structured.capabilities).toMatchObject({
         mockDesktopProvider: false,
         realDesktopObservation: true,
+        realDesktopMouseMovement: false,
         realDesktopMutation: false,
         desktopMouseKeyboardTools: false,
         executeDesktopActions: false
@@ -185,12 +213,17 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       expect(structured.providerCapabilities).toMatchObject({
         providerKind: "real",
         realDesktopCapture: true,
+        realDesktopMouseMovement: false,
         realDesktopMutation: false
       });
       expect(observation.activeWindow).toMatchObject({
         windowId: "hwnd:0x123",
         title: "Generated Test App",
         processName: "node"
+      });
+      expect(observation.cursorPosition).toEqual({
+        x: 12,
+        y: 8
       });
       expect(frames).toHaveLength(1);
       expect(frames[0]).toMatchObject({
@@ -239,6 +272,139 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         kind: "active_window",
         value: "hwnd:0x123"
       });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("records opt-in real mouse movement and creates a pending transition gate", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(backend, true);
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "move_mouse"]
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          intendedSemanticTarget: "File menu"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("requires_post_action_observation");
+      expect(structured.providerCapabilities).toMatchObject({
+        supportsMouse: true,
+        supportsClick: false,
+        supportsTyping: false,
+        realDesktopMouseMovement: true,
+        realDesktopMutation: false
+      });
+      expect(structured.providerResult).toMatchObject({
+        executed: true,
+        simulated: false,
+        cursorPosition: {
+          x: 120,
+          y: 80
+        }
+      });
+      expect(structured.transitionGate).toMatchObject({
+        status: "pending_observation",
+        sourceObservationId: "observation-fixed-2"
+      });
+      expect(backend.movedPoints).toEqual([
+        {
+          x: 130,
+          y: 100
+        }
+      ]);
+      expect(sessionStore.findBlockingTransitionGate("session-real-observe-001")).toMatchObject({
+        status: "pending_observation"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("keeps click disabled even when real mouse movement is enabled", async () => {
+    const { client, server, sessionStore } = await createConnectedClient(
+      new FakeWindowsBackend(),
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "click"]
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_click",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          intendedSemanticTarget: "File menu"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.status).toBe("blocked");
+      expect(structured.providerCapabilities).toMatchObject({
+        supportsMouse: true,
+        supportsClick: false,
+        realDesktopMouseMovement: true,
+        realDesktopMutation: false
+      });
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(0);
     } finally {
       await client.close();
       await server.close();

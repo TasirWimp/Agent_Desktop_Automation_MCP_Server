@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, and an opt-in Windows real-observation spike.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe.
 
 ## Planning Document Roles
 
@@ -134,15 +134,18 @@ Extracted implementation slices:
 - ADMCP-010 Mock Movement Probe Tool - implemented.
 - ADMCP-011 Mock Click And Type Tools - implemented.
 - ADMCP-012 Real Observation Provider Spike - implemented.
-- ADMCP-013 Real Control Provider Gate.
+- ADMCP-013 Real Mouse Movement Provider Gate - implemented.
+- ADMCP-013A Governed Manual Probe Runner - planned support slice.
+- ADMCP-014 Cursor And Hover Witness Refinement - planned.
 
-Acceptance gate before real OS mutation:
+Acceptance gate before real click, typing, or durable OS mutation:
 
 - active session state is enforced,
 - audit log is complete and queryable,
 - observation references are validated against provider state,
 - `active_window` is bound to concrete observed identity,
 - post-action observation is enforced for movement, click, and typing,
+- cursor and hover witnesses are represented explicitly after real movement probes,
 - stop/escalation conditions are covered by tests,
 - manual acceptance checks are documented for the target backend.
 
@@ -358,7 +361,7 @@ Residual scope:
 - Click and typing are simulated provider state only and must not be treated as real desktop input.
 - Transition-gate audit is currently frame/scope based; richer visual-delta interpretation remains a future provider/model layer.
 - Real observation is implemented by ADMCP-012 as an opt-in spike.
-- Real desktop mutation remains deferred to ADMCP-013 or later.
+- Real click, typing, and durable desktop mutation remain deferred to later provider gates.
 
 ### ADMCP-012 Real Observation Provider Spike
 
@@ -379,7 +382,7 @@ Delivered behavior:
 - Binds `active_window` observations to concrete `windowId` metadata when available.
 - Reports controlled provider errors for unsupported platform, permission/capture failures, and scope mismatch.
 - Exposes dynamic provider capabilities through `desktop_capabilities`.
-- Keeps real mouse movement, real clicking, real typing, OCR, localization, hidden polling, background capture, app launching, shell tools, and OS mutation disabled.
+- Keeps real mouse movement disabled unless the later ADMCP-013 movement gate is explicitly enabled; real clicking, real typing, OCR, localization, hidden polling, background capture, app launching, shell tools, and durable OS mutation remain disabled.
 - Adds a manual acceptance checklist for the real-observation spike.
 
 Implemented files:
@@ -405,5 +408,152 @@ Residual scope:
 - Real observation is Windows active-window only.
 - Real observation is opt-in and disabled by default.
 - Real observation manual acceptance is documented but not automated.
-- Real mouse movement, clicking, typing, shell, app launching, and OS mutation remain disabled.
-- ADMCP-013 is the next implementation slice.
+- Real clicking, typing, shell, app launching, and durable OS mutation remain disabled.
+- ADMCP-013 implements the first opt-in non-durable real pointer probe.
+
+### ADMCP-013 Real Mouse Movement Provider Gate
+
+Goal: Enable bounded real mouse movement as a non-durable probe without enabling real click, typing, shell, app launch, or persistent desktop mutation.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Keeps default provider mock-only.
+- Enables real Windows mouse movement only when `ADMCP_DESKTOP_PROVIDER=windows-active-window`, `ADMCP_ENABLE_REAL_OBSERVATION=true`, and `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true` are set.
+- Reports `realDesktopMouseMovement` separately from `realDesktopMutation`.
+- Keeps `realDesktopMutation`, real clicking, real typing, shell, app launch, system changes, OCR, localization, hidden polling, and background capture disabled.
+- Reports cursor position in active-window frame coordinates during real observation.
+- Interprets `desktop_move_mouse.point` as active-window frame coordinates for the Windows real provider.
+- Converts active-window frame coordinates to screen coordinates internally.
+- Rejects out-of-frame movement targets before moving the cursor.
+- Uses existing active session, pre-action observation freshness, scope validation, audit logging, action count, and transition-gate enforcement.
+- Requires post-movement observation before any next non-observe action.
+- Keeps `desktop_click` and `desktop_type_text` unsupported by the real Windows provider.
+- Updates the manual checklist to cover observation-only and optional pointer-movement gates.
+
+Implemented files:
+
+- `src/providers/windowsDesktopObservationProvider.ts`
+- `src/providers/defaultDesktopProvider.ts`
+- `src/providers/desktopProvider.ts`
+- `src/session/actionTools.ts`
+- `src/server.ts`
+- `tests/windowsDesktopObservationProvider.test.ts`
+- `tests/defaultDesktopProvider.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `docs/testing/manual_real_observation_checklist.md`
+- `docs/process/codex_desktop_interaction_reentry.md`
+
+Verification:
+
+- `npm run test -- tests/defaultDesktopProvider.test.ts tests/windowsDesktopObservationProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts tests/protocol/desktopMoveMouseTool.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- Real mouse movement is Windows active-window only and disabled by default.
+- Cursor visibility and hover/cursor-shape deltas are not yet interpreted automatically.
+- Real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation remain disabled.
+- Next implementation should improve cursor/hover witness packets before enabling any real click backend.
+
+### ADMCP-013A Governed Manual Probe Runner
+
+Goal: Make real observation and pointer-movement experiments repeatable before adding richer witness logic.
+
+Status:
+
+- Planned support slice.
+
+Reason:
+
+- The first governed path-finding try proved that `observe -> move_mouse -> observe` works, but manual harnessing was clunky and error-prone.
+- A reusable runner should reduce one-off script mistakes, preserve audit output, and make timing, scope, and witness gaps easier to compare across attempts.
+
+Required behavior:
+
+- Run bounded manual probe scenarios through the existing MCP tools or server runtime; do not bypass policy, scope checks, provider gates, transition gates, or audit logging.
+- Accept a session goal, target scope, intended semantic target, movement strategy, max attempts, and observation cadence.
+- Use observed cursor position as the movement starting point.
+- Support relative movement planning from cursor position toward an area of interest.
+- Save compact run artifacts: pre/post observation ids, cursor points, planned vectors, transition-gate status, screenshot paths or frame hashes, click-block result when requested, and residue.
+- Keep real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
+
+Expected files:
+
+- `scripts/` or `src/manual/` runner entrypoint, depending on the repo's existing script conventions.
+- `docs/testing/manual_real_observation_checklist.md`
+- `docs/process/codex_desktop_interaction_reentry.md`
+
+Acceptance criteria:
+
+- Runner can execute a bounded three-attempt `observe -> move_mouse -> observe` scenario against the active Windows provider.
+- Runner records when policy blocks movement because an observation is stale.
+- Runner records hover or wrong-target visual evidence as residue, without claiming click readiness.
+- Runner can attempt `desktop_click` only to verify provider blocking; no real click occurs.
+- Runner output is concise enough to paste into implementation notes or test reports.
+
+Residual scope:
+
+- The runner is for governed manual experiments, not autonomous desktop control.
+- The runner should not add new MCP behavior or replace protocol tests.
+- ADMCP-014 remains responsible for first-class cursor and hover witness packets.
+
+### ADMCP-014 Cursor And Hover Witness Refinement
+
+Goal: Make the post-movement observation evidence explicit enough for iterative pointer probing without enabling real click or typing.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-010 Mock Movement Probe Tool.
+- ADMCP-012 Real Observation Provider Spike.
+- ADMCP-013 Real Mouse Movement Provider Gate.
+
+Required behavior:
+
+- Preserve the current session, scope, audit, and transition-gate discipline.
+- Keep real click, real typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
+- Represent cursor witness metadata explicitly in observations when available, including coordinate space, provider source, confidence or residue, and active-window-relative position.
+- Record post-movement transition deltas that compare intended target point, provider-reported cursor point, and follow-up observed cursor point.
+- Record whether the active window identity and scope stayed stable after movement.
+- Add hover/cursor-shape/visual-change witness fields as optional residue-bearing evidence, not as a click license.
+- Keep `desktop_click` blocked by the real provider until a later slice adds a separate click candidate witness and real click gate.
+
+Expected files:
+
+- `src/providers/desktopProvider.ts`
+- `src/session/observationTools.ts`
+- `src/session/interactionTransitionGate.ts`
+- `src/uiPlanning/closedLoopUiTypes.ts`
+- `tests/protocol/desktopMoveMouseTool.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `tests/windowsDesktopObservationProvider.test.ts`
+- `docs/process/codex_desktop_interaction_reentry.md`
+- `docs/testing/manual_real_observation_checklist.md`
+
+Acceptance criteria:
+
+- `desktop_observe` returns structured cursor witness metadata when the provider supplies cursor position.
+- Post-movement observation with `transitionActionId` records a transition delta packet with intended point, observed point, distance residue, and scope-stability evidence.
+- Missing cursor data does not fail observation, but it produces explicit uncertainty residue and prevents claiming hover/intersection readiness.
+- Movement outside the scoped active-window frame remains blocked before provider movement.
+- A pending movement transition still blocks all next non-observe actions until follow-up observation is audited.
+- Real click and typing remain unsupported by the Windows provider.
+- Tests cover cursor witness presence, missing cursor witness residue, transition delta recording, scope stability, and continued real click blocking.
+
+Verification:
+
+- `npm run test -- tests/windowsDesktopObservationProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts tests/protocol/desktopMoveMouseTool.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- ADMCP-014 should not decide that a click is ready.
+- ADMCP-014 should not add OCR, accessibility-tree parsing, semantic localization, or real click execution.
+- A later slice must define the click-candidate witness gate before any real click backend can be enabled.

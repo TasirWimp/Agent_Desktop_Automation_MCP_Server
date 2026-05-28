@@ -26,6 +26,7 @@ describe("MockDesktopProvider", () => {
       supportsClick: true,
       supportsTyping: true,
       realDesktopCapture: false,
+      realDesktopMouseMovement: false,
       realDesktopMutation: false
     });
   });

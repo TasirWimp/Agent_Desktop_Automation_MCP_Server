@@ -27,13 +27,15 @@ Every execution tool must document:
 
 ## Current Decision
 
-The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, and mock movement/click/type probes. It does not capture the real desktop or execute real desktop actions.
+The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, mock movement/click/type probes, opt-in Windows active-window observation, and an opt-in Windows real mouse-movement probe. The default provider remains mock-only. Real clicking, real typing, shell commands, app launching, system changes, and durable desktop mutation remain disabled.
 
 `ui_intersection_plan` may prepare a policy-gated candidate packet from semantic localization and frame evidence. It must not move the cursor, click, capture screens, or claim success. Actual `mouse_input` remains a state-changing action that requires either single-action policy confirmation or an active session license, audit logging, scope checks, and post-action observation.
 
-`desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are currently mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not move the real cursor, click the real desktop, type into the real desktop, or control the OS. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
+`desktop_move_mouse` is mock-only by default. When the Windows provider is selected with both `ADMCP_ENABLE_REAL_OBSERVATION=true` and `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true`, it may move the real cursor as a bounded active-window-scoped probe. The requested point is interpreted in active-window frame coordinates, must stay inside the observed active-window bounds, must pass session scope and freshness checks, is audited, and creates a transition gate requiring post-movement observation before any next non-observe action. This is allowed as a non-durable pointer probe; it does not license clicking, typing, app launching, shell execution, or persistent desktop changes.
 
-`desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, validates active-window scope before capture, and does not enable real desktop mutation.
+`desktop_click` and `desktop_type_text` remain mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not click the real desktop, type into the real desktop, or control the OS. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
+
+`desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, reports active-window-relative cursor position when available, validates active-window scope before capture, and does not enable real clicking, typing, or durable desktop mutation.
 
 ## Session License Direction
 
@@ -47,4 +49,4 @@ Core boundary:
 - Credential entry, payment, external publishing, destructive operations outside scope, unrelated private windows, and system changes remain blocked or escalated.
 - `active_window` scope is provisional until a real provider binds it to a concrete observed window identity before mutation.
 - Provider-backed tools must validate observation existence, freshness, session id, scope, and frame linkage before state-changing actions.
-- No background capture, hidden polling loop, OCR dependency, or real OS mutation backend is part of the current implementation.
+- No background capture, hidden polling loop, OCR dependency, real click backend, real typing backend, shell backend, or durable OS mutation backend is part of the current implementation.

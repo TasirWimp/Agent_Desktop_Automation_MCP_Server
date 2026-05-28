@@ -8,18 +8,18 @@ The current server exposes:
 - `automation_policy_check` - classifies proposed desktop automation actions before execution.
 - `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
-- `desktop_observe` - records a bounded mock observation frame session for an active interaction session.
-- `desktop_move_mouse` - simulates a bounded mock movement probe inside an active interaction session and requires follow-up observation.
+- `desktop_observe` - records a bounded observation frame session for an active interaction session.
+- `desktop_move_mouse` - runs a bounded movement probe inside an active interaction session and requires follow-up observation.
 - `desktop_click` - simulates a bounded mock click inside an active interaction session and requires follow-up observation.
 - `desktop_type_text` - simulates bounded mock test-text entry without storing text content and requires follow-up observation.
 - `desktop_end_interaction_session` - ends an active interaction session.
 - `desktop_session_audit_log` - reads the session lifecycle audit log.
 
-Real desktop capture and mutation tools are intentionally not enabled in the initial scaffold. The current provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
+Real desktop capture and pointer movement are disabled by default. The default provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
 The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
 
-## Real Observation Spike
+## Real Observation And Pointer Probe
 
 The default provider is mock. A Windows active-window observation spike is available only when explicitly enabled:
 
@@ -29,7 +29,18 @@ $env:ADMCP_ENABLE_REAL_OBSERVATION = "true"
 npm run dev
 ```
 
-The spike captures bounded visible active-window PNG frames through `desktop_observe`. It does not enable real mouse movement, clicking, typing, app launching, shell tools, OCR, localization, hidden polling, or background capture.
+The spike captures bounded visible active-window PNG frames through `desktop_observe` and reports cursor position in active-window frame coordinates. It does not enable real clicking, typing, app launching, shell tools, OCR, localization, hidden polling, or background capture.
+
+Real mouse movement is a separate opt-in probe gate:
+
+```powershell
+$env:ADMCP_DESKTOP_PROVIDER = "windows-active-window"
+$env:ADMCP_ENABLE_REAL_OBSERVATION = "true"
+$env:ADMCP_ENABLE_REAL_MOUSE_MOVEMENT = "true"
+npm run dev
+```
+
+With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. `desktop_click` and `desktop_type_text` remain non-real unless a later provider gate explicitly enables them.
 
 ## Requirements
 

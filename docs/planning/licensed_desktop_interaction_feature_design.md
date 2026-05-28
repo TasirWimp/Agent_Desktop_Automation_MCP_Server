@@ -593,9 +593,9 @@ Implemented notes:
 - Real observation frames are bounded by `maxFrames`, `durationMs`, and provider caps.
 - Manual acceptance checklist lives in `../testing/manual_real_observation_checklist.md`.
 
-### ADMCP-013 Real Control Provider Gate
+### ADMCP-013 Real Mouse Movement Provider Gate
 
-Goal: prepare, but not automatically enable, real movement/click/type provider support.
+Goal: enable one non-durable real control probe, mouse movement, without enabling click/type or durable desktop mutation.
 
 Depends on:
 
@@ -605,11 +605,109 @@ Depends on:
 
 Acceptance criteria:
 
-- real control capability is disabled by default,
-- enabling requires explicit configuration,
+- real mouse movement is disabled by default,
+- enabling requires explicit configuration in addition to real observation,
+- movement requires active session scope, fresh pre-action observation, audit logging, and post-movement observation,
+- movement points are interpreted in active-window frame coordinates and rejected if outside the active-window capture frame,
+- click/type remain disabled by the real provider,
+- durable desktop mutation capability remains disabled,
 - manual acceptance tests exist,
-- provider enforces scope, observation freshness, post-action observation, and audit logging,
-- stop conditions are tested before any real mutation release.
+- provider enforces active-window scope before movement,
+- provider returns cursor position in active-window frame coordinates,
+- stop conditions are tested before any real click/type release.
+
+Implemented notes:
+
+- `WindowsDesktopObservationProvider` now supports opt-in real mouse movement only when constructed with `enableRealMouseMovement: true`.
+- `createDefaultDesktopProvider` enables that gate only when `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true` is set alongside the real-observation provider configuration.
+- `desktop_move_mouse` uses the existing session policy, action audit, and transition-gate path; no raw mouse tool is exposed.
+- The provider converts active-window frame coordinates to screen coordinates internally and rejects out-of-frame targets before moving.
+- `desktop_click` and `desktop_type_text` remain unsupported by the real Windows provider.
+- `realDesktopMutation` remains false; the new capability is reported separately as `realDesktopMouseMovement`.
+
+### ADMCP-013A Governed Manual Probe Runner
+
+Goal: make governed real-observation and pointer-movement path-finding experiments repeatable before adding richer cursor/hover witness packets.
+
+Design reason:
+
+- The first manual path-finding try showed that the governed loop is viable, but ad hoc harnessing is too fragile.
+- The runner should exercise the same tool path a model or client would use: session start, observation, movement, post-movement observation, optional blocked click check, and audit review.
+- It should not introduce new control authority. It is a repeatability and evidence-capture aid.
+
+Runner contract:
+
+- Inputs: session goal, allowed scope, intended semantic target, area-of-interest point or envelope, movement fractions or strategy, max attempts, observation cadence, and whether to verify click blocking.
+- Outputs: per-attempt pre/post observation ids, cursor positions, planned movement vector, provider result, transition-gate status, screenshot path or frame hash, visible witness notes, blocked-click result when requested, and residue.
+- Safety: no raw OS input, no bypass of MCP/session policy, no real click, no typing, no shell/app-launch behavior beyond the local runner process itself.
+
+Acceptance criteria:
+
+- Can reproduce a three-attempt relative cursor-to-area probe against the active Windows provider.
+- Records stale-observation policy blocks as a timing finding instead of silently widening the cadence.
+- Records wrong-target hover evidence, such as a sidebar hover, as useful negative witness residue.
+- Records final target hover evidence as a witness, but does not claim that it licenses real click.
+- Verifies `desktop_click` remains blocked by provider capability when requested.
+
+### First Governed Path-Finding Lessons
+
+The first real movement experiment against the Codex app produced these design constraints:
+
+- `observe -> move_mouse -> observe` is operationally viable with the Windows provider and transition-gate audit path.
+- Relative movement from observed cursor position toward an area of interest is more useful than one-shot coordinate guessing.
+- Wrong-target hover evidence is valuable. It can diagnose that the cursor intersected a different UI element and guide the next move.
+- A final hover highlight on the intended target is a cursor-target intersection witness, not a click license.
+- The real click block behaved correctly: provider capability prevented a click before any provider click call.
+- The current transition gate verifies follow-up frame evidence and scope, but does not yet verify that the movement accomplished the intended probe.
+- The default five-second observation freshness window can be too tight for the current PowerShell real-capture path; future implementation should either reduce provider latency or make real-provider cadence defaults explicit.
+- A stable test app will produce cleaner hover and delta evidence than the Codex app itself, because the conversation surface changes while the experiment is being observed.
+
+### ADMCP-014 Cursor And Hover Witness Refinement
+
+Goal: turn movement follow-up observations into explicit witness packets that support iterative pointer probing without licensing a real click.
+
+Depends on:
+
+- ADMCP-010,
+- ADMCP-012,
+- ADMCP-013.
+
+Design intent:
+
+- Movement is useful only when the next observation can explain what changed.
+- The provider should not merely say "cursor moved"; the runtime should preserve enough evidence for the next model step to decide whether to move again, wait, repair, or later request a click candidate.
+- This slice is still observation and witness refinement. It must not implement real click, real typing, OCR, accessibility-tree interpretation, or autonomous semantic localization.
+
+New or refined packets:
+
+- `cursorWitness`: cursor position, coordinate space, provider source, timestamp, confidence, and residue.
+- `movementDeltaWitness`: intended point, provider result point, follow-up observed point, distance from intended point, scope stability, and residue.
+- `hoverWitness`: optional evidence fields for hover highlight, tooltip, cursor shape, enabled state, or visual delta; absent evidence must be represented as uncertainty, not guessed.
+
+Acceptance criteria:
+
+- `desktop_observe` returns cursor witness metadata when the provider supplies cursor position.
+- A post-movement `desktop_observe` with `transitionActionId` records a movement delta witness on the interaction transition gate.
+- The transition gate can say whether cursor position was observed, whether the active window stayed in scope, and what residue remains before another action.
+- Missing cursor or hover evidence does not fail observation, but it prevents claiming interaction readiness.
+- The real Windows provider still supports only observation and optional mouse movement.
+- `desktop_click` and `desktop_type_text` remain unsupported by the real provider.
+- Tests cover witness shape, missing-witness residue, movement delta audit output, and continued click blocking.
+
+Expected files:
+
+- `src/providers/desktopProvider.ts`
+- `src/session/observationTools.ts`
+- `src/session/interactionTransitionGate.ts`
+- `src/uiPlanning/closedLoopUiTypes.ts`
+- protocol tests for `desktop_observe` and `desktop_move_mouse`
+- provider tests for Windows cursor witness behavior
+
+Exit criteria:
+
+- The system can run `observe -> move_mouse -> observe transitionActionId` and produce a structured explanation of cursor movement and residual uncertainty.
+- The system still cannot execute a real click.
+- The next slice can consume ADMCP-014 witness packets to design a click-candidate witness gate.
 
 ## Test Matrix
 
@@ -645,6 +743,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-012, continue with ADMCP-013.
+Start ADMCP-013A or ADMCP-014 before enabling any real click backend. If more manual real-provider experiments are needed first, implement ADMCP-013A. If implementation proceeds directly into product behavior, implement ADMCP-014.
 
-That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real OS control last.
+That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real observation fifth, non-durable pointer movement sixth, repeatable governed probes and cursor/hover witnesses next, and real click/type only after stronger visual witnesses.

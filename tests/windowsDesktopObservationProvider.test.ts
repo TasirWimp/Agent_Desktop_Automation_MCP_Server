@@ -6,6 +6,7 @@ import {
   type WindowsCapturedFrame,
   type WindowsObservationBackend
 } from "../src/providers/windowsDesktopObservationProvider.js";
+import type { DesktopPoint } from "../src/policy/sessionLicensePolicy.js";
 
 const pngBase64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -26,23 +27,42 @@ const activeWindow: WindowsActiveWindowSnapshot = {
 class FakeWindowsBackend implements WindowsObservationBackend {
   public getActiveWindowCount = 0;
   public captureCount = 0;
+  public movedPoints: DesktopPoint[] = [];
+  private cursorPosition: DesktopPoint;
 
   constructor(
     private readonly metadata: WindowsActiveWindowSnapshot = activeWindow,
     private readonly captured: WindowsCapturedFrame = {
       ...activeWindow,
       dataBase64: pngBase64
+    },
+    cursorPosition: DesktopPoint = {
+      x: activeWindow.bounds.left + 12,
+      y: activeWindow.bounds.top + 8
     }
-  ) {}
+  ) {
+    this.cursorPosition = cursorPosition;
+  }
 
   async getActiveWindow(): Promise<WindowsActiveWindowSnapshot> {
     this.getActiveWindowCount += 1;
     return this.metadata;
   }
 
+  async getCursorPosition(): Promise<DesktopPoint> {
+    return this.cursorPosition;
+  }
+
   async captureActiveWindowPng(): Promise<WindowsCapturedFrame> {
     this.captureCount += 1;
     return this.captured;
+  }
+
+  async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
+    this.movedPoints.push(point);
+    this.cursorPosition = point;
+
+    return this.cursorPosition;
   }
 }
 
@@ -60,6 +80,25 @@ describe("WindowsDesktopObservationProvider", () => {
       supportsClick: false,
       supportsTyping: false,
       realDesktopCapture: true,
+      realDesktopMouseMovement: false,
+      realDesktopMutation: false
+    });
+  });
+
+  it("reports opt-in real mouse movement capability without click or typing support", () => {
+    const provider = new WindowsDesktopObservationProvider({
+      backend: new FakeWindowsBackend(),
+      platform: "win32",
+      enableRealMouseMovement: true
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      supportsMouse: true,
+      supportsClick: false,
+      supportsTyping: false,
+      realDesktopCapture: true,
+      realDesktopMouseMovement: true,
       realDesktopMutation: false
     });
   });
@@ -98,6 +137,10 @@ describe("WindowsDesktopObservationProvider", () => {
         width: 640,
         height: 480
       }
+    });
+    expect(observation.cursorPosition).toEqual({
+      x: 12,
+      y: 8
     });
     expect(observation.frames).toHaveLength(2);
     expect(observation.frames[0]).toMatchObject({
@@ -194,13 +237,111 @@ describe("WindowsDesktopObservationProvider", () => {
     expect(backend.getActiveWindowCount).toBe(0);
   });
 
+  it("moves the real cursor through the backend only when explicitly enabled", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealMouseMovement: true
+    });
+
+    await expect(
+      provider.moveMouse({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 120,
+          y: 80
+        },
+        intendedSemanticTarget: "File menu"
+      })
+    ).resolves.toMatchObject({
+      executed: true,
+      simulated: false,
+      cursorPosition: {
+        x: 120,
+        y: 80
+      }
+    });
+    expect(backend.movedPoints).toEqual([
+      {
+        x: 130,
+        y: 100
+      }
+    ]);
+  });
+
+  it("keeps real mouse movement disabled by default", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32"
+    });
+
+    await expect(
+      provider.moveMouse({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 120,
+          y: 80
+        }
+      })
+    ).resolves.toMatchObject({
+      executed: false,
+      simulated: false
+    });
+    expect(backend.movedPoints).toEqual([]);
+  });
+
+  it("rejects out-of-window movement before moving the cursor", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealMouseMovement: true
+    });
+
+    await expect(
+      provider.moveMouse({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 700,
+          y: 80
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_action_target"
+    });
+    expect(backend.movedPoints).toEqual([]);
+  });
+
   it("maps permission failures to controlled provider errors", async () => {
     const backend: WindowsObservationBackend = {
       async getActiveWindow() {
         throw new Error("Access is denied.");
       },
+      async getCursorPosition() {
+        throw new Error("should not read cursor");
+      },
       async captureActiveWindowPng() {
         throw new Error("should not capture");
+      },
+      async moveMouseTo() {
+        throw new Error("should not move");
       }
     };
     const provider = new WindowsDesktopObservationProvider({

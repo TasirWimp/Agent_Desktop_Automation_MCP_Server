@@ -52,6 +52,7 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
       supportsClick: true,
       supportsTyping: true,
       realDesktopCapture: false,
+      realDesktopMouseMovement: false,
       realDesktopMutation: false,
       maxFramesPerObservation: this.maxFramesPerObservation,
       maxObservationDurationMs: this.maxObservationDurationMs,

@@ -17,18 +17,27 @@ Available MCP tools:
 
 Unavailable MCP tools:
 
-- real mouse movement
 - real clicking
 - real typing
 
-Default server behavior is mock-only. By default, no tool captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are backed by a deterministic mock provider unless the server is started with the real-observation spike enabled.
+Default server behavior is mock-only. By default, no tool captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are backed by a deterministic mock provider unless the server is started with the Windows real provider gates enabled.
 
 Real observation spike:
 
 - Opt-in only with `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true`.
 - Captures bounded visible active-window PNG frames through `desktop_observe`.
+- Reports cursor position in active-window frame coordinates when available.
 - Requires an active session, visible-content acknowledgement, allowed observation scope, and bounded frame/duration inputs.
-- Does not enable real mouse movement, real clicking, real typing, OCR, localization, hidden polling, background capture, app launching, shell tools, or OS mutation.
+- Does not enable real clicking, real typing, OCR, localization, hidden polling, background capture, app launching, shell tools, or durable OS mutation.
+
+Real mouse movement probe:
+
+- Additional opt-in only with `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true` while the Windows real-observation provider is enabled.
+- Uses `desktop_move_mouse`; no separate raw pointer tool exists.
+- Requires an active session, `move_mouse` in the session license, fresh pre-action observation, matching active-window scope, and a point inside the active-window capture frame.
+- Treats the point as active-window frame coordinates and converts it to screen coordinates inside the provider.
+- Creates the same transition gate as mock movement and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+- Does not enable real click, typing, shell, app launch, system changes, or durable desktop mutation.
 
 ## Current Session Workflow
 
@@ -44,7 +53,7 @@ Use the session tools to create a bounded task license, record mock observation 
 8. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
 9. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
 10. Call `desktop_move_mouse` only after a fresh observation and pass that observation id as `preActionObservationId`.
-11. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state.
+11. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state. If real mouse movement is enabled, the move can affect cursor position and hover state but still must not click or type.
 12. Call `desktop_click` or `desktop_type_text` only after a fresh observation and only when no prior transition gate is pending.
 13. For `desktop_type_text`, use generated test input only. The tool records text length but not text content.
 14. After every movement, click, or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
@@ -52,7 +61,7 @@ Use the session tools to create a bounded task license, record mock observation 
 16. Use `desktop_session_audit_log` to inspect the session trace.
 17. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, mock movement, mock click, and mock typing audit events. It can exercise the mock `observe -> act -> observe transitionActionId` loop, but cannot capture the real desktop, move the real cursor, click the real desktop, or type into the real desktop.
+The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, and opt-in real movement audit events. It can exercise the `observe -> move_mouse -> observe transitionActionId` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
 
 ## Stop Or Escalate
 
@@ -64,7 +73,7 @@ Stop or ask the user before continuing if:
 - an interaction transition gate is blocked or cannot be audited from the available observation,
 - the request implies credentials, payments, messages, publishing, destructive operations, shell execution, or system settings,
 - `desktop_type_text` input is credential-like, secret-like, private, or not generated test input,
-- the user expects real desktop control,
+- the user expects real clicking, typing, app launch, shell execution, system changes, or durable desktop mutation,
 - real observation is enabled but the active window does not match the requested scope.
 
 ## Current Mock Loop
@@ -80,6 +89,22 @@ Executable mock sequence:
 7. Inspect audit logs and stop the session.
 
 Future real providers must reuse the same transition gate discipline before any real desktop backend is enabled.
+
+## Next Implementation Target
+
+ADMCP-013A is the next support slice if more manual real-provider probing is needed. Its job is a governed manual probe runner:
+
+- run repeated `observe -> move_mouse -> observe` attempts through the existing MCP/session path,
+- record cursor positions, relative movement vectors, screenshot paths or frame hashes, transition-gate status, and residue,
+- preserve stale-observation policy blocks and wrong-target hover evidence,
+- verify `desktop_click` remains blocked without producing a real click.
+
+ADMCP-014 is the next product-behavior slice. Its job is cursor and hover witness refinement, not real clicking:
+
+- preserve `observe -> move_mouse -> observe transitionActionId`,
+- add explicit cursor witness and movement delta evidence,
+- record scope-stability and hover/cursor-shape uncertainty,
+- keep real click, typing, shell, app launch, system changes, and durable desktop mutation disabled.
 
 ## Real Observation Manual Check
 

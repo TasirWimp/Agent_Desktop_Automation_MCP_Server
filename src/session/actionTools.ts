@@ -14,6 +14,7 @@ import type {
   DesktopInteractionProvider,
   DesktopProviderActionResult
 } from "../providers/desktopProvider.js";
+import { DesktopProviderError as DesktopProviderErrorClass } from "../providers/desktopProvider.js";
 import {
   createPendingInteractionTransitionGate,
   type InteractionTransitionGate
@@ -122,6 +123,19 @@ function actionToolError(error: unknown) {
           message: error.message
         },
         residue: ["No desktop action was recorded."]
+      },
+      true
+    );
+  }
+
+  if (error instanceof DesktopProviderErrorClass) {
+    return structuredResult(
+      {
+        error: {
+          code: error.code,
+          message: error.message
+        },
+        residue: ["No desktop action was recorded.", ...error.residue]
       },
       true
     );
@@ -341,11 +355,54 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
       );
     }
 
-    const providerResult = await config.callProvider(
-      runtime.desktopProvider,
-      input,
-      requestedAt
-    );
+    let providerResult: DesktopProviderActionResult;
+
+    try {
+      providerResult = await config.callProvider(
+        runtime.desktopProvider,
+        input,
+        requestedAt
+      );
+    } catch (error: unknown) {
+      if (error instanceof DesktopProviderErrorClass) {
+        const stopCondition: DesktopSessionStopCondition = {
+          condition: "action_not_allowed",
+          sessionId: input.sessionId,
+          actionId: action.actionId,
+          reason: error.message,
+          residue: error.residue
+        };
+        const blockedAuditEvent = actionDecisionEvent(
+          runtime,
+          action,
+          "action_blocked",
+          stopCondition.reason,
+          stopCondition.residue
+        );
+
+        runtime.sessionStore.appendStopCondition(stopCondition);
+        runtime.sessionStore.appendAuditEvent(blockedAuditEvent);
+
+        return structuredResult(
+          {
+            sessionId: input.sessionId,
+            status: "blocked",
+            action,
+            providerCapabilities,
+            error: {
+              code: error.code,
+              message: error.message
+            },
+            stopCondition,
+            auditEvents: [requestedAuditEvent, blockedAuditEvent],
+            residue: ["Provider rejected the action before execution.", ...error.residue]
+          },
+          true
+        );
+      }
+
+      throw error;
+    }
 
     if (!providerResult.executed) {
       const stopCondition: DesktopSessionStopCondition = {
@@ -431,9 +488,9 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
   server.registerTool(
     "desktop_move_mouse",
     {
-      title: "Mock Desktop Mouse Movement Probe",
+      title: "Desktop Mouse Movement Probe",
       description:
-        "Simulate a bounded mouse movement probe inside an active desktop interaction session. The default provider does not move the real cursor.",
+        "Run a bounded mouse movement probe inside an active desktop interaction session. Real movement is available only when the active provider explicitly supports it.",
       inputSchema: moveMouseInputSchema,
       annotations: {
         readOnlyHint: false,
@@ -485,14 +542,14 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
           "active window remains inside the licensed scope"
         ],
         allowedSummary:
-          "Mock mouse movement probe was licensed and simulated; post-movement observation is required.",
+          "Mouse movement probe was licensed through the active provider; post-movement observation is required.",
         policyBlockedResidue:
           "Policy blocked the movement probe before any provider call.",
         providerCallBlockedResidue:
           "No provider call was made and no mouse movement was simulated.",
         recordedResidue: [
-          "Mock movement probe was recorded.",
-          "No real cursor movement, click, typing, OS capture, or OS mutation occurred.",
+          "Movement probe was recorded.",
+          "The active provider result states whether movement was real or simulated.",
           "The next non-observe action is blocked until the transition gate is audited by observation."
         ]
       })

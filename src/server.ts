@@ -92,8 +92,13 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           desktopClickTool: true,
           desktopTypeTextTool: true,
           realDesktopObservation: desktopProviderCapabilities.realDesktopCapture,
+          realDesktopMouseMovement: desktopProviderCapabilities.realDesktopMouseMovement,
           realDesktopMutation: desktopProviderCapabilities.realDesktopMutation,
-          desktopMouseKeyboardTools: false,
+          desktopMouseKeyboardTools:
+            desktopProviderCapabilities.providerKind === "real" &&
+            (desktopProviderCapabilities.supportsMouse ||
+              desktopProviderCapabilities.supportsClick ||
+              desktopProviderCapabilities.supportsTyping),
           shellCommands: false,
           credentialAccess: false
         },

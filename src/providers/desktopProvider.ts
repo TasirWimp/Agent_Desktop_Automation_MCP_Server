@@ -21,6 +21,7 @@ export interface DesktopProviderCapabilities {
   supportsClick: boolean;
   supportsTyping: boolean;
   realDesktopCapture: boolean;
+  realDesktopMouseMovement: boolean;
   realDesktopMutation: boolean;
   maxFramesPerObservation: number;
   maxObservationDurationMs: number;
@@ -29,8 +30,10 @@ export interface DesktopProviderCapabilities {
 
 export type DesktopProviderErrorCode =
   | "real_observation_unavailable"
+  | "real_control_disabled"
   | "permission_denied"
   | "scope_mismatch"
+  | "invalid_action_target"
   | "capture_failed";
 
 export class DesktopProviderError extends Error {

@@ -9,6 +9,7 @@ export type DesktopProviderKind = (typeof desktopProviderKinds)[number];
 export interface DesktopProviderEnvironment {
   ADMCP_DESKTOP_PROVIDER?: string;
   ADMCP_ENABLE_REAL_OBSERVATION?: string;
+  ADMCP_ENABLE_REAL_MOUSE_MOVEMENT?: string;
 }
 
 export function createDefaultDesktopProvider(
@@ -18,7 +19,9 @@ export function createDefaultDesktopProvider(
     env.ADMCP_DESKTOP_PROVIDER === "windows-active-window" &&
     env.ADMCP_ENABLE_REAL_OBSERVATION === "true"
   ) {
-    return new WindowsDesktopObservationProvider();
+    return new WindowsDesktopObservationProvider({
+      enableRealMouseMovement: env.ADMCP_ENABLE_REAL_MOUSE_MOVEMENT === "true"
+    });
   }
 
   return new MockDesktopProvider();

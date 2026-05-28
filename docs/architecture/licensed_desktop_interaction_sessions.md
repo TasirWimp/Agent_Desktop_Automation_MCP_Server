@@ -120,7 +120,7 @@ Clicking is licensed by:
 - audit logging,
 - post-action verification.
 
-The current policy slice validates observation references when observation packets are supplied to the evaluator. Future provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop mutation.
+The current policy slice validates observation references when observation packets are supplied to the evaluator. Provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop action.
 
 ## Relationship To Existing Policy
 
@@ -150,3 +150,12 @@ The first safe slice should add schemas, policy evaluators, tests, and mock/prov
 - deterministic tests for scope, risk, audit, and post-action observation requirements.
 
 This slice should not implement a real OS mutation backend, real clicking, real typing, OCR, accessibility-tree interpretation, or autonomous background loops.
+
+## Current Implementation Note
+
+The Windows provider now has two opt-in real gates:
+
+- real active-window observation with `ADMCP_ENABLE_REAL_OBSERVATION=true`,
+- real mouse movement with `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true`.
+
+Real mouse movement is treated as a non-durable pointer probe, not as permission to click or type. It requires a licensed session, fresh pre-action observation, active-window scope validation, an in-frame target point, audit logging, and post-movement observation. Real clicking, real typing, shell execution, app launching, system changes, and durable desktop mutation remain disabled.

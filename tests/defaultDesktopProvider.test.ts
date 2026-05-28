@@ -8,6 +8,7 @@ describe("createDefaultDesktopProvider", () => {
     expect(provider.getCapabilities()).toMatchObject({
       providerKind: "mock",
       realDesktopCapture: false,
+      realDesktopMouseMovement: false,
       realDesktopMutation: false
     });
   });
@@ -32,8 +33,27 @@ describe("createDefaultDesktopProvider", () => {
     expect(provider.getCapabilities()).toMatchObject({
       providerKind: "real",
       realDesktopCapture: true,
+      realDesktopMouseMovement: false,
       realDesktopMutation: false,
       supportsMouse: false,
+      supportsClick: false,
+      supportsTyping: false
+    });
+  });
+
+  it("enables Windows real mouse movement only behind the explicit movement gate", () => {
+    const provider = createDefaultDesktopProvider({
+      ADMCP_DESKTOP_PROVIDER: "windows-active-window",
+      ADMCP_ENABLE_REAL_OBSERVATION: "true",
+      ADMCP_ENABLE_REAL_MOUSE_MOVEMENT: "true"
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      realDesktopCapture: true,
+      realDesktopMouseMovement: true,
+      realDesktopMutation: false,
+      supportsMouse: true,
       supportsClick: false,
       supportsTyping: false
     });
