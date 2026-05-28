@@ -135,7 +135,7 @@ Extracted implementation slices:
 - ADMCP-011 Mock Click And Type Tools - implemented.
 - ADMCP-012 Real Observation Provider Spike - implemented.
 - ADMCP-013 Real Mouse Movement Provider Gate - implemented.
-- ADMCP-013A Governed Manual Probe Runner - planned support slice.
+- ADMCP-013A Governed Manual Probe Runner - implemented.
 - ADMCP-014 Cursor And Hover Witness Refinement - planned.
 
 Acceptance gate before real click, typing, or durable OS mutation:
@@ -465,7 +465,7 @@ Goal: Make real observation and pointer-movement experiments repeatable before a
 
 Status:
 
-- Planned support slice.
+- Implemented.
 
 Reason:
 
@@ -481,9 +481,25 @@ Required behavior:
 - Save compact run artifacts: pre/post observation ids, cursor points, planned vectors, transition-gate status, screenshot paths or frame hashes, click-block result when requested, and residue.
 - Keep real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
 
+Delivered behavior:
+
+- Adds a reusable governed manual probe runner module.
+- Adds `npm run manual:probe`.
+- Requires `userConfirmed: true` and `visibleContentAcknowledged: true` in runner config.
+- Requires `allowRealMouseMovement: true` before using a real provider that reports mouse support.
+- Runs through the existing MCP session tools and provider-backed `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and audit-log tools.
+- Supports bounded relative movement from observed cursor position toward an area of interest.
+- Saves compact per-attempt summaries, frame hashes, optional screenshot artifacts, cursor positions, planned vectors, transition-gate status, manual witness notes, click-block results, and residue.
+- Preserves stale-observation policy blocks instead of hiding them.
+- Skips click verification if a provider reports click support; when the current Windows provider reports no click support, the runner verifies `desktop_click` blocking without a real click.
+- Keeps real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
+
 Expected files:
 
-- `scripts/` or `src/manual/` runner entrypoint, depending on the repo's existing script conventions.
+- `src/manual/governedManualProbeRunner.ts`
+- `src/manual/governedManualProbeCli.ts`
+- `tests/governedManualProbeRunner.test.ts`
+- `package.json`
 - `docs/testing/manual_real_observation_checklist.md`
 - `docs/process/codex_desktop_interaction_reentry.md`
 
@@ -500,6 +516,11 @@ Residual scope:
 - The runner is for governed manual experiments, not autonomous desktop control.
 - The runner should not add new MCP behavior or replace protocol tests.
 - ADMCP-014 remains responsible for first-class cursor and hover witness packets.
+
+Verification:
+
+- `npm run test -- tests/governedManualProbeRunner.test.ts`
+- `npm run check`
 
 ### ADMCP-014 Cursor And Hover Witness Refinement
 

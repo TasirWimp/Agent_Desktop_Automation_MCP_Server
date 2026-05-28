@@ -93,7 +93,7 @@ Use only when a tool interacts with the local desktop. Each manual check must in
 
 For ADMCP-012 and ADMCP-013, use `manual_real_observation_checklist.md`. Real observation manual checks must verify bounded active-window capture, visible-content acknowledgement, controlled scope mismatch, no hidden polling, and no real desktop mutation. Optional real pointer-movement checks must verify explicit opt-in configuration, active-window-local coordinates, session/license enforcement, transition-gate follow-up observation, out-of-bounds rejection, and continued blocking of real click/type behavior.
 
-For ADMCP-013A, the manual probe runner must be tested as a support tool, not as new desktop authority. Tests or scripted dry runs should verify that the runner uses existing MCP/session tool paths, preserves audit output, records stale-observation policy blocks, records wrong-target hover residue, and verifies real click blocking without producing a real click.
+For ADMCP-013A, the manual probe runner is tested as a support tool, not as new desktop authority. Tests verify that the runner uses existing MCP/session tool paths, preserves audit output, records stale-observation policy blocks, records manual wrong-target hover residue, and verifies real click blocking without producing a real click.
 
 For ADMCP-014, tests must cover cursor witness metadata, missing cursor or hover witness residue, post-movement transition delta packets, scope-stability evidence, and continued blocking of real click/type behavior. ADMCP-014 tests must not require OCR, accessibility trees, semantic localization, or real click execution.
 

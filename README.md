@@ -52,11 +52,23 @@ With that gate enabled, `desktop_move_mouse` may move the real cursor inside the
 ```bash
 npm install
 npm run dev
+npm run manual:probe:example
 npm run typecheck
 npm run test
 npm run build
 npm run start
 ```
+
+## Governed Manual Probe Runner
+
+`npm run manual:probe` runs bounded manual path-finding probes through the existing MCP session tools. It does not bypass policy, scope checks, transition gates, or provider capability checks.
+
+```powershell
+npm run manual:probe:example
+npm run manual:probe -- .\tmp\manual-probes\file-menu.json
+```
+
+The runner can use the opt-in Windows observation and mouse-movement provider, but the config must explicitly set `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true`. It does not enable real clicking or typing.
 
 ## Codex MCP Configuration
 

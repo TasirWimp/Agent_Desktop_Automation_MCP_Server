@@ -67,7 +67,12 @@ When ADMCP-014 is implemented, extend the pointer-movement check with these witn
 
 ## Manual Probe Runner Checks
 
-When ADMCP-013A is implemented, use the runner for repeated path-finding checks instead of ad hoc scripts:
+ADMCP-013A is implemented. Use the runner for repeated path-finding checks instead of ad hoc scripts:
+
+```powershell
+npm run manual:probe:example
+npm run manual:probe -- .\tmp\manual-probes\file-menu.json
+```
 
 1. Confirm the runner starts a bounded session with explicit visible-content acknowledgement.
 2. Confirm it records every observation id, movement action id, transition-gate status, cursor point, and movement vector.

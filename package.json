@@ -16,6 +16,8 @@
   },
   "scripts": {
     "dev": "tsx src/index.ts",
+    "manual:probe": "tsx src/manual/governedManualProbeCli.ts --",
+    "manual:probe:example": "tsx src/manual/governedManualProbeCli.ts --example",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "vitest run",

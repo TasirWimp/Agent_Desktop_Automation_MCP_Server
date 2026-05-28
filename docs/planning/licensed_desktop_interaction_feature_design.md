@@ -629,6 +629,8 @@ Implemented notes:
 
 Goal: make governed real-observation and pointer-movement path-finding experiments repeatable before adding richer cursor/hover witness packets.
 
+Status: implemented.
+
 Design reason:
 
 - The first manual path-finding try showed that the governed loop is viable, but ad hoc harnessing is too fragile.
@@ -648,6 +650,16 @@ Acceptance criteria:
 - Records wrong-target hover evidence, such as a sidebar hover, as useful negative witness residue.
 - Records final target hover evidence as a witness, but does not claim that it licenses real click.
 - Verifies `desktop_click` remains blocked by provider capability when requested.
+
+Implemented notes:
+
+- The reusable runner lives in `src/manual/governedManualProbeRunner.ts`.
+- The CLI wrapper lives in `src/manual/governedManualProbeCli.ts`.
+- `npm run manual:probe:example` prints a sample JSON config.
+- `npm run manual:probe -- <path>` runs a bounded probe from a config file.
+- The runner uses the existing in-process MCP server and client transport; it does not call provider methods directly except through registered tools.
+- The runner requires explicit `userConfirmed`, `visibleContentAcknowledged`, and `allowRealMouseMovement` gates before a real mouse provider can be used.
+- Tests use a fake Windows backend, so CI verifies the governed path without moving the real cursor.
 
 ### First Governed Path-Finding Lessons
 

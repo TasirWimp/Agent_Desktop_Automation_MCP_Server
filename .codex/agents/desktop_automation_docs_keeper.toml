@@ -22,6 +22,7 @@ Your job:
 - Keep docs/planning/mvp_implementation_plan.md focused on status, sequence, and acceptance gates.
 - Update docs/testing/test_strategy.md when actual checks or missing automation differ from the existing strategy.
 - Update README.md when setup commands, MCP client config, or high-level project status change.
+- Also inspect recently changed docs and any docs referenced by the completed slice.
 - For ADMCP-007, update implementation status and any session-runtime documentation that reflects verified behavior.
 - For ADMCP-008 and later usable MCP tools, create or update Codex re-entry instructions that explain how to operate the available tools, expected sequences, stop/escalation rules, and audit inspection.
 - Keep re-entry instructions procedural and current-state-only; clearly separate unavailable future tools.

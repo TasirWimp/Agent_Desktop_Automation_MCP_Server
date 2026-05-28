@@ -92,12 +92,21 @@ Future real providers must reuse the same transition gate discipline before any 
 
 ## Next Implementation Target
 
-ADMCP-013A is the next support slice if more manual real-provider probing is needed. Its job is a governed manual probe runner:
+ADMCP-013A is implemented. It provides a governed manual probe runner for repeated real-provider path-finding:
 
 - run repeated `observe -> move_mouse -> observe` attempts through the existing MCP/session path,
 - record cursor positions, relative movement vectors, screenshot paths or frame hashes, transition-gate status, and residue,
 - preserve stale-observation policy blocks and wrong-target hover evidence,
 - verify `desktop_click` remains blocked without producing a real click.
+
+Use:
+
+```powershell
+npm run manual:probe:example
+npm run manual:probe -- .\tmp\manual-probes\file-menu.json
+```
+
+Real pointer movement through the runner still requires the Windows provider config plus `allowRealMouseMovement: true` in the probe config.
 
 ADMCP-014 is the next product-behavior slice. Its job is cursor and hover witness refinement, not real clicking:
 
