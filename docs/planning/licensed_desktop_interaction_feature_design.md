@@ -678,6 +678,8 @@ The first real movement experiment against the Codex app produced these design c
 
 Goal: turn movement follow-up observations into explicit witness packets that support iterative pointer probing without licensing a real click.
 
+Status: implemented.
+
 Depends on:
 
 - ADMCP-010,
@@ -692,19 +694,40 @@ Design intent:
 
 New or refined packets:
 
-- `cursorWitness`: cursor position, coordinate space, provider source, timestamp, confidence, and residue.
+- `cursorWitness`: cursor position, cursor visibility, coordinate space, provider source, timestamp, confidence, whether the cursor was rendered into any returned frame, rendering method, and residue.
 - `movementDeltaWitness`: intended point, provider result point, follow-up observed point, distance from intended point, scope stability, and residue.
 - `hoverWitness`: optional evidence fields for hover highlight, tooltip, cursor shape, enabled state, or visual delta; absent evidence must be represented as uncertainty, not guessed.
+
+Cursor rendering rule:
+
+- Windows `CopyFromScreen` may omit the mouse pointer because the cursor can be a separate desktop overlay.
+- ADMCP-014 should add provider-rendered cursor overlays when the provider can read cursor visibility, cursor position, cursor handle, and hotspot.
+- The implementation should use Win32 cursor APIs such as `GetCursorInfo`, `GetIconInfo`, and `DrawIconEx` or an equivalent provider-specific path.
+- Rendered cursor coordinates must be active-window-relative: `cursorScreenPosition - activeWindowTopLeft - cursorHotspot`.
+- Frames must explicitly state whether they are raw or cursor-annotated. Cursor rendering must not be silent.
+- If cursor rendering fails, is outside the captured frame, or cannot prove visibility, the observation should preserve cursor metadata and add residue rather than claiming cursor-overlay evidence.
 
 Acceptance criteria:
 
 - `desktop_observe` returns cursor witness metadata when the provider supplies cursor position.
+- Cursor witness metadata includes visibility, coordinate space, rendered-into-frame status, rendering method, and residue.
+- The Windows provider can render the visible cursor into returned frame images when cursor evidence is available and in bounds.
+- Raw versus cursor-annotated frame semantics are explicit in frame metadata.
 - A post-movement `desktop_observe` with `transitionActionId` records a movement delta witness on the interaction transition gate.
 - The transition gate can say whether cursor position was observed, whether the active window stayed in scope, and what residue remains before another action.
 - Missing cursor or hover evidence does not fail observation, but it prevents claiming interaction readiness.
 - The real Windows provider still supports only observation and optional mouse movement.
 - `desktop_click` and `desktop_type_text` remain unsupported by the real provider.
 - Tests cover witness shape, missing-witness residue, movement delta audit output, and continued click blocking.
+
+Delivered implementation:
+
+- Observations can include `cursorWitness` and `hoverWitness` packets.
+- Frame artifacts include witness metadata that marks each frame as `raw` or `cursor_annotated`.
+- The Windows active-window provider renders the visible cursor into captured PNG frames with `GetCursorInfo`, `GetIconInfo`, and `DrawIconEx` when the cursor is visible and inside the captured active-window frame.
+- Cursor rendering failure, hidden cursor state, outside-frame cursor position, or cursor API failure is reported as residue; successful frame capture does not fail only because cursor evidence is unavailable.
+- Post-movement transition audits produce `movementDeltaWitness` with intended point, provider result point, follow-up observed point, distance from intended point, scope stability, confidence, and residue.
+- `hoverWitness` is present as an unevaluated low-confidence packet; ADMCP-014 does not infer hover readiness, semantic localization, or click readiness.
 
 Expected files:
 
@@ -755,6 +778,6 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-Start ADMCP-013A or ADMCP-014 before enabling any real click backend. If more manual real-provider experiments are needed first, implement ADMCP-013A. If implementation proceeds directly into product behavior, implement ADMCP-014.
+After ADMCP-014, the next implementation should define a click-candidate witness gate that consumes cursor witness, movement delta witness, frame evidence, and explicit residue without executing a real click yet.
 
-That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real observation fifth, non-durable pointer movement sixth, repeatable governed probes and cursor/hover witnesses next, and real click/type only after stronger visual witnesses.
+That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real observation fifth, non-durable pointer movement sixth, repeatable governed probes and cursor/hover witnesses seventh, click-candidate witness policy next, and real click/type only after stronger visual witnesses.

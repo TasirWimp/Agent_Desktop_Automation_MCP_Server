@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import type {
+  DesktopCursorWitness,
   DesktopFrameArtifact,
+  DesktopHoverWitness,
   DesktopInteractionScope,
   DesktopPoint,
   DesktopRectangle,
@@ -28,8 +30,19 @@ export interface WindowsActiveWindowSnapshot {
   bounds?: DesktopRectangle;
 }
 
+export interface WindowsCursorCaptureMetadata {
+  visible?: boolean;
+  screenPosition?: DesktopPoint;
+  framePosition?: DesktopPoint;
+  hotspot?: DesktopPoint;
+  renderedIntoFrame: boolean;
+  renderingMethod?: string;
+  residue: string[];
+}
+
 export interface WindowsCapturedFrame extends WindowsActiveWindowSnapshot {
   dataBase64: string;
+  cursor?: WindowsCursorCaptureMetadata;
 }
 
 export interface WindowsObservationBackend {
@@ -102,6 +115,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     const frameSpacingMs = frameCount <= 1 ? 0 : Math.floor(durationMs / (frameCount - 1));
     const frames: DesktopFrameArtifact[] = [];
     let latestActiveWindow = activeWindow;
+    let latestCursorCapture: WindowsCursorCaptureMetadata | undefined;
 
     for (let index = 0; index < frameCount; index += 1) {
       if (index > 0 && frameSpacingMs > 0) {
@@ -111,6 +125,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       const captured = await this.safeCaptureActiveWindow();
       this.assertTargetScopeMatchesActiveWindow(request.targetScope, captured);
       latestActiveWindow = captured;
+      latestCursorCapture = captured.cursor;
       const bytes = Buffer.from(captured.dataBase64, "base64");
       const elapsedMs = index * frameSpacingMs;
 
@@ -123,22 +138,33 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
         height: captured.bounds?.height ?? 1,
         byteLength: bytes.byteLength,
         sha256: createHash("sha256").update(bytes).digest("hex"),
+        witness: frameWitnessFromCursorCapture(captured.cursor),
         ...(request.includeImages ? { dataBase64: captured.dataBase64 } : {})
       });
     }
+
+    const cursorWitness = await this.safeGetCursorWitness(
+      request.observedAt,
+      latestActiveWindow,
+      latestCursorCapture
+    );
 
     return {
       targetScope: request.targetScope,
       observedAt: request.observedAt,
       activeWindow: toWindowMetadata(latestActiveWindow),
-      cursorPosition: await this.safeGetLocalCursorPosition(latestActiveWindow),
+      cursorPosition: cursorWitness.position,
+      cursorWitness,
+      hoverWitness: buildUnavailableHoverWitness(),
       frames,
       lastActionDeltaSummary:
         "Real active-window observation captured bounded frame evidence; no OCR or localization was performed.",
       residue: [
         "Real visible active-window capture occurred inside the bounded provider call.",
         `Observation was bounded to ${frames.length} frame(s) over ${durationMs} ms.`,
-        "Cursor position is reported in active-window frame coordinates when available.",
+        cursorWitness.position === undefined
+          ? "Cursor position was unavailable; cursor witness residue explains why."
+          : "Cursor position is reported in active-window frame coordinates.",
         "No mouse movement, click, typing, OCR, localization, hidden polling, or background capture occurred."
       ]
     };
@@ -216,13 +242,50 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     }
   }
 
-  private async safeGetLocalCursorPosition(
-    activeWindow: WindowsActiveWindowSnapshot
-  ): Promise<DesktopPoint> {
+  private async safeGetCursorWitness(
+    observedAt: string,
+    activeWindow: WindowsActiveWindowSnapshot,
+    cursorCapture: WindowsCursorCaptureMetadata | undefined
+  ): Promise<DesktopCursorWitness> {
+    if (cursorCapture !== undefined) {
+      return cursorWitnessFromCapture(observedAt, cursorCapture);
+    }
+
     try {
-      return cursorToActiveWindowPoint(await this.backend.getCursorPosition(), activeWindow);
+      const cursorPosition = cursorToActiveWindowPoint(
+        await this.backend.getCursorPosition(),
+        activeWindow
+      );
+
+      return {
+        status: "observed",
+        visible: true,
+        position: cursorPosition,
+        coordinateSpace: "active_window_frame",
+        providerSource: "windows_active_window_observation_provider",
+        observedAt,
+        confidence: "medium",
+        renderedIntoFrame: false,
+        residue: [
+          "Cursor position was read after frame capture.",
+          "The captured frame did not include provider cursor-rendering metadata."
+        ]
+      };
     } catch (error: unknown) {
-      throw providerCaptureError(error, "Failed to read cursor position.");
+      const message = error instanceof Error ? error.message : "Failed to read cursor position.";
+
+      return {
+        status: "unavailable",
+        coordinateSpace: "unknown",
+        providerSource: "windows_active_window_observation_provider",
+        observedAt,
+        confidence: "low",
+        renderedIntoFrame: false,
+        residue: [
+          message,
+          "Observation frame capture still succeeded; no cursor position claim is made."
+        ]
+      };
     }
   }
 
@@ -408,6 +471,85 @@ function toWindowMetadata(snapshot: WindowsActiveWindowSnapshot): DesktopWindowM
   };
 }
 
+function frameWitnessFromCursorCapture(
+  cursor: WindowsCursorCaptureMetadata | undefined
+): NonNullable<DesktopFrameArtifact["witness"]> {
+  const cursorResidue = cursor?.residue;
+
+  if (cursor?.renderedIntoFrame === true) {
+    return {
+      pixelSource: "cursor_annotated",
+      cursorRenderedIntoFrame: true,
+      cursorRenderingMethod: cursor.renderingMethod,
+      cursorFramePosition: cursor.framePosition,
+      cursorHotspot: cursor.hotspot,
+      residue:
+        cursorResidue === undefined || cursorResidue.length === 0
+          ? ["Visible cursor was rendered into the active-window frame."]
+          : cursorResidue
+    };
+  }
+
+  return {
+    pixelSource: "raw",
+    cursorRenderedIntoFrame: false,
+    cursorRenderingMethod: cursor?.renderingMethod,
+    cursorFramePosition: cursor?.framePosition,
+    cursorHotspot: cursor?.hotspot,
+    residue:
+      cursorResidue === undefined || cursorResidue.length === 0
+        ? ["Frame is a raw active-window capture without a rendered cursor overlay."]
+        : cursorResidue
+  };
+}
+
+function cursorWitnessFromCapture(
+  observedAt: string,
+  cursor: WindowsCursorCaptureMetadata
+): DesktopCursorWitness {
+  if (cursor.framePosition === undefined) {
+    return {
+      status: "unavailable",
+      visible: cursor.visible,
+      coordinateSpace: "unknown",
+      providerSource: "windows_active_window_observation_provider",
+      observedAt,
+      confidence: "low",
+      renderedIntoFrame: false,
+      renderingMethod: cursor.renderingMethod,
+      residue:
+        cursor.residue.length === 0
+          ? ["Cursor capture metadata did not include a usable position."]
+          : cursor.residue
+    };
+  }
+
+  return {
+    status: "observed",
+    visible: cursor.visible,
+    position: cursor.framePosition,
+    coordinateSpace: cursor.framePosition === undefined ? "screen" : "active_window_frame",
+    providerSource: "windows_active_window_observation_provider",
+    observedAt,
+    confidence:
+      cursor.visible === true && cursor.framePosition !== undefined ? "high" : "medium",
+    renderedIntoFrame: cursor.renderedIntoFrame,
+    renderingMethod: cursor.renderingMethod,
+    residue: cursor.residue
+  };
+}
+
+function buildUnavailableHoverWitness(): DesktopHoverWitness {
+  return {
+    evaluated: false,
+    confidence: "low",
+    signals: [],
+    residue: [
+      "Hover, tooltip, cursor-shape, enabled-state, and visual-delta witnesses are not evaluated in ADMCP-014."
+    ]
+  };
+}
+
 function unsupportedActionResult(actionName: string): DesktopProviderActionResult {
   return {
     executed: false,
@@ -467,6 +609,28 @@ public class AdmcpWin32 {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool SetCursorPos(int x, int y);
 
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool GetCursorInfo(ref CURSORINFO pci);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool DrawIconEx(
+    IntPtr hdc,
+    int xLeft,
+    int yTop,
+    IntPtr hIcon,
+    int cxWidth,
+    int cyWidth,
+    int istepIfAniCur,
+    IntPtr hbrFlickerFreeDraw,
+    int diFlags
+  );
+
+  [DllImport("gdi32.dll", SetLastError=true)]
+  public static extern bool DeleteObject(IntPtr hObject);
+
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT {
     public int Left;
@@ -479,6 +643,23 @@ public class AdmcpWin32 {
   public struct POINT {
     public int X;
     public int Y;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct CURSORINFO {
+    public int cbSize;
+    public int flags;
+    public IntPtr hCursor;
+    public POINT ptScreenPos;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct ICONINFO {
+    public bool fIcon;
+    public int xHotspot;
+    public int yHotspot;
+    public IntPtr hbmMask;
+    public IntPtr hbmColor;
   }
 }
 "@
@@ -527,6 +708,134 @@ function Get-AdmcpCursorPosition {
     y = $point.Y
   }
 }
+
+function Add-AdmcpCursorOverlay {
+  param(
+    [Parameter(Mandatory = $true)] $Graphics,
+    [Parameter(Mandatory = $true)] $Window
+  )
+
+  $residue = New-Object System.Collections.Generic.List[string]
+  $cursorInfo = New-Object AdmcpWin32+CURSORINFO
+  $cursorInfo.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([AdmcpWin32+CURSORINFO])
+
+  if (-not [AdmcpWin32]::GetCursorInfo([ref]$cursorInfo)) {
+    $residue.Add("GetCursorInfo failed; frame remains raw without a rendered cursor.")
+    return [pscustomobject]@{
+      visible = $false
+      renderedIntoFrame = $false
+      residue = @($residue)
+    }
+  }
+
+  $cursorVisible = (($cursorInfo.flags -band 0x00000001) -ne 0)
+  $screenPosition = [pscustomobject]@{
+    x = $cursorInfo.ptScreenPos.X
+    y = $cursorInfo.ptScreenPos.Y
+  }
+  $localX = $cursorInfo.ptScreenPos.X - $Window.bounds.left
+  $localY = $cursorInfo.ptScreenPos.Y - $Window.bounds.top
+  $framePosition = [pscustomobject]@{
+    x = $localX
+    y = $localY
+  }
+  $hotspot = $null
+  $renderingMethod = "win32:GetCursorInfo+GetIconInfo+DrawIconEx"
+  $renderedIntoFrame = $false
+
+  if (-not $cursorVisible) {
+    $residue.Add("Cursor is not visible according to GetCursorInfo; frame remains raw.")
+    return [pscustomobject]@{
+      visible = $cursorVisible
+      screenPosition = $screenPosition
+      framePosition = $framePosition
+      renderedIntoFrame = $renderedIntoFrame
+      renderingMethod = $renderingMethod
+      residue = @($residue)
+    }
+  }
+
+  if (
+    $localX -lt 0 -or
+    $localY -lt 0 -or
+    $localX -ge $Window.bounds.width -or
+    $localY -ge $Window.bounds.height
+  ) {
+    $residue.Add("Cursor screen position is outside the captured active-window frame; frame remains raw.")
+    return [pscustomobject]@{
+      visible = $cursorVisible
+      screenPosition = $screenPosition
+      framePosition = $framePosition
+      renderedIntoFrame = $renderedIntoFrame
+      renderingMethod = $renderingMethod
+      residue = @($residue)
+    }
+  }
+
+  if ($cursorInfo.hCursor -eq [IntPtr]::Zero) {
+    $residue.Add("GetCursorInfo returned no cursor handle; frame remains raw.")
+    return [pscustomobject]@{
+      visible = $cursorVisible
+      screenPosition = $screenPosition
+      framePosition = $framePosition
+      renderedIntoFrame = $renderedIntoFrame
+      renderingMethod = $renderingMethod
+      residue = @($residue)
+    }
+  }
+
+  $iconInfo = New-Object AdmcpWin32+ICONINFO
+  if (-not [AdmcpWin32]::GetIconInfo($cursorInfo.hCursor, [ref]$iconInfo)) {
+    $residue.Add("GetIconInfo failed; frame remains raw without a rendered cursor.")
+    return [pscustomobject]@{
+      visible = $cursorVisible
+      screenPosition = $screenPosition
+      framePosition = $framePosition
+      renderedIntoFrame = $renderedIntoFrame
+      renderingMethod = $renderingMethod
+      residue = @($residue)
+    }
+  }
+
+  try {
+    $hotspot = [pscustomobject]@{
+      x = $iconInfo.xHotspot
+      y = $iconInfo.yHotspot
+    }
+    $drawX = [int]($localX - $iconInfo.xHotspot)
+    $drawY = [int]($localY - $iconInfo.yHotspot)
+    $hdc = $Graphics.GetHdc()
+
+    try {
+      $renderedIntoFrame = [AdmcpWin32]::DrawIconEx($hdc, $drawX, $drawY, $cursorInfo.hCursor, 0, 0, 0, [IntPtr]::Zero, 0x0003)
+    } finally {
+      $Graphics.ReleaseHdc($hdc)
+    }
+
+    if ($renderedIntoFrame) {
+      $residue.Add("Visible cursor was rendered into the active-window frame.")
+    } else {
+      $residue.Add("DrawIconEx failed; frame remains raw without a rendered cursor.")
+    }
+  } finally {
+    if ($iconInfo.hbmMask -ne [IntPtr]::Zero) {
+      [void][AdmcpWin32]::DeleteObject($iconInfo.hbmMask)
+    }
+    if ($iconInfo.hbmColor -ne [IntPtr]::Zero) {
+      [void][AdmcpWin32]::DeleteObject($iconInfo.hbmColor)
+    }
+  }
+
+  [pscustomobject]@{
+    visible = $cursorVisible
+    screenPosition = $screenPosition
+    framePosition = $framePosition
+    hotspot = $hotspot
+    renderedIntoFrame = $renderedIntoFrame
+    renderingMethod = $renderingMethod
+    residue = @($residue)
+  }
+}
 `;
 
 const activeWindowMetadataScript = String.raw`
@@ -548,9 +857,11 @@ $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $stream = New-Object System.IO.MemoryStream
 try {
   $graphics.CopyFromScreen($window.bounds.left, $window.bounds.top, 0, 0, $bitmap.Size)
+  $cursor = Add-AdmcpCursorOverlay -Graphics $graphics -Window $window
   $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
   $bytes = $stream.ToArray()
   $window | Add-Member -NotePropertyName dataBase64 -NotePropertyValue ([Convert]::ToBase64String($bytes))
+  $window | Add-Member -NotePropertyName cursor -NotePropertyValue $cursor
   $window | ConvertTo-Json -Compress -Depth 6
 } finally {
   $graphics.Dispose()

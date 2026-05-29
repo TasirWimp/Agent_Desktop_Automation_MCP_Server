@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type {
+  DesktopCursorWitness,
   DesktopFrameArtifact,
+  DesktopHoverWitness,
   DesktopPoint,
   DesktopWindowMetadata
 } from "../policy/sessionLicensePolicy.js";
@@ -87,6 +89,8 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
       observedAt: request.observedAt,
       activeWindow: this.activeWindow,
       cursorPosition: this.cursorPosition,
+      cursorWitness: this.buildCursorWitness(request.observedAt),
+      hoverWitness: this.buildHoverWitness(),
       frames,
       lastActionDeltaSummary: "No prior action delta is available in the mock observation provider.",
       residue
@@ -175,7 +179,42 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
       height: 1,
       byteLength: bytes.byteLength,
       sha256: createHash("sha256").update(bytes).digest("hex"),
+      witness: {
+        pixelSource: "raw",
+        cursorRenderedIntoFrame: false,
+        residue: [
+          "Mock frame pixels are deterministic raw fixtures and do not contain a rendered cursor."
+        ]
+      },
       ...(request.includeImages ? { dataBase64: mockPngBase64 } : {})
+    };
+  }
+
+  private buildCursorWitness(observedAt: string): DesktopCursorWitness {
+    return {
+      status: "observed",
+      visible: true,
+      position: this.cursorPosition,
+      coordinateSpace: "active_window_frame",
+      providerSource: "mock_desktop_provider",
+      observedAt,
+      confidence: "medium",
+      renderedIntoFrame: false,
+      residue: [
+        "Mock provider reports a deterministic active-window-relative cursor position.",
+        "Mock frame pixels are not cursor-annotated."
+      ]
+    };
+  }
+
+  private buildHoverWitness(): DesktopHoverWitness {
+    return {
+      evaluated: false,
+      confidence: "low",
+      signals: [],
+      residue: [
+        "Mock provider does not evaluate hover highlights, tooltips, cursor shape, or visual deltas."
+      ]
     };
   }
 

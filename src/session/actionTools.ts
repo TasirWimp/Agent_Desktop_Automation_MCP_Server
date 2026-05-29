@@ -442,12 +442,21 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
       ...action,
       residue: [...action.residue, ...providerResult.residue]
     });
+    const sourceObservation =
+      action.preActionObservationId === undefined
+        ? undefined
+        : runtime.sessionStore.getObservation(
+            input.sessionId,
+            action.preActionObservationId
+          );
     const actionCount = runtime.sessionStore.incrementActionCount(input.sessionId);
     const transitionGate = runtime.sessionStore.recordTransitionGate(
       createPendingInteractionTransitionGate({
         transitionId: runtime.generateId("transition"),
         action: recordedAction,
         createdAt: runtime.now(),
+        sourceObservation,
+        providerReportedCursorPosition: providerResult.cursorPosition,
         protectedObservables: config.protectedObservables,
         expectedEvidenceAfterAction: config.expectedEvidenceAfterAction,
         residue: [

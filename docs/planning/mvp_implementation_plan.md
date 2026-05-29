@@ -136,7 +136,7 @@ Extracted implementation slices:
 - ADMCP-012 Real Observation Provider Spike - implemented.
 - ADMCP-013 Real Mouse Movement Provider Gate - implemented.
 - ADMCP-013A Governed Manual Probe Runner - implemented.
-- ADMCP-014 Cursor And Hover Witness Refinement - planned.
+- ADMCP-014 Cursor And Hover Witness Refinement - implemented.
 
 Acceptance gate before real click, typing, or durable OS mutation:
 
@@ -528,7 +528,7 @@ Goal: Make the post-movement observation evidence explicit enough for iterative 
 
 Status:
 
-- Planned.
+- Implemented.
 
 Depends on:
 
@@ -541,6 +541,8 @@ Required behavior:
 - Preserve the current session, scope, audit, and transition-gate discipline.
 - Keep real click, real typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
 - Represent cursor witness metadata explicitly in observations when available, including coordinate space, provider source, confidence or residue, and active-window-relative position.
+- Render the visible Windows cursor into captured frames when the provider can prove cursor visibility and position, and mark the frame as cursor-annotated rather than raw.
+- Preserve raw-versus-annotated frame semantics in metadata so downstream policy can distinguish provider-rendered cursor evidence from unmodified pixels.
 - Record post-movement transition deltas that compare intended target point, provider-reported cursor point, and follow-up observed cursor point.
 - Record whether the active window identity and scope stayed stable after movement.
 - Add hover/cursor-shape/visual-change witness fields as optional residue-bearing evidence, not as a click license.
@@ -552,6 +554,7 @@ Expected files:
 - `src/session/observationTools.ts`
 - `src/session/interactionTransitionGate.ts`
 - `src/uiPlanning/closedLoopUiTypes.ts`
+- `tests/protocol/desktopObserveTool.test.ts`
 - `tests/protocol/desktopMoveMouseTool.test.ts`
 - `tests/protocol/windowsDesktopObserveTool.test.ts`
 - `tests/windowsDesktopObservationProvider.test.ts`
@@ -561,6 +564,9 @@ Expected files:
 Acceptance criteria:
 
 - `desktop_observe` returns structured cursor witness metadata when the provider supplies cursor position.
+- Cursor witness metadata includes cursor visibility, coordinate space, whether the cursor was rendered into the frame, rendering method, and residue.
+- When the cursor is visible and inside the active-window frame, the Windows provider can produce a frame with the cursor rendered into the bitmap.
+- When cursor rendering is unavailable, outside-frame, or uncertain, the observation still succeeds with explicit residue and does not claim cursor-overlay evidence.
 - Post-movement observation with `transitionActionId` records a transition delta packet with intended point, observed point, distance residue, and scope-stability evidence.
 - Missing cursor data does not fail observation, but it produces explicit uncertainty residue and prevents claiming hover/intersection readiness.
 - Movement outside the scoped active-window frame remains blocked before provider movement.
@@ -568,9 +574,19 @@ Acceptance criteria:
 - Real click and typing remain unsupported by the Windows provider.
 - Tests cover cursor witness presence, missing cursor witness residue, transition delta recording, scope stability, and continued real click blocking.
 
+Implemented behavior:
+
+- `DesktopObservationPacket` now carries optional `cursorWitness` and `hoverWitness` fields.
+- Frame artifacts now carry witness metadata that distinguishes `raw` frames from `cursor_annotated` frames.
+- The mock provider reports deterministic cursor witness metadata and raw mock frame semantics.
+- The Windows provider uses `GetCursorInfo`, `GetIconInfo`, and `DrawIconEx` to render the visible cursor into captured active-window PNG frames when available and in bounds.
+- Cursor API failure no longer fails observation after frame capture; it returns explicit cursor-witness residue instead.
+- Movement transition gates now record `movementDeltaWitness` with intended point, provider-reported cursor point, follow-up observed cursor point, distance, scope stability, and residue.
+- Hover, tooltip, cursor-shape, enabled-state, and visual-delta evidence remain unevaluated and residue-bearing only.
+
 Verification:
 
-- `npm run test -- tests/windowsDesktopObservationProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts tests/protocol/desktopMoveMouseTool.test.ts`
+- `npm run test -- tests/windowsDesktopObservationProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts tests/protocol/desktopMoveMouseTool.test.ts tests/protocol/desktopObserveTool.test.ts`
 - `npm run check`
 
 Residual scope:

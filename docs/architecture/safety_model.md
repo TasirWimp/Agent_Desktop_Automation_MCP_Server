@@ -27,7 +27,7 @@ Every execution tool must document:
 
 ## Current Decision
 
-The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, mock movement/click/type probes, opt-in Windows active-window observation, and an opt-in Windows real mouse-movement probe. The default provider remains mock-only. Real clicking, real typing, shell commands, app launching, system changes, and durable desktop mutation remain disabled.
+The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, mock movement/click/type probes, cursor and movement-delta witness packets, opt-in Windows active-window observation, and an opt-in Windows real mouse-movement probe. The default provider remains mock-only. Real clicking, real typing, shell commands, app launching, system changes, and durable desktop mutation remain disabled.
 
 `ui_intersection_plan` may prepare a policy-gated candidate packet from semantic localization and frame evidence. It must not move the cursor, click, capture screens, or claim success. Actual `mouse_input` remains a state-changing action that requires either single-action policy confirmation or an active session license, audit logging, scope checks, and post-action observation.
 
@@ -35,7 +35,7 @@ The server exposes capability reporting, policy classification, read-only UI int
 
 `desktop_click` and `desktop_type_text` remain mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not click the real desktop, type into the real desktop, or control the OS. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
 
-`desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, reports active-window-relative cursor position when available, validates active-window scope before capture, and does not enable real clicking, typing, or durable desktop mutation.
+`desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, reports active-window-relative cursor witness metadata when available, can render the visible cursor into active-window frames when provider cursor evidence is sufficient, validates active-window scope before capture, and does not enable real clicking, typing, or durable desktop mutation.
 
 ## Session License Direction
 

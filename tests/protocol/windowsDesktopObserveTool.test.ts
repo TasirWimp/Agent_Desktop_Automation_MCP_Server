@@ -225,11 +225,25 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         x: 12,
         y: 8
       });
+      expect(observation.cursorWitness).toMatchObject({
+        status: "observed",
+        coordinateSpace: "active_window_frame",
+        renderedIntoFrame: false,
+        providerSource: "windows_active_window_observation_provider"
+      });
       expect(frames).toHaveLength(1);
       expect(frames[0]).toMatchObject({
         width: 640,
         height: 480,
-        mimeType: "image/png"
+        mimeType: "image/png",
+        witness: {
+          pixelSource: "raw",
+          cursorRenderedIntoFrame: false
+        }
+      });
+      expect(observation.hoverWitness).toMatchObject({
+        evaluated: false,
+        confidence: "low"
       });
       expect(frames[0]?.dataBase64).toBeUndefined();
       expect(backend.captureCount).toBe(1);
@@ -347,6 +361,42 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       ]);
       expect(sessionStore.findBlockingTransitionGate("session-real-observe-001")).toMatchObject({
         status: "pending_observation"
+      });
+
+      const observeResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          transitionActionId: "action-fixed-4"
+        }
+      });
+      const observeStructured = parseStructuredContent(observeResult);
+
+      expect(observeResult.isError).not.toBe(true);
+      expect(observeStructured.transitionGate).toMatchObject({
+        status: "audited",
+        followUpObservationId: "observation-fixed-8",
+        movementDeltaWitness: {
+          intendedPoint: {
+            x: 120,
+            y: 80
+          },
+          providerReportedPoint: {
+            x: 120,
+            y: 80
+          },
+          observedPoint: {
+            x: 120,
+            y: 80
+          },
+          distanceFromIntendedPx: 0,
+          cursorObserved: true,
+          scopeStable: true
+        }
       });
     } finally {
       await client.close();

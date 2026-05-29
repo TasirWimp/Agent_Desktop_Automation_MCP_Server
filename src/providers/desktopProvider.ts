@@ -1,5 +1,7 @@
 import type {
+  DesktopCursorWitness,
   DesktopFrameArtifact,
+  DesktopHoverWitness,
   DesktopInteractionScope,
   DesktopPoint,
   DesktopWindowMetadata
@@ -63,6 +65,8 @@ export interface DesktopObserveResult {
   observedAt: string;
   activeWindow?: DesktopWindowMetadata;
   cursorPosition?: DesktopPoint;
+  cursorWitness?: DesktopCursorWitness;
+  hoverWitness?: DesktopHoverWitness;
   frames: DesktopFrameArtifact[];
   lastActionDeltaSummary?: string;
   residue: string[];

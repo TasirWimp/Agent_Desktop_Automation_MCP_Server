@@ -56,14 +56,17 @@ Run these only after the user has granted a bounded session license for pointer 
 
 ## ADMCP-014 Witness Checks
 
-When ADMCP-014 is implemented, extend the pointer-movement check with these witness assertions:
+Extend the pointer-movement check with these witness assertions:
 
 1. Confirm the initial observation includes structured cursor witness metadata or explicit residue explaining why cursor evidence is unavailable.
-2. After `desktop_move_mouse`, call `desktop_observe` with `transitionActionId`.
-3. Confirm the transition audit records the intended movement point, provider movement result, follow-up observed cursor point, and distance/residue.
-4. Confirm the audit records whether active-window identity and scope remained stable after movement.
-5. Confirm hover, tooltip, cursor-shape, enabled-state, or visual-change evidence is represented only when available; otherwise uncertainty residue must be explicit.
-6. Confirm no witness packet claims that a real click is licensed.
+2. Confirm cursor witness metadata states whether the cursor was rendered into the returned frame and whether the frame is raw or cursor-annotated.
+3. If the cursor is visible and inside the active-window frame, confirm the returned screenshot visibly includes the cursor.
+4. If the cursor is not rendered, confirm the result explains why, such as cursor outside frame, cursor hidden, provider API unavailable, or rendering failure.
+5. After `desktop_move_mouse`, call `desktop_observe` with `transitionActionId`.
+6. Confirm the transition audit records the intended movement point, provider movement result, follow-up observed cursor point, and distance/residue.
+7. Confirm the audit records whether active-window identity and scope remained stable after movement.
+8. Confirm hover, tooltip, cursor-shape, enabled-state, or visual-change evidence is represented only when available; otherwise uncertainty residue must be explicit.
+9. Confirm no witness packet claims that a real click is licensed.
 
 ## Manual Probe Runner Checks
 

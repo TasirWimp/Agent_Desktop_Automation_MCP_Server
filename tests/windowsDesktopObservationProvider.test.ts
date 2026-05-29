@@ -142,13 +142,28 @@ describe("WindowsDesktopObservationProvider", () => {
       x: 12,
       y: 8
     });
+    expect(observation.cursorWitness).toMatchObject({
+      status: "observed",
+      visible: true,
+      position: {
+        x: 12,
+        y: 8
+      },
+      coordinateSpace: "active_window_frame",
+      providerSource: "windows_active_window_observation_provider",
+      renderedIntoFrame: false
+    });
     expect(observation.frames).toHaveLength(2);
     expect(observation.frames[0]).toMatchObject({
       index: 0,
       mimeType: "image/png",
       width: 640,
       height: 480,
-      elapsedMs: 0
+      elapsedMs: 0,
+      witness: {
+        pixelSource: "raw",
+        cursorRenderedIntoFrame: false
+      }
     });
     expect(observation.frames[1]).toMatchObject({
       index: 1,
@@ -179,6 +194,123 @@ describe("WindowsDesktopObservationProvider", () => {
 
     expect(observation.frames).toHaveLength(1);
     expect(observation.frames[0]?.dataBase64).toBe(pngBase64);
+  });
+
+  it("marks captured frames as cursor-annotated when the backend renders the cursor", async () => {
+    const provider = new WindowsDesktopObservationProvider({
+      backend: new FakeWindowsBackend(activeWindow, {
+        ...activeWindow,
+        dataBase64: pngBase64,
+        cursor: {
+          visible: true,
+          screenPosition: {
+            x: 24,
+            y: 31
+          },
+          framePosition: {
+            x: 14,
+            y: 11
+          },
+          hotspot: {
+            x: 2,
+            y: 3
+          },
+          renderedIntoFrame: true,
+          renderingMethod: "win32:GetCursorInfo+GetIconInfo+DrawIconEx",
+          residue: ["Visible cursor was rendered into the active-window frame."]
+        }
+      }),
+      platform: "win32"
+    });
+
+    const observation = await provider.observe({
+      sessionId: "session-real-001",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      observedAt: "2026-05-28T10:00:00.000Z",
+      mode: "single_frame",
+      maxFrames: 1,
+      durationMs: 0,
+      frameFormat: "image/png",
+      includeImages: false
+    });
+
+    expect(observation.cursorPosition).toEqual({
+      x: 14,
+      y: 11
+    });
+    expect(observation.cursorWitness).toMatchObject({
+      status: "observed",
+      visible: true,
+      renderedIntoFrame: true,
+      renderingMethod: "win32:GetCursorInfo+GetIconInfo+DrawIconEx",
+      confidence: "high"
+    });
+    expect(observation.frames[0]?.witness).toMatchObject({
+      pixelSource: "cursor_annotated",
+      cursorRenderedIntoFrame: true,
+      cursorFramePosition: {
+        x: 14,
+        y: 11
+      },
+      cursorHotspot: {
+        x: 2,
+        y: 3
+      }
+    });
+  });
+
+  it("keeps observation successful when cursor position is unavailable", async () => {
+    const backend: WindowsObservationBackend = {
+      async getActiveWindow() {
+        return activeWindow;
+      },
+      async getCursorPosition() {
+        throw new Error("cursor API unavailable");
+      },
+      async captureActiveWindowPng() {
+        return {
+          ...activeWindow,
+          dataBase64: pngBase64
+        };
+      },
+      async moveMouseTo() {
+        throw new Error("should not move");
+      }
+    };
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32"
+    });
+
+    const observation = await provider.observe({
+      sessionId: "session-real-001",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      observedAt: "2026-05-28T10:00:00.000Z",
+      mode: "single_frame",
+      maxFrames: 1,
+      durationMs: 0,
+      frameFormat: "image/png",
+      includeImages: false
+    });
+
+    expect(observation.cursorPosition).toBeUndefined();
+    expect(observation.cursorWitness).toMatchObject({
+      status: "unavailable",
+      coordinateSpace: "unknown",
+      confidence: "low",
+      renderedIntoFrame: false
+    });
+    expect(observation.cursorWitness?.residue).toEqual(
+      expect.arrayContaining([
+        "Observation frame capture still succeeded; no cursor position claim is made."
+      ])
+    );
   });
 
   it("rejects scope mismatch before capture", async () => {

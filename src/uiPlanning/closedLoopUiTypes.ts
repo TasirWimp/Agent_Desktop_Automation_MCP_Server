@@ -30,6 +30,10 @@ export const cursorObservationPacketSchema = z.object({
   cursorVisible: z.boolean(),
   cursorPosition: pointSchema.optional(),
   cursorBbox: boundingBoxSchema.optional(),
+  coordinateSpace: z.enum(["active_window_frame", "screen", "unknown"]).optional(),
+  providerSource: z.string().optional(),
+  renderedIntoFrame: z.boolean().optional(),
+  renderingMethod: z.string().optional(),
   confidence: z.enum(confidenceLevels),
   trackingResidue: z.array(z.string())
 });

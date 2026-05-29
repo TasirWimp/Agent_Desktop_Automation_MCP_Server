@@ -95,7 +95,7 @@ For ADMCP-012 and ADMCP-013, use `manual_real_observation_checklist.md`. Real ob
 
 For ADMCP-013A, the manual probe runner is tested as a support tool, not as new desktop authority. Tests verify that the runner uses existing MCP/session tool paths, preserves audit output, records stale-observation policy blocks, records manual wrong-target hover residue, and verifies real click blocking without producing a real click.
 
-For ADMCP-014, tests must cover cursor witness metadata, missing cursor or hover witness residue, post-movement transition delta packets, scope-stability evidence, and continued blocking of real click/type behavior. ADMCP-014 tests must not require OCR, accessibility trees, semantic localization, or real click execution.
+For ADMCP-014, tests must cover cursor witness metadata, cursor-rendered frame metadata, raw-versus-annotated frame semantics, missing cursor or hover witness residue, post-movement transition delta packets, scope-stability evidence, and continued blocking of real click/type behavior. ADMCP-014 tests must not require OCR, accessibility trees, semantic localization, or real click execution.
 
 ## Reporting Requirements
 

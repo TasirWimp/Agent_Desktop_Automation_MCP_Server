@@ -108,6 +108,16 @@ export const desktopFrameArtifactSchema = z.object({
   height: z.number().int().positive(),
   byteLength: z.number().int().nonnegative(),
   sha256: z.string().min(1),
+  witness: z
+    .object({
+      pixelSource: z.enum(["raw", "cursor_annotated"]),
+      cursorRenderedIntoFrame: z.boolean(),
+      cursorRenderingMethod: z.string().min(1).optional(),
+      cursorFramePosition: desktopPointSchema.optional(),
+      cursorHotspot: desktopPointSchema.optional(),
+      residue: z.array(z.string())
+    })
+    .optional(),
   dataBase64: z.string().optional()
 });
 
@@ -123,6 +133,30 @@ export const desktopWindowMetadataSchema = z.object({
 
 export type DesktopWindowMetadata = z.infer<typeof desktopWindowMetadataSchema>;
 
+export const desktopCursorWitnessSchema = z.object({
+  status: z.enum(["observed", "unavailable"]),
+  visible: z.boolean().optional(),
+  position: desktopPointSchema.optional(),
+  coordinateSpace: z.enum(["active_window_frame", "screen", "unknown"]),
+  providerSource: z.string().min(1),
+  observedAt: z.string().min(1),
+  confidence: z.enum(["low", "medium", "high"]),
+  renderedIntoFrame: z.boolean(),
+  renderingMethod: z.string().min(1).optional(),
+  residue: z.array(z.string())
+});
+
+export type DesktopCursorWitness = z.infer<typeof desktopCursorWitnessSchema>;
+
+export const desktopHoverWitnessSchema = z.object({
+  evaluated: z.boolean(),
+  confidence: z.enum(["low", "medium", "high"]),
+  signals: z.array(z.string()),
+  residue: z.array(z.string())
+});
+
+export type DesktopHoverWitness = z.infer<typeof desktopHoverWitnessSchema>;
+
 export const desktopObservationPacketSchema = z.object({
   observationId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -130,6 +164,8 @@ export const desktopObservationPacketSchema = z.object({
   targetScope: desktopInteractionScopeSchema,
   activeWindow: desktopWindowMetadataSchema.optional(),
   cursorPosition: desktopPointSchema.optional(),
+  cursorWitness: desktopCursorWitnessSchema.optional(),
+  hoverWitness: desktopHoverWitnessSchema.optional(),
   frames: z.array(desktopFrameArtifactSchema).max(12),
   lastActionDeltaSummary: z.string().optional(),
   residue: z.array(z.string())

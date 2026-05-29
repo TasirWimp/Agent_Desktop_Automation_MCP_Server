@@ -306,7 +306,25 @@ describe("desktop_move_mouse MCP tool", () => {
       expect(observeStructured.transitionGate).toMatchObject({
         actionId: "action-fixed-4",
         status: "audited",
-        followUpObservationId: "observation-fixed-8"
+        followUpObservationId: "observation-fixed-8",
+        movementDeltaWitness: {
+          intendedPoint: {
+            x: 120,
+            y: 80
+          },
+          providerReportedPoint: {
+            x: 120,
+            y: 80
+          },
+          observedPoint: {
+            x: 120,
+            y: 80
+          },
+          distanceFromIntendedPx: 0,
+          cursorObserved: true,
+          scopeStable: true,
+          confidence: "high"
+        }
       });
       expect(observeStructured.postActionAuditEvent).toMatchObject({
         eventType: "post_action_observed",

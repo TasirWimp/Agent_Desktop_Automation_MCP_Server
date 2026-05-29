@@ -276,6 +276,8 @@ export function registerObservationTools(
           targetScope,
           activeWindow: providerResult.activeWindow,
           cursorPosition: providerResult.cursorPosition,
+          cursorWitness: providerResult.cursorWitness,
+          hoverWitness: providerResult.hoverWitness,
           frames: providerResult.frames,
           lastActionDeltaSummary: providerResult.lastActionDeltaSummary,
           residue: [

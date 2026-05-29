@@ -177,7 +177,20 @@ describe("desktop_observe MCP tool", () => {
         index: 0,
         mimeType: "image/png",
         width: 1,
-        height: 1
+        height: 1,
+        witness: {
+          pixelSource: "raw",
+          cursorRenderedIntoFrame: false
+        }
+      });
+      expect(observation.cursorWitness).toMatchObject({
+        status: "observed",
+        position: {
+          x: 320,
+          y: 180
+        },
+        coordinateSpace: "active_window_frame",
+        renderedIntoFrame: false
       });
       expect(structured.providerCapabilities).toMatchObject({
         providerKind: "mock",

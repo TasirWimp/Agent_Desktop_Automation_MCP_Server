@@ -61,7 +61,7 @@ Use the session tools to create a bounded task license, record mock observation 
 16. Use `desktop_session_audit_log` to inspect the session trace.
 17. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, and opt-in real movement audit events. It can exercise the `observe -> move_mouse -> observe transitionActionId` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
+The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, opt-in real movement, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, and movement-delta audit events. It can exercise the `observe -> move_mouse -> observe transitionActionId` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
 
 ## Stop Or Escalate
 
@@ -108,12 +108,15 @@ npm run manual:probe -- .\tmp\manual-probes\file-menu.json
 
 Real pointer movement through the runner still requires the Windows provider config plus `allowRealMouseMovement: true` in the probe config.
 
-ADMCP-014 is the next product-behavior slice. Its job is cursor and hover witness refinement, not real clicking:
+ADMCP-014 is implemented. Its job is cursor and hover witness refinement, not real clicking:
 
 - preserve `observe -> move_mouse -> observe transitionActionId`,
 - add explicit cursor witness and movement delta evidence,
+- render the visible cursor into captured frames when possible and mark those frames as cursor-annotated,
 - record scope-stability and hover/cursor-shape uncertainty,
 - keep real click, typing, shell, app launch, system changes, and durable desktop mutation disabled.
+
+When reading `desktop_observe` output, prefer `cursorWitness` over the legacy top-level `cursorPosition` because it carries coordinate space, confidence, rendered-into-frame status, rendering method, and residue. Treat `hoverWitness.evaluated: false` as an explicit gap, not as evidence that hovering succeeded.
 
 ## Real Observation Manual Check
 
