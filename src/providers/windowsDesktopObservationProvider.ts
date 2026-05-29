@@ -36,6 +36,8 @@ export interface WindowsCursorCaptureMetadata {
   framePosition?: DesktopPoint;
   hotspot?: DesktopPoint;
   renderedIntoFrame: boolean;
+  nativeCursorRenderedIntoFrame?: boolean;
+  witnessMarkerRenderedIntoFrame?: boolean;
   renderingMethod?: string;
   residue: string[];
 }
@@ -480,6 +482,8 @@ function frameWitnessFromCursorCapture(
     return {
       pixelSource: "cursor_annotated",
       cursorRenderedIntoFrame: true,
+      nativeCursorRenderedIntoFrame: cursor.nativeCursorRenderedIntoFrame,
+      witnessMarkerRenderedIntoFrame: cursor.witnessMarkerRenderedIntoFrame,
       cursorRenderingMethod: cursor.renderingMethod,
       cursorFramePosition: cursor.framePosition,
       cursorHotspot: cursor.hotspot,
@@ -493,6 +497,8 @@ function frameWitnessFromCursorCapture(
   return {
     pixelSource: "raw",
     cursorRenderedIntoFrame: false,
+    nativeCursorRenderedIntoFrame: cursor?.nativeCursorRenderedIntoFrame,
+    witnessMarkerRenderedIntoFrame: cursor?.witnessMarkerRenderedIntoFrame,
     cursorRenderingMethod: cursor?.renderingMethod,
     cursorFramePosition: cursor?.framePosition,
     cursorHotspot: cursor?.hotspot,
@@ -534,6 +540,8 @@ function cursorWitnessFromCapture(
     confidence:
       cursor.visible === true && cursor.framePosition !== undefined ? "high" : "medium",
     renderedIntoFrame: cursor.renderedIntoFrame,
+    nativeCursorRenderedIntoFrame: cursor.nativeCursorRenderedIntoFrame,
+    witnessMarkerRenderedIntoFrame: cursor.witnessMarkerRenderedIntoFrame,
     renderingMethod: cursor.renderingMethod,
     residue: cursor.residue
   };
@@ -717,7 +725,7 @@ function Add-AdmcpCursorOverlay {
 
   $residue = New-Object System.Collections.Generic.List[string]
   $cursorInfo = New-Object AdmcpWin32+CURSORINFO
-  $cursorInfo.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([AdmcpWin32+CURSORINFO])
+  $cursorInfo.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($cursorInfo)
 
   if (-not [AdmcpWin32]::GetCursorInfo([ref]$cursorInfo)) {
     $residue.Add("GetCursorInfo failed; frame remains raw without a rendered cursor.")
@@ -740,8 +748,10 @@ function Add-AdmcpCursorOverlay {
     y = $localY
   }
   $hotspot = $null
-  $renderingMethod = "win32:GetCursorInfo+GetIconInfo+DrawIconEx"
+  $renderingMethod = "win32:GetCursorInfo+GetIconInfo+DrawIconEx+HighContrastWitnessMarker"
   $renderedIntoFrame = $false
+  $nativeCursorRenderedIntoFrame = $false
+  $witnessMarkerRenderedIntoFrame = $false
 
   if (-not $cursorVisible) {
     $residue.Add("Cursor is not visible according to GetCursorInfo; frame remains raw.")
@@ -750,6 +760,8 @@ function Add-AdmcpCursorOverlay {
       screenPosition = $screenPosition
       framePosition = $framePosition
       renderedIntoFrame = $renderedIntoFrame
+      nativeCursorRenderedIntoFrame = $nativeCursorRenderedIntoFrame
+      witnessMarkerRenderedIntoFrame = $witnessMarkerRenderedIntoFrame
       renderingMethod = $renderingMethod
       residue = @($residue)
     }
@@ -767,6 +779,8 @@ function Add-AdmcpCursorOverlay {
       screenPosition = $screenPosition
       framePosition = $framePosition
       renderedIntoFrame = $renderedIntoFrame
+      nativeCursorRenderedIntoFrame = $nativeCursorRenderedIntoFrame
+      witnessMarkerRenderedIntoFrame = $witnessMarkerRenderedIntoFrame
       renderingMethod = $renderingMethod
       residue = @($residue)
     }
@@ -779,6 +793,8 @@ function Add-AdmcpCursorOverlay {
       screenPosition = $screenPosition
       framePosition = $framePosition
       renderedIntoFrame = $renderedIntoFrame
+      nativeCursorRenderedIntoFrame = $nativeCursorRenderedIntoFrame
+      witnessMarkerRenderedIntoFrame = $witnessMarkerRenderedIntoFrame
       renderingMethod = $renderingMethod
       residue = @($residue)
     }
@@ -792,6 +808,8 @@ function Add-AdmcpCursorOverlay {
       screenPosition = $screenPosition
       framePosition = $framePosition
       renderedIntoFrame = $renderedIntoFrame
+      nativeCursorRenderedIntoFrame = $nativeCursorRenderedIntoFrame
+      witnessMarkerRenderedIntoFrame = $witnessMarkerRenderedIntoFrame
       renderingMethod = $renderingMethod
       residue = @($residue)
     }
@@ -807,16 +825,47 @@ function Add-AdmcpCursorOverlay {
     $hdc = $Graphics.GetHdc()
 
     try {
-      $renderedIntoFrame = [AdmcpWin32]::DrawIconEx($hdc, $drawX, $drawY, $cursorInfo.hCursor, 0, 0, 0, [IntPtr]::Zero, 0x0003)
+      $nativeCursorRenderedIntoFrame = [AdmcpWin32]::DrawIconEx($hdc, $drawX, $drawY, $cursorInfo.hCursor, 0, 0, 0, [IntPtr]::Zero, 0x0003)
     } finally {
       $Graphics.ReleaseHdc($hdc)
     }
 
-    if ($renderedIntoFrame) {
-      $residue.Add("Visible cursor was rendered into the active-window frame.")
+    if ($nativeCursorRenderedIntoFrame) {
+      $residue.Add("Native visible cursor was rendered into the active-window frame.")
     } else {
-      $residue.Add("DrawIconEx failed; frame remains raw without a rendered cursor.")
+      $residue.Add("Native DrawIconEx cursor rendering failed; high-contrast marker may still provide cursor witness evidence.")
     }
+
+    $outerPen = $null
+    $innerPen = $null
+    try {
+      $radius = 11
+      $outerPen = New-Object System.Drawing.Pen -ArgumentList ([System.Drawing.Color]::Black), 4
+      $innerPen = New-Object System.Drawing.Pen -ArgumentList ([System.Drawing.Color]::FromArgb(255, 255, 0, 255)), 2
+      $Graphics.DrawEllipse($outerPen, [int]($localX - $radius), [int]($localY - $radius), [int]($radius * 2), [int]($radius * 2))
+      $Graphics.DrawEllipse($innerPen, [int]($localX - $radius), [int]($localY - $radius), [int]($radius * 2), [int]($radius * 2))
+      $Graphics.DrawLine($outerPen, [int]($localX - 16), [int]$localY, [int]($localX - 5), [int]$localY)
+      $Graphics.DrawLine($outerPen, [int]($localX + 5), [int]$localY, [int]($localX + 16), [int]$localY)
+      $Graphics.DrawLine($outerPen, [int]$localX, [int]($localY - 16), [int]$localX, [int]($localY - 5))
+      $Graphics.DrawLine($outerPen, [int]$localX, [int]($localY + 5), [int]$localX, [int]($localY + 16))
+      $Graphics.DrawLine($innerPen, [int]($localX - 16), [int]$localY, [int]($localX - 5), [int]$localY)
+      $Graphics.DrawLine($innerPen, [int]($localX + 5), [int]$localY, [int]($localX + 16), [int]$localY)
+      $Graphics.DrawLine($innerPen, [int]$localX, [int]($localY - 16), [int]$localX, [int]($localY - 5))
+      $Graphics.DrawLine($innerPen, [int]$localX, [int]($localY + 5), [int]$localX, [int]($localY + 16))
+      $witnessMarkerRenderedIntoFrame = $true
+      $residue.Add("High-contrast cursor witness marker was rendered around the cursor hotspot.")
+    } catch {
+      $residue.Add(("High-contrast cursor witness marker failed: {0}" -f $_.Exception.Message))
+    } finally {
+      if ($outerPen -ne $null) {
+        $outerPen.Dispose()
+      }
+      if ($innerPen -ne $null) {
+        $innerPen.Dispose()
+      }
+    }
+
+    $renderedIntoFrame = $nativeCursorRenderedIntoFrame -or $witnessMarkerRenderedIntoFrame
   } finally {
     if ($iconInfo.hbmMask -ne [IntPtr]::Zero) {
       [void][AdmcpWin32]::DeleteObject($iconInfo.hbmMask)
@@ -832,6 +881,8 @@ function Add-AdmcpCursorOverlay {
     framePosition = $framePosition
     hotspot = $hotspot
     renderedIntoFrame = $renderedIntoFrame
+    nativeCursorRenderedIntoFrame = $nativeCursorRenderedIntoFrame
+    witnessMarkerRenderedIntoFrame = $witnessMarkerRenderedIntoFrame
     renderingMethod = $renderingMethod
     residue = @($residue)
   }

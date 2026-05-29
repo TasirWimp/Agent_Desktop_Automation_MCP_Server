@@ -112,7 +112,7 @@ ADMCP-014 is implemented. Its job is cursor and hover witness refinement, not re
 
 - preserve `observe -> move_mouse -> observe transitionActionId`,
 - add explicit cursor witness and movement delta evidence,
-- render the visible cursor into captured frames when possible and mark those frames as cursor-annotated,
+- render the visible cursor and a high-contrast cursor witness marker into captured frames when possible, then mark those frames as cursor-annotated,
 - record scope-stability and hover/cursor-shape uncertainty,
 - keep real click, typing, shell, app launch, system changes, and durable desktop mutation disabled.
 

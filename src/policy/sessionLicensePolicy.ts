@@ -112,6 +112,8 @@ export const desktopFrameArtifactSchema = z.object({
     .object({
       pixelSource: z.enum(["raw", "cursor_annotated"]),
       cursorRenderedIntoFrame: z.boolean(),
+      nativeCursorRenderedIntoFrame: z.boolean().optional(),
+      witnessMarkerRenderedIntoFrame: z.boolean().optional(),
       cursorRenderingMethod: z.string().min(1).optional(),
       cursorFramePosition: desktopPointSchema.optional(),
       cursorHotspot: desktopPointSchema.optional(),
@@ -142,6 +144,8 @@ export const desktopCursorWitnessSchema = z.object({
   observedAt: z.string().min(1),
   confidence: z.enum(["low", "medium", "high"]),
   renderedIntoFrame: z.boolean(),
+  nativeCursorRenderedIntoFrame: z.boolean().optional(),
+  witnessMarkerRenderedIntoFrame: z.boolean().optional(),
   renderingMethod: z.string().min(1).optional(),
   residue: z.array(z.string())
 });

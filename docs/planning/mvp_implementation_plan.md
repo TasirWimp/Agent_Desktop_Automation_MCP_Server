@@ -541,7 +541,7 @@ Required behavior:
 - Preserve the current session, scope, audit, and transition-gate discipline.
 - Keep real click, real typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
 - Represent cursor witness metadata explicitly in observations when available, including coordinate space, provider source, confidence or residue, and active-window-relative position.
-- Render the visible Windows cursor into captured frames when the provider can prove cursor visibility and position, and mark the frame as cursor-annotated rather than raw.
+- Render the visible Windows cursor into captured frames when the provider can prove cursor visibility and position, add a small high-contrast cursor witness marker around the cursor hotspot for visual salience, and mark the frame as cursor-annotated rather than raw.
 - Preserve raw-versus-annotated frame semantics in metadata so downstream policy can distinguish provider-rendered cursor evidence from unmodified pixels.
 - Record post-movement transition deltas that compare intended target point, provider-reported cursor point, and follow-up observed cursor point.
 - Record whether the active window identity and scope stayed stable after movement.
@@ -580,6 +580,7 @@ Implemented behavior:
 - Frame artifacts now carry witness metadata that distinguishes `raw` frames from `cursor_annotated` frames.
 - The mock provider reports deterministic cursor witness metadata and raw mock frame semantics.
 - The Windows provider uses `GetCursorInfo`, `GetIconInfo`, and `DrawIconEx` to render the visible cursor into captured active-window PNG frames when available and in bounds.
+- Cursor-annotated Windows frames also include a high-contrast witness marker so thin cursor shapes such as I-beams remain visible in screenshots.
 - Cursor API failure no longer fails observation after frame capture; it returns explicit cursor-witness residue instead.
 - Movement transition gates now record `movementDeltaWitness` with intended point, provider-reported cursor point, follow-up observed cursor point, distance, scope stability, and residue.
 - Hover, tooltip, cursor-shape, enabled-state, and visual-delta evidence remain unevaluated and residue-bearing only.

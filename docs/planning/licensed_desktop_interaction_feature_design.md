@@ -704,6 +704,7 @@ Cursor rendering rule:
 - ADMCP-014 should add provider-rendered cursor overlays when the provider can read cursor visibility, cursor position, cursor handle, and hotspot.
 - The implementation should use Win32 cursor APIs such as `GetCursorInfo`, `GetIconInfo`, and `DrawIconEx` or an equivalent provider-specific path.
 - Rendered cursor coordinates must be active-window-relative: `cursorScreenPosition - activeWindowTopLeft - cursorHotspot`.
+- Cursor-annotated frames may add a small high-contrast witness marker around the cursor hotspot when the native cursor shape is too subtle to be a reliable visual witness.
 - Frames must explicitly state whether they are raw or cursor-annotated. Cursor rendering must not be silent.
 - If cursor rendering fails, is outside the captured frame, or cannot prove visibility, the observation should preserve cursor metadata and add residue rather than claiming cursor-overlay evidence.
 
@@ -725,6 +726,7 @@ Delivered implementation:
 - Observations can include `cursorWitness` and `hoverWitness` packets.
 - Frame artifacts include witness metadata that marks each frame as `raw` or `cursor_annotated`.
 - The Windows active-window provider renders the visible cursor into captured PNG frames with `GetCursorInfo`, `GetIconInfo`, and `DrawIconEx` when the cursor is visible and inside the captured active-window frame.
+- The Windows provider also renders a high-contrast cursor witness marker around the cursor hotspot, with metadata distinguishing native cursor rendering from marker rendering.
 - Cursor rendering failure, hidden cursor state, outside-frame cursor position, or cursor API failure is reported as residue; successful frame capture does not fail only because cursor evidence is unavailable.
 - Post-movement transition audits produce `movementDeltaWitness` with intended point, provider result point, follow-up observed point, distance from intended point, scope stability, confidence, and residue.
 - `hoverWitness` is present as an unevaluated low-confidence packet; ADMCP-014 does not infer hover readiness, semantic localization, or click readiness.

@@ -216,8 +216,13 @@ describe("WindowsDesktopObservationProvider", () => {
             y: 3
           },
           renderedIntoFrame: true,
-          renderingMethod: "win32:GetCursorInfo+GetIconInfo+DrawIconEx",
-          residue: ["Visible cursor was rendered into the active-window frame."]
+          nativeCursorRenderedIntoFrame: true,
+          witnessMarkerRenderedIntoFrame: true,
+          renderingMethod: "win32:GetCursorInfo+GetIconInfo+DrawIconEx+HighContrastWitnessMarker",
+          residue: [
+            "Native visible cursor was rendered into the active-window frame.",
+            "High-contrast cursor witness marker was rendered around the cursor hotspot."
+          ]
         }
       }),
       platform: "win32"
@@ -245,12 +250,16 @@ describe("WindowsDesktopObservationProvider", () => {
       status: "observed",
       visible: true,
       renderedIntoFrame: true,
-      renderingMethod: "win32:GetCursorInfo+GetIconInfo+DrawIconEx",
+      nativeCursorRenderedIntoFrame: true,
+      witnessMarkerRenderedIntoFrame: true,
+      renderingMethod: "win32:GetCursorInfo+GetIconInfo+DrawIconEx+HighContrastWitnessMarker",
       confidence: "high"
     });
     expect(observation.frames[0]?.witness).toMatchObject({
       pixelSource: "cursor_annotated",
       cursorRenderedIntoFrame: true,
+      nativeCursorRenderedIntoFrame: true,
+      witnessMarkerRenderedIntoFrame: true,
       cursorFramePosition: {
         x: 14,
         y: 11

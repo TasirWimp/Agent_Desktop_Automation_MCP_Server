@@ -59,7 +59,7 @@ Run these only after the user has granted a bounded session license for pointer 
 Extend the pointer-movement check with these witness assertions:
 
 1. Confirm the initial observation includes structured cursor witness metadata or explicit residue explaining why cursor evidence is unavailable.
-2. Confirm cursor witness metadata states whether the cursor was rendered into the returned frame and whether the frame is raw or cursor-annotated.
+2. Confirm cursor witness metadata states whether the native cursor and high-contrast cursor witness marker were rendered into the returned frame and whether the frame is raw or cursor-annotated.
 3. If the cursor is visible and inside the active-window frame, confirm the returned screenshot visibly includes the cursor.
 4. If the cursor is not rendered, confirm the result explains why, such as cursor outside frame, cursor hidden, provider API unavailable, or rendering failure.
 5. After `desktop_move_mouse`, call `desktop_observe` with `transitionActionId`.
