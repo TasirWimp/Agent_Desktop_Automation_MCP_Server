@@ -4,6 +4,7 @@ import type {
   DesktopHoverWitness,
   DesktopInteractionScope,
   DesktopPoint,
+  DesktopProviderTimingDiagnostics,
   DesktopWindowMetadata
 } from "../policy/sessionLicensePolicy.js";
 
@@ -67,6 +68,7 @@ export interface DesktopObserveResult {
   cursorPosition?: DesktopPoint;
   cursorWitness?: DesktopCursorWitness;
   hoverWitness?: DesktopHoverWitness;
+  providerTiming?: DesktopProviderTimingDiagnostics;
   frames: DesktopFrameArtifact[];
   lastActionDeltaSummary?: string;
   residue: string[];
@@ -89,6 +91,7 @@ export interface DesktopProviderActionResult {
   cursorPosition?: DesktopPoint;
   clickedButton?: "left" | "middle" | "right";
   typedTextLength?: number;
+  providerTiming?: DesktopProviderTimingDiagnostics;
   residue: string[];
 }
 
@@ -98,4 +101,5 @@ export interface DesktopInteractionProvider {
   moveMouse(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult>;
   click(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult>;
   typeText(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult>;
+  dispose?(): void;
 }

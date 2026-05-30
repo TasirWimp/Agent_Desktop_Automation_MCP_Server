@@ -99,6 +99,10 @@ For ADMCP-013B, the governed navigation probe runner is tested as faster pressur
 
 For ADMCP-014, tests must cover cursor witness metadata, cursor-rendered frame metadata, raw-versus-annotated frame semantics, missing cursor or hover witness residue, post-movement transition delta packets, scope-stability evidence, and continued blocking of real click/type behavior. ADMCP-014 tests must not require OCR, accessibility trees, semantic localization, or real click execution.
 
+For ADMCP-015, tests must cover optional provider timing diagnostics without making timing policy-critical. Windows provider tests should verify observation timing packets, PowerShell substage timing propagation from fake backends, movement provider timing, protocol propagation through `desktop_observe`, and governed navigation probe summaries. Mock and future providers may omit timing diagnostics.
+
+For ADMCP-016, tests must cover the persistent Windows helper as an implementation detail behind the provider seam. Windows provider tests should verify default persistent-helper selection, explicit per-call fallback, helper command delegation, helper failure mapping, provider cleanup delegation, and continued absence of click/type authority. Manual runner tests should preserve provider cleanup paths so helper processes do not outlive governed probe runs. Live checks should verify repeated observations through one session, while treating cold-start latency as residue.
+
 ## Reporting Requirements
 
 Every implementation summary must include:

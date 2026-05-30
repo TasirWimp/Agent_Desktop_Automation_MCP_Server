@@ -217,6 +217,7 @@ export async function runGovernedManualProbe(
   } finally {
     await client.close();
     await server.close();
+    desktopProvider.dispose?.();
   }
 }
 

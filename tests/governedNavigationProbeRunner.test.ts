@@ -192,6 +192,25 @@ describe("runGovernedNavigationProbe", () => {
     ]);
     expect(result.timings.every((timing) => Number.isFinite(timing.durationMs))).toBe(true);
     expect(result.timings.every((timing) => timing.isError === false)).toBe(true);
+    expect(result.initialObservation?.providerTiming).toMatchObject({
+      providerName: "windows_active_window_observation_provider",
+      providerKind: "real"
+    });
+    expect(result.steps[0]?.postObservation?.providerTiming).toMatchObject({
+      providerName: "windows_active_window_observation_provider",
+      providerKind: "real"
+    });
+    expect(result.steps[0]?.move.providerResult).toMatchObject({
+      providerTiming: {
+        providerName: "windows_active_window_observation_provider",
+        providerKind: "real",
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            operation: "set_cursor_position"
+          })
+        ])
+      }
+    });
   });
 
   it("refuses real mouse movement unless explicitly allowed by runner config", async () => {

@@ -73,6 +73,7 @@ export interface NavigationObservationSummary {
   targetScope: DesktopInteractionScope;
   cursorPosition?: DesktopPoint;
   activeWindow?: unknown;
+  providerTiming?: unknown;
   frames: NavigationFrameArtifactSummary[];
   residue: string[];
 }
@@ -315,6 +316,7 @@ export async function runGovernedNavigationProbe(
   } finally {
     await client.close();
     await server.close();
+    desktopProvider.dispose?.();
   }
 }
 
@@ -499,6 +501,7 @@ function summarizeObservation(
     targetScope,
     cursorPosition,
     activeWindow: observation.activeWindow,
+    providerTiming: observation.providerTiming,
     frames,
     residue: stringArray(observation.residue)
   };

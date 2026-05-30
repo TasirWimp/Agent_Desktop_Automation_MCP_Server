@@ -68,6 +68,32 @@ Extend the pointer-movement check with these witness assertions:
 8. Confirm hover, tooltip, cursor-shape, enabled-state, or visual-change evidence is represented only when available; otherwise uncertainty residue must be explicit.
 9. Confirm no witness packet claims that a real click is licensed.
 
+## ADMCP-015 Performance Instrumentation Checks
+
+Extend the observation and pointer-movement checks with these diagnostic assertions:
+
+1. Confirm `desktop_observe` returns `observation.providerTiming` when the Windows real provider is active.
+2. Confirm `observation.providerTiming.entries` includes active-window metadata lookup, active-window capture, frame-byte decoding, frame artifact construction, and total provider timing residue.
+3. When the PowerShell capture script reports substages, confirm entries include screen capture, cursor metadata lookup, cursor rendering, high-contrast witness marker rendering, PNG encoding, and base64 payload construction.
+4. Confirm `desktop_move_mouse` returns `providerResult.providerTiming` when the Windows real movement gate is active.
+5. Confirm movement timing includes pre-move active-window lookup, cursor-position setting, and post-move active-window lookup.
+6. Confirm governed navigation probe output carries observation provider timing summaries so slow provider calls are visible without ad hoc debug scripts.
+7. Confirm timing diagnostics do not change policy decisions, transition-gate behavior, or click/type availability.
+8. Confirm no real click, typing, shell, app launch, system change, hidden polling, background capture, or durable desktop mutation occurs.
+
+## ADMCP-016 Persistent Helper Checks
+
+Extend the real Windows observation checks with these helper-specific assertions:
+
+1. Confirm Windows real-provider capabilities report the persistent helper path by default.
+2. Confirm the per-call PowerShell fallback remains selectable for diagnostics.
+3. Run two bounded `desktop_observe` calls inside one session and compare `observation.providerTiming.totalDurationMs`.
+4. Confirm the second observation is materially faster than the cold helper path when the active window remains stable.
+5. Treat cold-start latency as residue; the helper optimization target is repeated observation during governed navigation, not guaranteed instant first capture.
+6. Confirm provider cleanup runs after manual probe runners exit.
+7. Confirm helper failures return controlled provider errors and do not leave hidden capture, polling, or control loops running.
+8. Confirm no real click, typing, shell, app launch, system change, OCR, accessibility interpretation, background capture, or durable desktop mutation occurs.
+
 ## Manual Probe Runner Checks
 
 ADMCP-013A is implemented. Use the runner for repeated path-finding checks instead of ad hoc scripts:

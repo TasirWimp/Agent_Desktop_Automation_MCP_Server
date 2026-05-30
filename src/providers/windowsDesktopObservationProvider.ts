@@ -1,5 +1,8 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import type {
   DesktopCursorWitness,
@@ -7,6 +10,8 @@ import type {
   DesktopHoverWitness,
   DesktopInteractionScope,
   DesktopPoint,
+  DesktopProviderTimingDiagnostics,
+  DesktopProviderTimingEntry,
   DesktopRectangle,
   DesktopWindowMetadata
 } from "../policy/sessionLicensePolicy.js";
@@ -42,9 +47,15 @@ export interface WindowsCursorCaptureMetadata {
   residue: string[];
 }
 
+export interface WindowsCaptureTiming {
+  entries: DesktopProviderTimingEntry[];
+  residue: string[];
+}
+
 export interface WindowsCapturedFrame extends WindowsActiveWindowSnapshot {
   dataBase64: string;
   cursor?: WindowsCursorCaptureMetadata;
+  timing?: WindowsCaptureTiming;
 }
 
 export interface WindowsObservationBackend {
@@ -52,6 +63,7 @@ export interface WindowsObservationBackend {
   getCursorPosition(): Promise<DesktopPoint>;
   captureActiveWindowPng(): Promise<WindowsCapturedFrame>;
   moveMouseTo(point: DesktopPoint): Promise<DesktopPoint>;
+  dispose?(): void;
 }
 
 export interface WindowsDesktopObservationProviderOptions {
@@ -61,6 +73,7 @@ export interface WindowsDesktopObservationProviderOptions {
   maxFramesPerObservation?: number;
   maxObservationDurationMs?: number;
   frameDelay?: (milliseconds: number) => Promise<void>;
+  usePersistentPowerShellHelper?: boolean;
 }
 
 export class WindowsDesktopObservationProvider implements DesktopInteractionProvider {
@@ -72,7 +85,11 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   private readonly frameDelay: (milliseconds: number) => Promise<void>;
 
   constructor(options: WindowsDesktopObservationProviderOptions = {}) {
-    this.backend = options.backend ?? new PowerShellWindowsObservationBackend();
+    this.backend =
+      options.backend ??
+      (options.usePersistentPowerShellHelper === false
+        ? new PowerShellWindowsObservationBackend()
+        : new PersistentPowerShellWindowsObservationBackend());
     this.platform = options.platform ?? process.platform;
     this.enableRealMouseMovement = options.enableRealMouseMovement ?? false;
     this.maxFramesPerObservation = options.maxFramesPerObservation ?? 6;
@@ -95,6 +112,9 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       maxObservationDurationMs: this.maxObservationDurationMs,
       residue: [
         "Provider captures bounded visible active-window frames only when explicitly selected.",
+        this.backend instanceof PersistentPowerShellWindowsObservationBackend
+          ? "Provider uses a persistent PowerShell helper to keep Win32 observation setup warm."
+          : "Provider uses per-call PowerShell execution.",
         this.enableRealMouseMovement
           ? "Provider may move the real mouse pointer as an opt-in active-window-scoped probe."
           : "Provider does not move the real mouse pointer unless the explicit movement gate is enabled.",
@@ -104,10 +124,21 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     };
   }
 
+  dispose(): void {
+    this.backend.dispose?.();
+  }
+
   async observe(request: DesktopObserveRequest): Promise<DesktopObserveResult> {
+    const timing = new ProviderTimingCollector(
+      "windows_active_window_observation_provider",
+      "real"
+    );
+
     this.ensureAvailable();
 
-    const activeWindow = await this.safeGetActiveWindow();
+    const activeWindow = await timing.measure("active_window_metadata_lookup", () =>
+      this.safeGetActiveWindow()
+    );
     this.assertTargetScopeMatchesActiveWindow(request.targetScope, activeWindow);
 
     const frameCount = request.mode === "single_frame"
@@ -124,31 +155,39 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
         await this.frameDelay(frameSpacingMs);
       }
 
-      const captured = await this.safeCaptureActiveWindow();
+      const captured = await timing.measure(`frame_${index}_capture_active_window_png`, () =>
+        this.safeCaptureActiveWindow()
+      );
+      timing.addEntries(prefixTimingEntries(`frame_${index}.powershell`, captured.timing));
       this.assertTargetScopeMatchesActiveWindow(request.targetScope, captured);
       latestActiveWindow = captured;
       latestCursorCapture = captured.cursor;
-      const bytes = Buffer.from(captured.dataBase64, "base64");
+      const bytes = timing.measureSync(`frame_${index}_decode_frame_bytes`, () =>
+        Buffer.from(captured.dataBase64, "base64")
+      );
       const elapsedMs = index * frameSpacingMs;
 
-      frames.push({
-        index,
-        capturedAt: addMilliseconds(request.observedAt, elapsedMs),
-        elapsedMs,
-        mimeType: "image/png",
-        width: captured.bounds?.width ?? 1,
-        height: captured.bounds?.height ?? 1,
-        byteLength: bytes.byteLength,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        witness: frameWitnessFromCursorCapture(captured.cursor),
-        ...(request.includeImages ? { dataBase64: captured.dataBase64 } : {})
-      });
+      frames.push(
+        timing.measureSync(`frame_${index}_build_frame_artifact`, () => ({
+          index,
+          capturedAt: addMilliseconds(request.observedAt, elapsedMs),
+          elapsedMs,
+          mimeType: "image/png" as const,
+          width: captured.bounds?.width ?? 1,
+          height: captured.bounds?.height ?? 1,
+          byteLength: bytes.byteLength,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          witness: frameWitnessFromCursorCapture(captured.cursor),
+          ...(request.includeImages ? { dataBase64: captured.dataBase64 } : {})
+        }))
+      );
     }
 
     const cursorWitness = await this.safeGetCursorWitness(
       request.observedAt,
       latestActiveWindow,
-      latestCursorCapture
+      latestCursorCapture,
+      timing
     );
 
     return {
@@ -158,6 +197,10 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       cursorPosition: cursorWitness.position,
       cursorWitness,
       hoverWitness: buildUnavailableHoverWitness(),
+      providerTiming: timing.finish([
+        "Provider timing is diagnostic only and is not used as policy evidence.",
+        "PowerShell substage timings, when present, are reported by the capture script."
+      ]),
       frames,
       lastActionDeltaSummary:
         "Real active-window observation captured bounded frame evidence; no OCR or localization was performed.",
@@ -173,6 +216,11 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   }
 
   async moveMouse(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
+    const timing = new ProviderTimingCollector(
+      "windows_active_window_observation_provider",
+      "real"
+    );
+
     if (!this.enableRealMouseMovement) {
       return unsupportedActionResult("move_mouse");
     }
@@ -187,17 +235,27 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       );
     }
 
-    const activeWindow = await this.safeGetActiveWindow();
+    const activeWindow = await timing.measure("pre_move_active_window_metadata_lookup", () =>
+      this.safeGetActiveWindow()
+    );
     this.assertTargetScopeMatchesActiveWindow(request.targetScope, activeWindow);
     const screenPoint = pointToActiveWindowScreenPoint(request.point, activeWindow);
-    const movedCursor = await this.safeMoveMouseTo(screenPoint);
-    const postMoveActiveWindow = await this.safeGetActiveWindow();
+    const movedCursor = await timing.measure("set_cursor_position", () =>
+      this.safeMoveMouseTo(screenPoint)
+    );
+    const postMoveActiveWindow = await timing.measure(
+      "post_move_active_window_metadata_lookup",
+      () => this.safeGetActiveWindow()
+    );
     this.assertTargetScopeMatchesActiveWindow(request.targetScope, postMoveActiveWindow);
 
     return {
       executed: true,
       simulated: false,
       cursorPosition: cursorToActiveWindowPoint(movedCursor, postMoveActiveWindow),
+      providerTiming: timing.finish([
+        "Provider movement timing is diagnostic only and is not used as policy evidence."
+      ]),
       residue: [
         "Real mouse pointer movement occurred as an opt-in bounded probe.",
         "Requested point was interpreted in active-window frame coordinates.",
@@ -247,7 +305,8 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   private async safeGetCursorWitness(
     observedAt: string,
     activeWindow: WindowsActiveWindowSnapshot,
-    cursorCapture: WindowsCursorCaptureMetadata | undefined
+    cursorCapture: WindowsCursorCaptureMetadata | undefined,
+    timing: ProviderTimingCollector
   ): Promise<DesktopCursorWitness> {
     if (cursorCapture !== undefined) {
       return cursorWitnessFromCapture(observedAt, cursorCapture);
@@ -255,7 +314,9 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
 
     try {
       const cursorPosition = cursorToActiveWindowPoint(
-        await this.backend.getCursorPosition(),
+        await timing.measure("cursor_position_fallback_lookup", () =>
+          this.backend.getCursorPosition()
+        ),
         activeWindow
       );
 
@@ -319,6 +380,311 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   }
 }
 
+type WindowsHelperCommand =
+  | "get_active_window"
+  | "get_cursor_position"
+  | "capture_active_window_png"
+  | "move_mouse"
+  | "shutdown";
+
+export interface WindowsObservationHelperClient {
+  request<T>(command: WindowsHelperCommand, payload?: Record<string, unknown>): Promise<T>;
+  dispose(): void;
+}
+
+export interface PersistentPowerShellWindowsObservationBackendOptions {
+  helperClient?: WindowsObservationHelperClient;
+  requestTimeoutMs?: number;
+  powershellCommand?: string;
+}
+
+export class PersistentPowerShellWindowsObservationBackend implements WindowsObservationBackend {
+  private readonly helperClient: WindowsObservationHelperClient;
+
+  constructor(options: PersistentPowerShellWindowsObservationBackendOptions = {}) {
+    this.helperClient =
+      options.helperClient ??
+      new PowerShellWindowsObservationHelperClient({
+        requestTimeoutMs: options.requestTimeoutMs,
+        powershellCommand: options.powershellCommand
+      });
+  }
+
+  async getActiveWindow(): Promise<WindowsActiveWindowSnapshot> {
+    return this.helperClient.request<WindowsActiveWindowSnapshot>("get_active_window");
+  }
+
+  async getCursorPosition(): Promise<DesktopPoint> {
+    return this.helperClient.request<DesktopPoint>("get_cursor_position");
+  }
+
+  async captureActiveWindowPng(): Promise<WindowsCapturedFrame> {
+    return this.helperClient.request<WindowsCapturedFrame>("capture_active_window_png");
+  }
+
+  async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
+    return this.helperClient.request<DesktopPoint>("move_mouse", {
+      point
+    });
+  }
+
+  dispose(): void {
+    this.helperClient.dispose();
+  }
+}
+
+interface PowerShellWindowsObservationHelperClientOptions {
+  requestTimeoutMs?: number;
+  powershellCommand?: string;
+}
+
+interface PendingHelperRequest {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+}
+
+class PowerShellWindowsObservationHelperClient implements WindowsObservationHelperClient {
+  private readonly requestTimeoutMs: number;
+  private readonly powershellCommand: string;
+  private helperProcess?: ChildProcessWithoutNullStreams;
+  private helperScriptDirectory?: string;
+  private helperScriptPath?: string;
+  private stdoutBuffer = "";
+  private stderrBuffer = "";
+  private requestCounter = 0;
+  private readonly pendingRequests = new Map<string, PendingHelperRequest>();
+
+  constructor(options: PowerShellWindowsObservationHelperClientOptions = {}) {
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
+    this.powershellCommand = options.powershellCommand ?? "powershell.exe";
+  }
+
+  request<T>(command: WindowsHelperCommand, payload: Record<string, unknown> = {}): Promise<T> {
+    const helperProcess = this.ensureProcess();
+    const id = `request-${++this.requestCounter}`;
+    const message = `${JSON.stringify({
+      id,
+      command,
+      ...payload
+    })}\n`;
+
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        this.dispose();
+        reject(
+          new Error(
+            `Persistent Windows observation helper timed out after ${this.requestTimeoutMs} ms while handling ${command}.`
+          )
+        );
+      }, this.requestTimeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        timeout
+      });
+
+      helperProcess.stdin.write(message, (error: Error | null | undefined) => {
+        if (error !== undefined && error !== null) {
+          this.rejectPendingRequest(id, error);
+        }
+      });
+    });
+  }
+
+  dispose(): void {
+    const helperProcess = this.helperProcess;
+
+    this.helperProcess = undefined;
+
+    for (const [id, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Persistent Windows observation helper was stopped."));
+      this.pendingRequests.delete(id);
+    }
+
+    if (helperProcess !== undefined && !helperProcess.killed) {
+      try {
+        helperProcess.stdin.end();
+      } catch {
+        // Best-effort cleanup only.
+      }
+
+      try {
+        helperProcess.kill();
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
+
+    if (this.helperScriptDirectory !== undefined) {
+      rmSync(this.helperScriptDirectory, {
+        recursive: true,
+        force: true
+      });
+      this.helperScriptDirectory = undefined;
+      this.helperScriptPath = undefined;
+    }
+  }
+
+  private ensureProcess(): ChildProcessWithoutNullStreams {
+    if (this.helperProcess !== undefined && !this.helperProcess.killed) {
+      return this.helperProcess;
+    }
+
+    this.stderrBuffer = "";
+    this.stdoutBuffer = "";
+    this.ensureHelperScriptFile();
+    const helperProcess = spawn(
+      this.powershellCommand,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        this.helperScriptPath as string
+      ],
+      {
+        windowsHide: true,
+        stdio: "pipe"
+      }
+    );
+
+    helperProcess.stdout.setEncoding("utf8");
+    helperProcess.stderr.setEncoding("utf8");
+    helperProcess.unref();
+    unrefStream(helperProcess.stdin);
+    unrefStream(helperProcess.stdout);
+    unrefStream(helperProcess.stderr);
+    helperProcess.stdout.on("data", (chunk: string) => {
+      this.handleStdout(chunk);
+    });
+    helperProcess.stderr.on("data", (chunk: string) => {
+      this.stderrBuffer = `${this.stderrBuffer}${chunk}`.slice(-4000);
+    });
+    helperProcess.on("error", (error) => {
+      this.failAllPending(error);
+    });
+    helperProcess.on("exit", (code, signal) => {
+      this.helperProcess = undefined;
+      this.failAllPending(
+        new Error(
+          `Persistent Windows observation helper exited unexpectedly with code ${String(code)} and signal ${String(signal)}.${this.stderrBuffer.length === 0 ? "" : ` stderr: ${this.stderrBuffer}`}`
+        )
+      );
+    });
+
+    this.helperProcess = helperProcess;
+
+    return helperProcess;
+  }
+
+  private ensureHelperScriptFile(): void {
+    if (this.helperScriptPath !== undefined) {
+      return;
+    }
+
+    const directory = mkdtempSync(join(tmpdir(), "admcp-windows-helper-"));
+    const scriptPath = join(directory, "windows-observation-helper.ps1");
+
+    writeFileSync(scriptPath, persistentWindowsObservationHelperScript, "utf8");
+    this.helperScriptDirectory = directory;
+    this.helperScriptPath = scriptPath;
+  }
+
+  private handleStdout(chunk: string): void {
+    this.stdoutBuffer += chunk;
+    let newlineIndex = this.stdoutBuffer.indexOf("\n");
+
+    while (newlineIndex !== -1) {
+      const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
+      this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
+
+      if (line.length > 0) {
+        this.handleResponseLine(line);
+      }
+
+      newlineIndex = this.stdoutBuffer.indexOf("\n");
+    }
+  }
+
+  private handleResponseLine(line: string): void {
+    let response: Record<string, unknown>;
+
+    try {
+      response = JSON.parse(line) as Record<string, unknown>;
+    } catch (error: unknown) {
+      this.failAllPending(
+        new Error(
+          `Persistent Windows observation helper returned malformed JSON: ${line.slice(0, 200)}`
+        )
+      );
+      this.dispose();
+
+      return;
+    }
+
+    const id = typeof response.id === "string" ? response.id : undefined;
+
+    if (id === undefined) {
+      this.failAllPending(
+        new Error("Persistent Windows observation helper returned a response without an id.")
+      );
+      this.dispose();
+
+      return;
+    }
+
+    const pending = this.pendingRequests.get(id);
+
+    if (pending === undefined) {
+      return;
+    }
+
+    this.pendingRequests.delete(id);
+    clearTimeout(pending.timeout);
+
+    if (response.ok === true) {
+      pending.resolve(response.result);
+      return;
+    }
+
+    const errorRecord =
+      typeof response.error === "object" && response.error !== null
+        ? (response.error as Record<string, unknown>)
+        : {};
+    const message =
+      typeof errorRecord.message === "string"
+        ? errorRecord.message
+        : "Persistent Windows observation helper returned an error.";
+
+    pending.reject(new Error(message));
+  }
+
+  private rejectPendingRequest(id: string, error: Error): void {
+    const pending = this.pendingRequests.get(id);
+
+    if (pending === undefined) {
+      return;
+    }
+
+    this.pendingRequests.delete(id);
+    clearTimeout(pending.timeout);
+    pending.reject(error);
+  }
+
+  private failAllPending(error: Error): void {
+    for (const [id, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+      this.pendingRequests.delete(id);
+    }
+  }
+}
+
 class PowerShellWindowsObservationBackend implements WindowsObservationBackend {
   async getActiveWindow(): Promise<WindowsActiveWindowSnapshot> {
     return runPowerShellJson<WindowsActiveWindowSnapshot>(activeWindowMetadataScript);
@@ -360,6 +726,130 @@ async function runPowerShellJson<T>(script: string): Promise<T> {
   } catch (error: unknown) {
     throw providerCaptureError(error, "PowerShell active-window observation failed.");
   }
+}
+
+class ProviderTimingCollector {
+  private readonly startedAtMs = Date.now();
+  private readonly entries: DesktopProviderTimingEntry[] = [];
+
+  constructor(
+    private readonly providerName: string,
+    private readonly providerKind: DesktopProviderTimingDiagnostics["providerKind"]
+  ) {}
+
+  async measure<T>(operation: string, callback: () => Promise<T>): Promise<T> {
+    const startedAtMs = Date.now();
+
+    try {
+      const result = await callback();
+
+      this.entries.push({
+        operation,
+        durationMs: elapsedSince(startedAtMs),
+        status: "completed",
+        residue: []
+      });
+
+      return result;
+    } catch (error: unknown) {
+      this.entries.push({
+        operation,
+        durationMs: elapsedSince(startedAtMs),
+        status: "failed",
+        residue: [
+          error instanceof Error ? error.message : "Unknown provider timing failure."
+        ]
+      });
+
+      throw error;
+    }
+  }
+
+  measureSync<T>(operation: string, callback: () => T): T {
+    const startedAtMs = Date.now();
+
+    try {
+      const result = callback();
+
+      this.entries.push({
+        operation,
+        durationMs: elapsedSince(startedAtMs),
+        status: "completed",
+        residue: []
+      });
+
+      return result;
+    } catch (error: unknown) {
+      this.entries.push({
+        operation,
+        durationMs: elapsedSince(startedAtMs),
+        status: "failed",
+        residue: [
+          error instanceof Error ? error.message : "Unknown provider timing failure."
+        ]
+      });
+
+      throw error;
+    }
+  }
+
+  addEntries(entries: DesktopProviderTimingEntry[]): void {
+    this.entries.push(...entries);
+  }
+
+  finish(residue: string[]): DesktopProviderTimingDiagnostics {
+    return {
+      providerName: this.providerName,
+      providerKind: this.providerKind,
+      totalDurationMs: elapsedSince(this.startedAtMs),
+      entries: this.entries,
+      residue
+    };
+  }
+}
+
+function prefixTimingEntries(
+  prefix: string,
+  timing: WindowsCaptureTiming | undefined
+): DesktopProviderTimingEntry[] {
+  if (timing === undefined) {
+    return [
+      {
+        operation: `${prefix}.timing_unavailable`,
+        durationMs: 0,
+        status: "skipped",
+        residue: ["Capture backend did not report PowerShell substage timing."]
+      }
+    ];
+  }
+
+  const entries = timing.entries.map((entry) => ({
+    operation: `${prefix}.${entry.operation}`,
+    durationMs: Math.max(0, Math.round(entry.durationMs)),
+    status: entry.status,
+    residue: entry.residue
+  }));
+
+  if (timing.residue.length > 0) {
+    entries.push({
+      operation: `${prefix}.timing_residue`,
+      durationMs: 0,
+      status: "skipped" as const,
+      residue: timing.residue
+    });
+  }
+
+  return entries;
+}
+
+function elapsedSince(startedAtMs: number): number {
+  return Math.max(0, Date.now() - startedAtMs);
+}
+
+function unrefStream(stream: unknown): void {
+  const candidate = stream as { unref?: () => void };
+
+  candidate.unref?.();
 }
 
 function providerCaptureError(error: unknown, fallbackMessage: string): DesktopProviderError {
@@ -672,6 +1162,23 @@ public class AdmcpWin32 {
 }
 "@
 
+function Add-AdmcpTimingEntry {
+  param(
+    [Parameter(Mandatory = $true)] $Timing,
+    [Parameter(Mandatory = $true)] [string] $Operation,
+    [Parameter(Mandatory = $true)] [long] $DurationMs,
+    [string] $Status = "completed",
+    [string[]] $Residue = @()
+  )
+
+  $Timing.Add([pscustomobject]@{
+    operation = $Operation
+    durationMs = [Math]::Max(0, $DurationMs)
+    status = $Status
+    residue = @($Residue)
+  })
+}
+
 function Get-AdmcpActiveWindow {
   $handle = [AdmcpWin32]::GetForegroundWindow()
   if ($handle -eq [IntPtr]::Zero) {
@@ -720,14 +1227,26 @@ function Get-AdmcpCursorPosition {
 function Add-AdmcpCursorOverlay {
   param(
     [Parameter(Mandatory = $true)] $Graphics,
-    [Parameter(Mandatory = $true)] $Window
+    [Parameter(Mandatory = $true)] $Window,
+    [Parameter(Mandatory = $false)] $Timing
   )
 
   $residue = New-Object System.Collections.Generic.List[string]
   $cursorInfo = New-Object AdmcpWin32+CURSORINFO
   $cursorInfo.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($cursorInfo)
 
-  if (-not [AdmcpWin32]::GetCursorInfo([ref]$cursorInfo)) {
+  $cursorMetadataWatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $cursorInfoSucceeded = [AdmcpWin32]::GetCursorInfo([ref]$cursorInfo)
+  $cursorMetadataWatch.Stop()
+  if ($Timing -ne $null) {
+    if ($cursorInfoSucceeded) {
+      Add-AdmcpTimingEntry -Timing $Timing -Operation "cursor_metadata_lookup" -DurationMs $cursorMetadataWatch.ElapsedMilliseconds
+    } else {
+      Add-AdmcpTimingEntry -Timing $Timing -Operation "cursor_metadata_lookup" -DurationMs $cursorMetadataWatch.ElapsedMilliseconds -Status "failed" -Residue @("GetCursorInfo failed.")
+    }
+  }
+
+  if (-not $cursorInfoSucceeded) {
     $residue.Add("GetCursorInfo failed; frame remains raw without a rendered cursor.")
     return [pscustomobject]@{
       visible = $false
@@ -801,7 +1320,18 @@ function Add-AdmcpCursorOverlay {
   }
 
   $iconInfo = New-Object AdmcpWin32+ICONINFO
-  if (-not [AdmcpWin32]::GetIconInfo($cursorInfo.hCursor, [ref]$iconInfo)) {
+  $iconInfoWatch = [System.Diagnostics.Stopwatch]::StartNew()
+  $iconInfoSucceeded = [AdmcpWin32]::GetIconInfo($cursorInfo.hCursor, [ref]$iconInfo)
+  $iconInfoWatch.Stop()
+  if ($Timing -ne $null) {
+    if ($iconInfoSucceeded) {
+      Add-AdmcpTimingEntry -Timing $Timing -Operation "cursor_icon_info_lookup" -DurationMs $iconInfoWatch.ElapsedMilliseconds
+    } else {
+      Add-AdmcpTimingEntry -Timing $Timing -Operation "cursor_icon_info_lookup" -DurationMs $iconInfoWatch.ElapsedMilliseconds -Status "failed" -Residue @("GetIconInfo failed.")
+    }
+  }
+
+  if (-not $iconInfoSucceeded) {
     $residue.Add("GetIconInfo failed; frame remains raw without a rendered cursor.")
     return [pscustomobject]@{
       visible = $cursorVisible
@@ -825,7 +1355,16 @@ function Add-AdmcpCursorOverlay {
     $hdc = $Graphics.GetHdc()
 
     try {
+      $nativeRenderWatch = [System.Diagnostics.Stopwatch]::StartNew()
       $nativeCursorRenderedIntoFrame = [AdmcpWin32]::DrawIconEx($hdc, $drawX, $drawY, $cursorInfo.hCursor, 0, 0, 0, [IntPtr]::Zero, 0x0003)
+      $nativeRenderWatch.Stop()
+      if ($Timing -ne $null) {
+        if ($nativeCursorRenderedIntoFrame) {
+          Add-AdmcpTimingEntry -Timing $Timing -Operation "native_cursor_render" -DurationMs $nativeRenderWatch.ElapsedMilliseconds
+        } else {
+          Add-AdmcpTimingEntry -Timing $Timing -Operation "native_cursor_render" -DurationMs $nativeRenderWatch.ElapsedMilliseconds -Status "failed" -Residue @("DrawIconEx returned false.")
+        }
+      }
     } finally {
       $Graphics.ReleaseHdc($hdc)
     }
@@ -838,6 +1377,7 @@ function Add-AdmcpCursorOverlay {
 
     $outerPen = $null
     $innerPen = $null
+    $markerWatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
       $radius = 11
       $outerPen = New-Object System.Drawing.Pen -ArgumentList ([System.Drawing.Color]::Black), 4
@@ -854,7 +1394,15 @@ function Add-AdmcpCursorOverlay {
       $Graphics.DrawLine($innerPen, [int]$localX, [int]($localY + 5), [int]$localX, [int]($localY + 16))
       $witnessMarkerRenderedIntoFrame = $true
       $residue.Add("High-contrast cursor witness marker was rendered around the cursor hotspot.")
+      $markerWatch.Stop()
+      if ($Timing -ne $null) {
+        Add-AdmcpTimingEntry -Timing $Timing -Operation "high_contrast_witness_marker_render" -DurationMs $markerWatch.ElapsedMilliseconds
+      }
     } catch {
+      $markerWatch.Stop()
+      if ($Timing -ne $null) {
+        Add-AdmcpTimingEntry -Timing $Timing -Operation "high_contrast_witness_marker_render" -DurationMs $markerWatch.ElapsedMilliseconds -Status "failed" -Residue @($_.Exception.Message)
+      }
       $residue.Add(("High-contrast cursor witness marker failed: {0}" -f $_.Exception.Message))
     } finally {
       if ($outerPen -ne $null) {
@@ -902,17 +1450,46 @@ Get-AdmcpCursorPosition | ConvertTo-Json -Compress -Depth 6
 
 const activeWindowCaptureScript = String.raw`
 ${activeWindowPreamble}
+$timing = New-Object System.Collections.Generic.List[object]
+$stage = [System.Diagnostics.Stopwatch]::StartNew()
 $window = Get-AdmcpActiveWindow
+$stage.Stop()
+Add-AdmcpTimingEntry -Timing $timing -Operation "active_window_metadata_lookup" -DurationMs $stage.ElapsedMilliseconds
+$stage = [System.Diagnostics.Stopwatch]::StartNew()
 $bitmap = New-Object System.Drawing.Bitmap $window.bounds.width, $window.bounds.height
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $stream = New-Object System.IO.MemoryStream
+$stage.Stop()
+Add-AdmcpTimingEntry -Timing $timing -Operation "bitmap_and_graphics_setup" -DurationMs $stage.ElapsedMilliseconds
 try {
+  $stage = [System.Diagnostics.Stopwatch]::StartNew()
   $graphics.CopyFromScreen($window.bounds.left, $window.bounds.top, 0, 0, $bitmap.Size)
-  $cursor = Add-AdmcpCursorOverlay -Graphics $graphics -Window $window
+  $stage.Stop()
+  Add-AdmcpTimingEntry -Timing $timing -Operation "screen_capture" -DurationMs $stage.ElapsedMilliseconds
+  $stage = [System.Diagnostics.Stopwatch]::StartNew()
+  $cursor = Add-AdmcpCursorOverlay -Graphics $graphics -Window $window -Timing $timing
+  $stage.Stop()
+  Add-AdmcpTimingEntry -Timing $timing -Operation "cursor_overlay_total" -DurationMs $stage.ElapsedMilliseconds
+  $stage = [System.Diagnostics.Stopwatch]::StartNew()
   $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+  $stage.Stop()
+  Add-AdmcpTimingEntry -Timing $timing -Operation "png_encode" -DurationMs $stage.ElapsedMilliseconds
+  $stage = [System.Diagnostics.Stopwatch]::StartNew()
   $bytes = $stream.ToArray()
-  $window | Add-Member -NotePropertyName dataBase64 -NotePropertyValue ([Convert]::ToBase64String($bytes))
+  $dataBase64 = [Convert]::ToBase64String($bytes)
+  $stage.Stop()
+  Add-AdmcpTimingEntry -Timing $timing -Operation "base64_payload_construction" -DurationMs $stage.ElapsedMilliseconds
+  $timingEntries = @()
+  foreach ($timingEntry in $timing) {
+    $timingEntries += $timingEntry
+  }
+  $timingObject = New-Object PSObject -Property @{
+    entries = $timingEntries
+    residue = @("PowerShell capture substage timings are diagnostic only.")
+  }
   $window | Add-Member -NotePropertyName cursor -NotePropertyValue $cursor
+  $window | Add-Member -NotePropertyName dataBase64 -NotePropertyValue $dataBase64
+  $window | Add-Member -NotePropertyName timing -NotePropertyValue $timingObject
   $window | ConvertTo-Json -Compress -Depth 6
 } finally {
   $graphics.Dispose()
@@ -933,3 +1510,142 @@ if (-not [AdmcpWin32]::SetCursorPos(${x}, ${y})) {
 Get-AdmcpCursorPosition | ConvertTo-Json -Compress -Depth 6
 `;
 }
+
+const persistentWindowsObservationHelperScript = String.raw`
+${activeWindowPreamble}
+
+function Get-AdmcpActiveWindowCapturePng {
+  $timing = New-Object System.Collections.Generic.List[object]
+  $stage = [System.Diagnostics.Stopwatch]::StartNew()
+  $window = Get-AdmcpActiveWindow
+  $stage.Stop()
+  Add-AdmcpTimingEntry -Timing $timing -Operation "active_window_metadata_lookup" -DurationMs $stage.ElapsedMilliseconds
+  $stage = [System.Diagnostics.Stopwatch]::StartNew()
+  $bitmap = New-Object System.Drawing.Bitmap $window.bounds.width, $window.bounds.height
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $stream = New-Object System.IO.MemoryStream
+  $stage.Stop()
+  Add-AdmcpTimingEntry -Timing $timing -Operation "bitmap_and_graphics_setup" -DurationMs $stage.ElapsedMilliseconds
+  try {
+    $stage = [System.Diagnostics.Stopwatch]::StartNew()
+    $graphics.CopyFromScreen($window.bounds.left, $window.bounds.top, 0, 0, $bitmap.Size)
+    $stage.Stop()
+    Add-AdmcpTimingEntry -Timing $timing -Operation "screen_capture" -DurationMs $stage.ElapsedMilliseconds
+    $stage = [System.Diagnostics.Stopwatch]::StartNew()
+    $cursor = Add-AdmcpCursorOverlay -Graphics $graphics -Window $window -Timing $timing
+    $stage.Stop()
+    Add-AdmcpTimingEntry -Timing $timing -Operation "cursor_overlay_total" -DurationMs $stage.ElapsedMilliseconds
+    $stage = [System.Diagnostics.Stopwatch]::StartNew()
+    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    $stage.Stop()
+    Add-AdmcpTimingEntry -Timing $timing -Operation "png_encode" -DurationMs $stage.ElapsedMilliseconds
+    $stage = [System.Diagnostics.Stopwatch]::StartNew()
+    $bytes = $stream.ToArray()
+    $dataBase64 = [Convert]::ToBase64String($bytes)
+    $stage.Stop()
+    Add-AdmcpTimingEntry -Timing $timing -Operation "base64_payload_construction" -DurationMs $stage.ElapsedMilliseconds
+    $timingEntries = @()
+    foreach ($timingEntry in $timing) {
+      $timingEntries += $timingEntry
+    }
+    $timingObject = New-Object PSObject -Property @{
+      entries = $timingEntries
+      residue = @("PowerShell capture substage timings are diagnostic only.")
+    }
+    $window | Add-Member -NotePropertyName cursor -NotePropertyValue $cursor
+    $window | Add-Member -NotePropertyName dataBase64 -NotePropertyValue $dataBase64
+    $window | Add-Member -NotePropertyName timing -NotePropertyValue $timingObject
+
+    return $window
+  } finally {
+    $graphics.Dispose()
+    $bitmap.Dispose()
+    $stream.Dispose()
+  }
+}
+
+function Write-AdmcpHelperResponse {
+  param(
+    [Parameter(Mandatory = $true)] [string] $Id,
+    [Parameter(Mandatory = $true)] [bool] $Ok,
+    $Result = $null,
+    $ErrorPayload = $null
+  )
+
+  $response = [pscustomobject]@{
+    id = $Id
+    ok = $Ok
+    result = $Result
+    error = $ErrorPayload
+  }
+  $json = $response | ConvertTo-Json -Compress -Depth 20
+  [Console]::Out.WriteLine($json)
+  [Console]::Out.Flush()
+}
+
+$shouldStop = $false
+
+while (-not $shouldStop) {
+  $line = [Console]::In.ReadLine()
+
+  if ($line -eq $null) {
+    break
+  }
+
+  if ($line.Trim().Length -eq 0) {
+    continue
+  }
+
+  $request = $null
+
+  try {
+    $request = $line | ConvertFrom-Json
+    $id = [string]$request.id
+
+    if ([string]::IsNullOrWhiteSpace($id)) {
+      throw "Helper request is missing an id."
+    }
+
+    switch ([string]$request.command) {
+      "get_active_window" {
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Get-AdmcpActiveWindow)
+      }
+      "get_cursor_position" {
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Get-AdmcpCursorPosition)
+      }
+      "capture_active_window_png" {
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Get-AdmcpActiveWindowCapturePng)
+      }
+      "move_mouse" {
+        $x = [int][Math]::Round([double]$request.point.x)
+        $y = [int][Math]::Round([double]$request.point.y)
+
+        if (-not [AdmcpWin32]::SetCursorPos($x, $y)) {
+          throw "Could not move cursor position."
+        }
+
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Get-AdmcpCursorPosition)
+      }
+      "shutdown" {
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result ([pscustomobject]@{
+          status = "shutdown"
+        })
+        $shouldStop = $true
+      }
+      default {
+        throw ("Unknown helper command: {0}" -f [string]$request.command)
+      }
+    }
+  } catch {
+    $id = "unknown"
+
+    if ($request -ne $null -and -not [string]::IsNullOrWhiteSpace([string]$request.id)) {
+      $id = [string]$request.id
+    }
+
+    Write-AdmcpHelperResponse -Id $id -Ok $false -ErrorPayload ([pscustomobject]@{
+      message = $_.Exception.Message
+    })
+  }
+}
+`;

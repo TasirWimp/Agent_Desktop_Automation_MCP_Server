@@ -245,6 +245,21 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         evaluated: false,
         confidence: "low"
       });
+      expect(observation.providerTiming).toMatchObject({
+        providerName: "windows_active_window_observation_provider",
+        providerKind: "real",
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            operation: "active_window_metadata_lookup"
+          }),
+          expect.objectContaining({
+            operation: "frame_0_capture_active_window_png"
+          })
+        ]),
+        residue: expect.arrayContaining([
+          "Provider timing is diagnostic only and is not used as policy evidence."
+        ])
+      });
       expect(frames[0]?.dataBase64).toBeUndefined();
       expect(backend.captureCount).toBe(1);
       expect(sessionStore.listObservations("session-real-observe-001")).toHaveLength(1);

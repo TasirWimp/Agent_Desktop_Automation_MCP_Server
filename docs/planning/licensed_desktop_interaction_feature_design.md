@@ -384,6 +384,7 @@ interface DesktopInteractionProvider {
   moveMouse(request: MoveMouseRequest): Promise<ActionProviderResult>;
   click(request: ClickRequest): Promise<ActionProviderResult>;
   typeText(request: TypeTextRequest): Promise<ActionProviderResult>;
+  dispose?(): void;
 }
 ```
 
@@ -391,6 +392,7 @@ Provider rules:
 
 - mock provider never mutates OS state,
 - real observe provider may capture bounded visible frames only,
+- real helper processes are provider implementation details and must be cleaned up through provider disposal,
 - real control provider is disabled by default,
 - every provider result is converted into session packets and audit events,
 - providers never bypass policy evaluators.

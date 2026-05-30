@@ -137,6 +137,25 @@ ADMCP-014 is implemented. Its job is cursor and hover witness refinement, not re
 
 When reading `desktop_observe` output, prefer `cursorWitness` over the legacy top-level `cursorPosition` because it carries coordinate space, confidence, rendered-into-frame status, rendering method, and residue. Treat `hoverWitness.evaluated: false` as an explicit gap, not as evidence that hovering succeeded.
 
+ADMCP-015 is implemented. It adds provider timing diagnostics for performance work:
+
+- `desktop_observe` may return `observation.providerTiming` when the active provider supplies it.
+- The Windows provider reports active-window lookup, capture call duration, PowerShell capture substages, frame-byte decoding, frame artifact construction, fallback cursor lookup, and total provider duration.
+- Windows real mouse movement returns provider timing inside `providerResult.providerTiming`, including pre-move window lookup, cursor-position setting, post-move window lookup, and total provider duration.
+- The governed navigation probe runner includes observation provider timing in its compact summaries.
+- Timing packets are diagnostic only and must not be treated as policy evidence or action license.
+- Timing instrumentation does not enable click, typing, shell, app launch, system change, hidden polling, background capture, or durable desktop mutation.
+
+ADMCP-016 is implemented. The Windows real-observation provider now uses a persistent PowerShell helper by default:
+
+- The helper is an implementation detail behind the existing provider seam and MCP session tools.
+- It keeps Win32 setup warm across bounded provider calls so repeated observations in a governed path can be fast.
+- It starts on demand, uses per-request timeouts, and is disposed through the optional provider cleanup hook.
+- Manual probe runners call provider cleanup in `finally` so helper processes do not outlive the governed run.
+- A per-call PowerShell fallback remains available with `usePersistentPowerShellHelper: false` for diagnostics.
+- Live smoke showed the warmed path reducing a second observation to about 85-90 ms; cold helper startup can still vary and should be treated as residue.
+- It does not add click, typing, shell, app launch, OCR, accessibility interpretation, hidden polling, background capture, system change, or durable desktop mutation.
+
 ## Real Observation Manual Check
 
 Use `../testing/manual_real_observation_checklist.md` before relying on the Windows real-observation spike outside unit tests.

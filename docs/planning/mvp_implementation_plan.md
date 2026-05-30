@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, and governed manual/navigation probe runners.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
 
 ## Planning Document Roles
 
@@ -138,8 +138,8 @@ Extracted implementation slices:
 - ADMCP-013A Governed Manual Probe Runner - implemented.
 - ADMCP-013B Governed Navigation Probe Runner - implemented.
 - ADMCP-014 Cursor And Hover Witness Refinement - implemented.
-- ADMCP-015 Windows Provider Performance Instrumentation - planned.
-- ADMCP-016 Persistent Windows Observation Helper - planned.
+- ADMCP-015 Windows Provider Performance Instrumentation - implemented.
+- ADMCP-016 Persistent Windows Observation Helper - implemented.
 
 Acceptance gate before real click, typing, or durable OS mutation:
 
@@ -662,7 +662,7 @@ Goal: Measure real-observation latency at the provider boundary before changing 
 
 Status:
 
-- Planned.
+- Implemented.
 
 Reason:
 
@@ -687,8 +687,22 @@ Required behavior:
 - Keep the timing packet compact enough for manual runner summaries.
 - Update the governed navigation probe runner to include provider timing diagnostics when available.
 
+Delivered behavior:
+
+- Adds optional `providerTiming` diagnostics to desktop observation packets.
+- Adds optional `providerTiming` diagnostics to provider action results.
+- Leaves mock and future providers absence-tolerant; timing packets are optional.
+- Records Windows provider observation timings for active-window metadata lookup, capture call duration, PowerShell capture substages when available, frame-byte decoding, frame artifact construction, fallback cursor-position lookup, and total provider duration.
+- Records Windows provider movement timings for pre-move active-window metadata lookup, cursor-position setting, post-move active-window metadata lookup, and total provider duration.
+- Extends the PowerShell active-window capture script with substage timings for active-window metadata lookup, bitmap/graphics setup, screen capture, cursor metadata lookup, cursor icon lookup, native cursor rendering, high-contrast witness marker rendering, cursor overlay total, PNG encoding, and base64 payload construction.
+- Propagates provider timing diagnostics through `desktop_observe` into recorded session observations.
+- Includes observation provider timing diagnostics in governed navigation probe summaries.
+- Keeps timing diagnostics residue-bearing and explicitly diagnostic only; they do not affect policy decisions.
+- Adds no new real click, typing, shell, app launch, system change, hidden polling, background capture, or durable desktop mutation authority.
+
 Expected files:
 
+- `src/policy/sessionLicensePolicy.ts`
 - `src/providers/desktopProvider.ts`
 - `src/providers/windowsDesktopObservationProvider.ts`
 - `src/session/observationTools.ts`
@@ -724,7 +738,7 @@ Goal: Reduce real-observation latency by replacing per-capture PowerShell startu
 
 Status:
 
-- Planned.
+- Implemented.
 
 Depends on:
 
@@ -748,16 +762,31 @@ Required behavior:
 - Keep active-window scope validation before capture and before movement.
 - Preserve cursor witness metadata, cursor-annotated frame semantics, movement delta witnesses, and audit behavior.
 
+Delivered behavior:
+
+- Adds a persistent PowerShell helper backend behind the existing Windows provider seam.
+- Makes the persistent helper the default real Windows provider backend, with an explicit per-call PowerShell fallback for diagnostics.
+- Keeps the helper on demand and bounded by MCP tool calls; it does not add background capture, hidden polling, or raw desktop-control authority.
+- Keeps the existing real movement gate: the helper can move the mouse only when the provider is constructed with the opt-in real-movement flag.
+- Preserves active-window scope validation before observation capture and before opt-in movement.
+- Keeps click, typing, shell, app launch, system settings, OCR, accessibility interpretation, and durable desktop mutation disabled.
+- Adds a JSON-line helper protocol with per-request timeout handling, controlled provider errors, malformed-output handling, and helper cleanup.
+- Adds an optional provider `dispose()` hook and uses it from manual probe runners so helper processes are cleaned up after governed runs.
+- Preserves provider timing diagnostics so warm-helper latency is visible in `desktop_observe`, movement results, and navigation probe output.
+
 Expected files:
 
+- `src/providers/desktopProvider.ts`
 - `src/providers/windowsDesktopObservationProvider.ts`
-- possible `src/providers/windowsObservationHelper.ts`
-- possible helper script or embedded helper source under `src/providers/`
+- `src/manual/governedManualProbeRunner.ts`
+- `src/manual/governedNavigationProbeRunner.ts`
 - `tests/windowsDesktopObservationProvider.test.ts`
 - `tests/defaultDesktopProvider.test.ts`
 - `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `tests/governedNavigationProbeRunner.test.ts`
 - `docs/process/codex_desktop_interaction_reentry.md`
 - `docs/testing/manual_real_observation_checklist.md`
+- `docs/testing/test_strategy.md`
 
 Acceptance criteria:
 
@@ -773,8 +802,10 @@ Verification:
 
 - `npm run test -- tests/windowsDesktopObservationProvider.test.ts tests/defaultDesktopProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts`
 - `npm run check`
+- Manual live smoke: two `desktop_observe` calls through a real Windows provider-backed MCP session, with `includeImages: false` and no movement.
 
 Residual scope:
 
 - This slice optimizes observation plumbing only.
+- Cold helper startup can still be noisy; the warmed-helper path is the optimization target for multi-step governed navigation.
 - Region capture, downscaled witness images, OCR, accessibility witnesses, semantic localization, click-candidate witnesses, and real click gates remain separate future work.

@@ -161,6 +161,27 @@ export const desktopHoverWitnessSchema = z.object({
 
 export type DesktopHoverWitness = z.infer<typeof desktopHoverWitnessSchema>;
 
+export const desktopProviderTimingEntrySchema = z.object({
+  operation: z.string().min(1),
+  durationMs: z.number().int().nonnegative(),
+  status: z.enum(["completed", "failed", "skipped"]),
+  residue: z.array(z.string())
+});
+
+export type DesktopProviderTimingEntry = z.infer<typeof desktopProviderTimingEntrySchema>;
+
+export const desktopProviderTimingDiagnosticsSchema = z.object({
+  providerName: z.string().min(1),
+  providerKind: z.enum(["mock", "real"]),
+  totalDurationMs: z.number().int().nonnegative(),
+  entries: z.array(desktopProviderTimingEntrySchema),
+  residue: z.array(z.string())
+});
+
+export type DesktopProviderTimingDiagnostics = z.infer<
+  typeof desktopProviderTimingDiagnosticsSchema
+>;
+
 export const desktopObservationPacketSchema = z.object({
   observationId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -170,6 +191,7 @@ export const desktopObservationPacketSchema = z.object({
   cursorPosition: desktopPointSchema.optional(),
   cursorWitness: desktopCursorWitnessSchema.optional(),
   hoverWitness: desktopHoverWitnessSchema.optional(),
+  providerTiming: desktopProviderTimingDiagnosticsSchema.optional(),
   frames: z.array(desktopFrameArtifactSchema).max(12),
   lastActionDeltaSummary: z.string().optional(),
   residue: z.array(z.string())
