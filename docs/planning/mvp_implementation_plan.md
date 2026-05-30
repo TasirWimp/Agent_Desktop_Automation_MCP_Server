@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, and governed manual/navigation probe runners.
 
 ## Planning Document Roles
 
@@ -136,7 +136,10 @@ Extracted implementation slices:
 - ADMCP-012 Real Observation Provider Spike - implemented.
 - ADMCP-013 Real Mouse Movement Provider Gate - implemented.
 - ADMCP-013A Governed Manual Probe Runner - implemented.
+- ADMCP-013B Governed Navigation Probe Runner - implemented.
 - ADMCP-014 Cursor And Hover Witness Refinement - implemented.
+- ADMCP-015 Windows Provider Performance Instrumentation - planned.
+- ADMCP-016 Persistent Windows Observation Helper - planned.
 
 Acceptance gate before real click, typing, or durable OS mutation:
 
@@ -522,6 +525,63 @@ Verification:
 - `npm run test -- tests/governedManualProbeRunner.test.ts`
 - `npm run check`
 
+### ADMCP-013B Governed Navigation Probe Runner
+
+Goal: Reduce manual UI-navigation pressure-test time without adding new desktop authority.
+
+Status:
+
+- Implemented.
+
+Reason:
+
+- The first real hover-reveal pressure tests proved that `observe -> move_mouse -> observe` can discover hidden targets, but full runs were too slow for iteration.
+- The existing manual probe runner is useful for repeated independent attempts, but compact navigation paths should carry the last post-movement observation forward instead of recording a redundant pre-observation for the next step.
+- Real-provider timings must be visible before investing in lower-level provider optimization such as a persistent Windows helper.
+
+Delivered behavior:
+
+- Adds a governed navigation probe runner module.
+- Adds `npm run manual:navigation-probe`.
+- Uses one active session for the full navigation path.
+- Records one initial observation, then runs each configured movement step against the latest observation.
+- Calls `desktop_observe` with `transitionActionId` after every movement step.
+- Carries each post-movement observation forward as the next step's pre-action witness.
+- Records per-tool timing diagnostics for capabilities, session start, observations, movement probes, audit-log read, and session end.
+- Saves compact frame hashes and optional screenshot artifacts for before/after review.
+- Requires `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true` before using a real provider that reports mouse support.
+- Keeps real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, and durable desktop mutation disabled.
+
+Implemented files:
+
+- `src/manual/governedNavigationProbeRunner.ts`
+- `src/manual/governedNavigationProbeCli.ts`
+- `tests/governedNavigationProbeRunner.test.ts`
+- `package.json`
+- `README.md`
+- `docs/process/codex_desktop_interaction_reentry.md`
+- `docs/testing/manual_real_observation_checklist.md`
+- `docs/testing/test_strategy.md`
+
+Acceptance criteria:
+
+- A two-step hover path uses three observations: initial, first post-move, second post-move.
+- The runner preserves session policy, transition gates, and audit output by using the existing MCP tools.
+- The runner records per-tool timing diagnostics.
+- The runner refuses real mouse movement unless the config explicitly allows it.
+- The runner does not add click, typing, shell, app launch, system change, or durable desktop mutation authority.
+
+Verification:
+
+- `npm run test -- tests/governedNavigationProbeRunner.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- This is a manual pressure-test harness, not autonomous navigation.
+- The runner does not interpret screenshots, OCR labels, classify hover highlights, or decide click readiness.
+- Provider observations may still be slow until a later slice adds a persistent Windows capture helper or more efficient region capture.
+
 ### ADMCP-014 Cursor And Hover Witness Refinement
 
 Goal: Make the post-movement observation evidence explicit enough for iterative pointer probing without enabling real click or typing.
@@ -595,3 +655,126 @@ Residual scope:
 - ADMCP-014 should not decide that a click is ready.
 - ADMCP-014 should not add OCR, accessibility-tree parsing, semantic localization, or real click execution.
 - A later slice must define the click-candidate witness gate before any real click backend can be enabled.
+
+### ADMCP-015 Windows Provider Performance Instrumentation
+
+Goal: Measure real-observation latency at the provider boundary before changing the Windows backend architecture.
+
+Status:
+
+- Planned.
+
+Reason:
+
+- Real pressure-test runs are dominated by observation latency, but the current timing surface is mostly at the runner/MCP-call level.
+- Before building a persistent helper, the repo needs provider-level timings that distinguish active-window metadata lookup, frame capture, cursor overlay, image encoding, JSON/base64 transfer, MCP serialization, artifact writing, and policy/session overhead.
+- Performance work must not weaken the current safety posture or introduce new desktop authority.
+
+Required behavior:
+
+- Preserve all existing session, scope, freshness, transition-gate, and audit requirements.
+- Keep real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, hidden polling, background capture, and durable desktop mutation disabled.
+- Add timing diagnostics to the Windows provider observation path for:
+  - active-window metadata lookup,
+  - screen capture,
+  - cursor metadata lookup,
+  - native cursor rendering,
+  - high-contrast witness marker rendering,
+  - PNG encoding,
+  - base64 payload construction,
+  - provider total duration.
+- Surface timing diagnostics as residue-bearing metadata in observation output without requiring consumers to trust the timing as policy evidence.
+- Keep the timing packet compact enough for manual runner summaries.
+- Update the governed navigation probe runner to include provider timing diagnostics when available.
+
+Expected files:
+
+- `src/providers/desktopProvider.ts`
+- `src/providers/windowsDesktopObservationProvider.ts`
+- `src/session/observationTools.ts`
+- `src/manual/governedNavigationProbeRunner.ts`
+- `tests/windowsDesktopObservationProvider.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `tests/governedNavigationProbeRunner.test.ts`
+- `docs/process/codex_desktop_interaction_reentry.md`
+- `docs/testing/manual_real_observation_checklist.md`
+
+Acceptance criteria:
+
+- Real Windows observations include provider timing diagnostics when the provider can measure them.
+- Timing diagnostics are optional and absence-tolerant for mock and future providers.
+- Tests cover timing packets with fake Windows backends.
+- Manual navigation probe output makes slow steps visible without needing ad hoc debug scripts.
+- No new real desktop action capability is added.
+
+Verification:
+
+- `npm run test -- tests/windowsDesktopObservationProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts tests/governedNavigationProbeRunner.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- This slice measures latency; it does not optimize the backend yet.
+- Timing values are diagnostic evidence only and must not affect action policy decisions.
+- Persistent helper work remains deferred to ADMCP-016.
+
+### ADMCP-016 Persistent Windows Observation Helper
+
+Goal: Reduce real-observation latency by replacing per-capture PowerShell startup and repeated Win32 setup with a bounded persistent helper.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-015 Windows Provider Performance Instrumentation.
+
+Reason:
+
+- The current Windows provider starts PowerShell and loads Win32 interop code for each provider call.
+- If ADMCP-015 confirms startup/setup dominates capture time, a persistent helper can keep Win32 setup warm while preserving the same MCP/session policy boundary.
+- The helper must be an implementation detail behind the provider seam, not a broad desktop-control channel.
+
+Required behavior:
+
+- Preserve the existing `DesktopInteractionProvider` contract and MCP tool contracts.
+- Keep the helper scoped to active-window observation and optional real mouse movement only when the existing movement gate is enabled.
+- Keep real click, typing, shell, app launch, system changes, OCR, accessibility interpretation, hidden polling, background capture, and durable desktop mutation disabled.
+- Start the helper only on demand for bounded provider calls.
+- Stop or recycle the helper on provider shutdown, failure, timeout, scope mismatch, or explicit cleanup.
+- Enforce per-request timeouts and bounded payload sizes.
+- Return controlled provider errors when the helper is unavailable, unhealthy, or returns malformed output.
+- Keep active-window scope validation before capture and before movement.
+- Preserve cursor witness metadata, cursor-annotated frame semantics, movement delta witnesses, and audit behavior.
+
+Expected files:
+
+- `src/providers/windowsDesktopObservationProvider.ts`
+- possible `src/providers/windowsObservationHelper.ts`
+- possible helper script or embedded helper source under `src/providers/`
+- `tests/windowsDesktopObservationProvider.test.ts`
+- `tests/defaultDesktopProvider.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `docs/process/codex_desktop_interaction_reentry.md`
+- `docs/testing/manual_real_observation_checklist.md`
+
+Acceptance criteria:
+
+- The default provider remains mock-only.
+- Real Windows observation remains opt-in through the existing environment gates.
+- Real mouse movement remains separately opt-in through the existing movement gate.
+- The helper reduces repeated-observation latency in manual navigation probe timing output.
+- Helper failure does not leave background capture or a hidden control loop running.
+- Tests cover helper success, helper startup failure, helper timeout, malformed helper output, shutdown, and fallback/error behavior.
+- No new real click, typing, shell, app launch, system change, or durable desktop mutation capability is added.
+
+Verification:
+
+- `npm run test -- tests/windowsDesktopObservationProvider.test.ts tests/defaultDesktopProvider.test.ts tests/protocol/windowsDesktopObserveTool.test.ts`
+- `npm run check`
+
+Residual scope:
+
+- This slice optimizes observation plumbing only.
+- Region capture, downscaled witness images, OCR, accessibility witnesses, semantic localization, click-candidate witnesses, and real click gates remain separate future work.

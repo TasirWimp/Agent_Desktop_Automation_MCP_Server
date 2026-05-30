@@ -84,6 +84,24 @@ npm run manual:probe -- .\tmp\manual-probes\file-menu.json
 5. Confirm it can verify `desktop_click` blocking without producing a real click.
 6. Confirm it writes only bounded local artifacts needed for review, such as screenshot paths, frame hashes, compact JSON summaries, and audit ids.
 
+## Navigation Probe Runner Checks
+
+ADMCP-013B is implemented. Use the faster navigation runner for pressure tests that already have a compact sequence of reversible hover or movement probes:
+
+```powershell
+npm run manual:navigation-probe:example
+npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
+```
+
+1. Confirm the runner starts one bounded session for the full navigation path.
+2. Confirm the initial observation is reused as the first pre-action witness.
+3. Confirm each post-movement observation is recorded with `transitionActionId`.
+4. Confirm each post-movement observation is carried forward as the next pre-action witness instead of recording a redundant pre-observation.
+5. Confirm the result records timing diagnostics for capabilities, session start, each observation, each movement, audit-log read, and session end.
+6. Confirm the output includes enough frame hashes or screenshot paths to compare before/after states.
+7. Confirm the runner still requires `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true` before using a real mouse-movement provider.
+8. Confirm no real click, typing, shell, app launch, system change, or durable desktop mutation occurs.
+
 ## Pass Criteria
 
 - Visible-content acknowledgement is present before real observation.

@@ -108,6 +108,25 @@ npm run manual:probe -- .\tmp\manual-probes\file-menu.json
 
 Real pointer movement through the runner still requires the Windows provider config plus `allowRealMouseMovement: true` in the probe config.
 
+ADMCP-013B is implemented. It provides a faster governed navigation probe runner for pressure tests where the goal is to follow a compact hover/movement path:
+
+- runs one active session for the full path,
+- records one initial observation,
+- runs each configured `desktop_move_mouse` step against the latest observation,
+- records the required post-movement `desktop_observe` with `transitionActionId`,
+- carries that post-movement observation forward as the next pre-action witness,
+- records per-tool timing diagnostics so slow MCP calls and provider captures are visible,
+- keeps real click, typing, shell, app launch, system changes, and durable desktop mutation disabled.
+
+Use:
+
+```powershell
+npm run manual:navigation-probe:example
+npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
+```
+
+Prefer this runner for protocol pressure tests such as `hover parent landmark -> observe revealed menu -> hover child target`. For an N-step path, it should require N+1 observations instead of separate pre/post observations for every step. Real pointer movement through this runner still requires the Windows provider config plus `allowRealMouseMovement: true` in the probe config.
+
 ADMCP-014 is implemented. Its job is cursor and hover witness refinement, not real clicking:
 
 - preserve `observe -> move_mouse -> observe transitionActionId`,

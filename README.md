@@ -53,6 +53,7 @@ With that gate enabled, `desktop_move_mouse` may move the real cursor inside the
 npm install
 npm run dev
 npm run manual:probe:example
+npm run manual:navigation-probe:example
 npm run typecheck
 npm run test
 npm run build
@@ -69,6 +70,17 @@ npm run manual:probe -- .\tmp\manual-probes\file-menu.json
 ```
 
 The runner can use the opt-in Windows observation and mouse-movement provider, but the config must explicitly set `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true`. It does not enable real clicking or typing.
+
+## Governed Navigation Probe Runner
+
+`npm run manual:navigation-probe` is the faster runner for UI-navigation pressure tests. It runs one bounded session for a sequence of hover or movement probes, carries each post-movement observation forward as the next pre-action witness, and records per-tool timing diagnostics.
+
+```powershell
+npm run manual:navigation-probe:example
+npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
+```
+
+Use this runner when testing a path such as `hover parent landmark -> observe revealed menu -> hover target`. It still uses only `desktop_observe` and `desktop_move_mouse`; real clicking and typing remain unavailable.
 
 ## Codex MCP Configuration
 
