@@ -42,6 +42,8 @@ npm run dev
 
 With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. `desktop_click` and `desktop_type_text` remain non-real unless a later provider gate explicitly enables them.
 
+For real Windows observation or movement sessions, set `observationCadence.maxObservationGapMs` to `60000` unless the task explicitly needs a tighter freshness window. A 5s gap is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds. This value keeps sessions bounded; it does not permit hidden polling, background capture, or stale action chains.
+
 ## Requirements
 
 - Node.js 22.12.x LTS or Node.js 24.0.0 or newer.

@@ -105,6 +105,14 @@ describe("desktop_observe MCP tool", () => {
         desktopMouseKeyboardTools: false,
         executeDesktopActions: false
       });
+      expect(structured.usageGuidance).toMatchObject({
+        recommendedObservationCadence: {
+          realWindowsProviderMaxObservationGapMs: 60_000
+        }
+      });
+      expect(
+        structured.usageGuidance.recommendedObservationCadence.rule
+      ).toContain("observationCadence.maxObservationGapMs=60000");
     } finally {
       await client.close();
       await server.close();

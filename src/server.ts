@@ -102,6 +102,20 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           shellCommands: false,
           credentialAccess: false
         },
+        usageGuidance: {
+          recommendedObservationCadence: {
+            realWindowsProviderMaxObservationGapMs: 60_000,
+            reason:
+              "The real Windows provider can spend several seconds in capture, helper startup, and visual reasoning loops; a 5s freshness window is often too tight for observe -> move_mouse -> observe workflows.",
+            appliesWhen: [
+              "ADMCP_DESKTOP_PROVIDER=windows-active-window",
+              "ADMCP_ENABLE_REAL_OBSERVATION=true",
+              "ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true for movement probes"
+            ],
+            rule:
+              "Use observationCadence.maxObservationGapMs=60000 for real-provider sessions unless the task explicitly needs a tighter bound; keep every observation/action bounded and audit every movement with a post-action observation."
+          }
+        },
         policy: {
           defaultMode: "policy_check_before_execution",
           highRiskActionsBlocked: ["credential_access", "shell_command", "system_change"],

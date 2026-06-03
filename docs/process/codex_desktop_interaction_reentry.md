@@ -48,6 +48,9 @@ Use the session tools to create a bounded task license, record mock observation 
 3. Set `userConfirmed: true` only when the user has actually granted the task-level license.
 4. Set `visibleContentAcknowledged: true` only when the user has acknowledged that future observation tools may capture visible desktop content.
 5. Provide allowed scopes, allowed actions, forbidden actions, risk limits, and observation cadence.
+   - For real Windows observation or movement sessions, use `observationCadence.maxObservationGapMs: 60000` unless the task explicitly requires a tighter freshness bound.
+   - A 5s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds before the next action call.
+   - Keep the cadence bounded; widening this value is not permission for hidden polling, background capture, or stale action chains.
 6. Call `desktop_observe` only after the session is active.
 7. Keep `mode: "frame_session"` unless a single-frame witness is explicitly enough for the test.
 8. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
