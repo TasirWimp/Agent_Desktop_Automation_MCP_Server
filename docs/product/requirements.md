@@ -8,6 +8,8 @@ The target loop is:
 
 observe -> infer -> act -> observe delta -> repair -> continue.
 
+For future real click and typing, the target governance model is app-under-test scoped: the user declares a specific app/window/process/local URL safe and reversible for UI testing, and the server enforces that agent-triggered interactions stay inside that bound app.
+
 ## MVP Scope
 
 The MVP provides:
@@ -17,9 +19,10 @@ The MVP provides:
 - a policy-check tool for proposed desktop automation actions,
 - a read-only UI intersection planning tool for future closed-loop click candidates,
 - policy contracts for future task-scoped licensed desktop interaction sessions,
+- a path toward user-declared reversible app-under-test sessions,
 - session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe,
 - a governed manual probe runner for repeatable observation/movement path-finding checks,
-- documented safety boundaries for future execution tools,
+- documented scope-enforcement boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
 
 ## MVP Non-Goals
@@ -32,6 +35,7 @@ The MVP provides:
 - No persistent background watcher or keylogger.
 - No unbounded autonomous desktop control outside a user-granted task license.
 - No real clicking or real typing in the current provider slices.
+- No future real clicking or real typing outside a user-declared reversible app-under-test scope.
 - No real desktop capture unless the Windows active-window observation spike is explicitly enabled.
 - No real cursor movement unless the Windows real-observation provider and the explicit real mouse-movement gate are both enabled.
 
@@ -48,6 +52,7 @@ The MVP provides:
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and moves the real cursor only when the Windows real mouse-movement gate is explicitly enabled.
 - `desktop_click` and `desktop_type_text` require fresh pre-action observation, record interaction transition gates, require post-action observation, and do not click or type in the real desktop.
 - `desktop_type_text` blocks credential-like or secret-like text before provider calls and does not store text content in action packets or audit events.
+- Future real click/type gates require a user-declared reversible app-under-test, concrete scope binding, action audit, and post-action observation before success can be claimed.
 - The Windows real-observation spike is disabled by default, requires explicit environment configuration, captures bounded active-window frames only, reports active-window-relative cursor position when available, and keeps real clicking, typing, and durable desktop mutation disabled.
 - The Windows real mouse-movement probe is disabled by default, requires explicit environment configuration, stays inside the scoped active-window capture frame, and keeps real clicking, typing, and durable desktop mutation disabled.
 - The governed manual probe runner uses existing session tools, preserves audit output, and does not add click, typing, shell, or raw desktop control authority.

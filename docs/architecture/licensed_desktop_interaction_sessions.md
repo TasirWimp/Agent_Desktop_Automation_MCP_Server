@@ -24,6 +24,7 @@ For desktop RGB automation, frame sequences are a primary witness channel. A sin
 A `desktop_interaction_session` defines the task boundary before low-risk actions are allowed:
 
 - user goal,
+- user-declared reversible app-under-test when real click or typing may be requested,
 - allowed app, window, process, or workspace scope,
 - allowed action types,
 - forbidden action types,
@@ -35,6 +36,8 @@ A `desktop_interaction_session` defines the task boundary before low-risk action
 - recovery and stop conditions.
 
 Starting a session requires explicit user confirmation. Within a confirmed session, the agent may perform bounded low-risk actions without asking before every micro-action when those actions stay inside the license.
+
+For UI development and testing, the preferred future real-control model is app-under-test scoped. The user declares the specific app, window, process, workspace, or local URL as safe and reversible for the task. The user is responsible for preparing that app/test fixture so permanent damage cannot occur. The server's primary responsibility is then to bind the session to the declared app and stop or escalate when an agent-triggered action would leave it.
 
 `active_window` is a provisional scope kind. Mock policy may use it as shorthand, but a real provider must bind it to a concrete observed window identity, such as title, process, window id, or a stable provider-specific handle, before allowing desktop mutation. An unbound active-window license must not silently follow focus into unrelated private windows.
 
@@ -113,10 +116,11 @@ State-changing actions should be mediated by interaction transition gates. A tra
 Clicking is licensed by:
 
 - active session scope,
+- bound app-under-test identity for real clicks,
 - rough semantic target,
 - current visual evidence,
-- low-risk action class,
-- recoverability,
+- session permission for app-scoped click,
+- user's declaration that the app-under-test is reversible,
 - audit logging,
 - post-action verification.
 
@@ -129,7 +133,7 @@ The current policy slice validates observation references when observation packe
 The session policy evolves that model:
 
 - confirmation is required to start the session,
-- low-risk actions inside the license do not require repeated user confirmation,
+- actions inside the bound reversible app-under-test license do not require repeated user confirmation,
 - boundary crossings stop or escalate,
 - blocked action classes remain blocked,
 - every action is auditable,

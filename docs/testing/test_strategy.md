@@ -43,6 +43,8 @@ Session policy tests must cover:
 - every state-changing action has post-action observation before completion,
 - observation references match session id, target scope, freshness limits, and frame-evidence expectations,
 - low-risk in-session actions do not require repeated user confirmation.
+- future real click/type permissions require a user-declared reversible app-under-test scope.
+- future real actions stop or escalate when active provider state leaves the bound app scope.
 
 ### Protocol Tests
 
@@ -102,6 +104,18 @@ For ADMCP-014, tests must cover cursor witness metadata, cursor-rendered frame m
 For ADMCP-015, tests must cover optional provider timing diagnostics without making timing policy-critical. Windows provider tests should verify observation timing packets, PowerShell substage timing propagation from fake backends, movement provider timing, protocol propagation through `desktop_observe`, and governed navigation probe summaries. Mock and future providers may omit timing diagnostics.
 
 For ADMCP-016, tests must cover the persistent Windows helper as an implementation detail behind the provider seam. Windows provider tests should verify default persistent-helper selection, explicit per-call fallback, helper command delegation, helper failure mapping, provider cleanup delegation, and continued absence of click/type authority. Manual runner tests should preserve provider cleanup paths so helper processes do not outlive governed probe runs. Live checks should verify repeated observations through one session, while treating cold-start latency as residue.
+
+For ADMCP-017, tests must cover the licensed app-under-test scope model. Session-policy tests should reject real click/type permissions when the user has not declared a reversible app scope, accept declared reversible app scopes, preserve forbidden boundary declarations, and keep click-candidate evidence as targeting quality rather than the main safety gate.
+
+For ADMCP-018, tests must cover scope binding runtime behavior. Unit and protocol tests should verify binding to observed window/process/title/local URL identity, rejection of unbound real action attempts, stale binding handling, active-window focus drift, and scope-exit stop conditions.
+
+For ADMCP-019, tests must cover app-scoped real click gating without allowing broad desktop clicks. Tests should verify provider gate disabled, in-scope allowed click, out-of-scope blocked click, missing app declaration blocked, stale pre-action observation blocked, audit event creation, and mandatory post-click observation.
+
+For ADMCP-020, tests must cover app-scoped real typing of generated test input. Tests should verify provider gate disabled, in-scope generated input allowed, credential-like or secret-like input blocked, out-of-scope typing blocked, text content not stored in audit/action packets, and mandatory post-type observation.
+
+For ADMCP-021, tests must cover post-action observation and repair-loop classification: expected delta, no-op, wrong target, scope exit, risk prompt, uninterpretable state, repair attempt counting, and transition-gate audit completeness.
+
+For ADMCP-022, tests and manual checks must cover a local app-under-test runner. The runner should exercise a reversible UI fixture, stop on scope exit, save compact artifacts, and avoid adding shell, deployment, external publishing, or cross-app authority.
 
 ## Reporting Requirements
 

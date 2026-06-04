@@ -140,15 +140,25 @@ Extracted implementation slices:
 - ADMCP-014 Cursor And Hover Witness Refinement - implemented.
 - ADMCP-015 Windows Provider Performance Instrumentation - implemented.
 - ADMCP-016 Persistent Windows Observation Helper - implemented.
+- ADMCP-017 Licensed App Scope Model - planned.
+- ADMCP-018 Scope Binding Runtime - planned.
+- ADMCP-019 App-Scoped Real Click Gate - planned.
+- ADMCP-020 App-Scoped Type Text Gate - planned.
+- ADMCP-021 Post-Action Observation And Repair Loop - planned.
+- ADMCP-022 UI Test Runner For Local Apps - planned.
 
-Acceptance gate before real click, typing, or durable OS mutation:
+Acceptance gate before app-scoped real click, typing, or durable OS mutation:
 
 - active session state is enforced,
 - audit log is complete and queryable,
 - observation references are validated against provider state,
-- `active_window` is bound to concrete observed identity,
+- the user can declare a specific app/window/process/local URL as the safe reversible app-under-test,
+- the declared app-under-test is bound to concrete observed identity before real click or typing,
+- every real action is checked against that bound app scope before provider execution,
+- leaving the allowed app/window/process/local URL scope stops or escalates the session,
 - post-action observation is enforced for movement, click, and typing,
 - cursor and hover witnesses are represented explicitly after real movement probes,
+- targeting-quality witnesses are available to reduce wrong-target clicks inside the licensed app,
 - stop/escalation conditions are covered by tests,
 - manual acceptance checks are documented for the target backend.
 
@@ -654,7 +664,7 @@ Residual scope:
 
 - ADMCP-014 should not decide that a click is ready.
 - ADMCP-014 should not add OCR, accessibility-tree parsing, semantic localization, or real click execution.
-- A later slice must define the click-candidate witness gate before any real click backend can be enabled.
+- Later slices must first define licensed app-under-test scope and runtime scope binding; click-candidate evidence then becomes targeting-quality input for app-scoped click work.
 
 ### ADMCP-015 Windows Provider Performance Instrumentation
 
@@ -809,3 +819,169 @@ Residual scope:
 - This slice optimizes observation plumbing only.
 - Cold helper startup can still be noisy; the warmed-helper path is the optimization target for multi-step governed navigation.
 - Region capture, downscaled witness images, OCR, accessibility witnesses, semantic localization, click-candidate witnesses, and real click gates remain separate future work.
+
+### ADMCP-017 Licensed App Scope Model
+
+Goal: Re-center future real interaction around a user-declared app-under-test that the user has made safe and reversible for UI development/testing.
+
+Status:
+
+- Planned.
+
+Reason:
+
+- The main governance boundary for UI testing should be app scope, not per-action moral safety checks.
+- The user can declare a local app, window, process, or local URL as safe to interact with because permanent damage has been prevented outside the MCP server.
+- The server's job is to enforce that agent-triggered interactions stay inside that declared app license.
+
+Required behavior:
+
+- Add a licensed app scope model to the session license, with fields such as `licensedAppScope`, `userDeclaredReversible`, `allowedActions`, `forbiddenBoundaries`, and `scopeExitStopConditions`.
+- Represent scope kinds for observed window identity, process name, window title, workspace path, and future local URL/domain binding.
+- Treat the current click-candidate witness concept as targeting-quality evidence inside the licensed app, not as the primary safety gate.
+- Keep real click and real typing disabled in this slice.
+
+Expected files:
+
+- `src/policy/sessionLicensePolicy.ts`
+- `src/session/sessionStore.ts`
+- `tests/sessionLicensePolicy.test.ts`
+- `tests/protocol/sessionTools.test.ts`
+- `docs/architecture/licensed_desktop_interaction_sessions.md`
+- `docs/architecture/safety_model.md`
+- `docs/testing/test_strategy.md`
+
+Acceptance criteria:
+
+- A session can express "this app is safe and reversible for this task."
+- Real action permissions can be scoped to the declared app-under-test.
+- Session start validation rejects real click/type permissions unless a reversible app scope is declared.
+- Tests cover missing app scope, missing user reversibility declaration, and forbidden boundary declarations.
+
+### ADMCP-018 Scope Binding Runtime
+
+Goal: Bind the declared app-under-test scope to concrete observed provider identity and enforce that binding before every real action.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-017 Licensed App Scope Model.
+
+Required behavior:
+
+- Convert provisional `active_window` scope into a bound observed identity before real click or typing is possible.
+- Store bound window/process/title/local URL evidence in session runtime.
+- Validate that each observation and action target still matches the bound app scope.
+- Stop or escalate when the active target leaves the licensed app, an unrelated window appears, or scope cannot be re-established.
+- Keep real click and real typing disabled in this slice.
+
+Acceptance criteria:
+
+- Tests cover successful binding, stale binding, window-title/process mismatch, active-window focus drift, and scope-exit stop conditions.
+- The provider cannot execute real actions against an unbound or mismatched app scope.
+
+### ADMCP-019 App-Scoped Real Click Gate
+
+Goal: Enable opt-in real clicking only inside the bound app-under-test scope.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-017 Licensed App Scope Model.
+- ADMCP-018 Scope Binding Runtime.
+
+Required behavior:
+
+- Add a separate environment/provider gate for real click support.
+- Require active session, user-declared reversible app scope, bound app identity, fresh pre-action observation, in-scope target point, allowed `click`, and audit logging.
+- Use click-candidate/targeting-quality witnesses to reduce wrong-target clicks, but do not require broad semantic certainty when the action is inside the licensed reversible app.
+- Require post-click observation before any next non-observe action and before success can be claimed.
+- Block or escalate clicks that leave scope, hit system dialogs, target credentials/payments/private prompts, or cross forbidden boundaries.
+
+Acceptance criteria:
+
+- Tests cover in-scope allowed click, out-of-scope blocked click, unbound-app blocked click, stale-observation blocked click, click gate disabled, and post-click observation requirement.
+- Manual acceptance checks use only a local reversible app-under-test.
+
+### ADMCP-020 App-Scoped Type Text Gate
+
+Goal: Enable opt-in real typing of generated test input inside the bound app-under-test scope.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-017 Licensed App Scope Model.
+- ADMCP-018 Scope Binding Runtime.
+
+Required behavior:
+
+- Add a separate environment/provider gate for real typing.
+- Require active session, user-declared reversible app scope, bound app identity, fresh pre-action observation, allowed `type_text`, generated/synthetic test input classification, and audit logging.
+- Continue blocking credentials, secrets, private user data, and external publishing unless a later explicitly narrowed test fixture model exists.
+- Record text length and classification, not raw sensitive text.
+- Require post-type observation before any next non-observe action and before success can be claimed.
+
+Acceptance criteria:
+
+- Tests cover allowed generated test input, credential-like input block, out-of-scope block, gate-disabled block, and post-type observation requirement.
+
+### ADMCP-021 Post-Action Observation And Repair Loop
+
+Goal: Turn app-scoped click/type actions into a closed-loop test interaction instead of blind action chains.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-019 App-Scoped Real Click Gate.
+- ADMCP-020 App-Scoped Type Text Gate.
+
+Required behavior:
+
+- Classify post-action observations as expected delta, no-op, wrong target, scope exit, risk prompt, uninterpretable state, or repair needed.
+- Preserve action id, source observation id, follow-up observation id, expected evidence, observed delta, and residue on the transition gate.
+- Allow bounded repair attempts inside the licensed app scope.
+- Stop or escalate when post-action state leaves scope, cannot be interpreted within limits, or exposes a forbidden boundary.
+
+Acceptance criteria:
+
+- Tests cover expected delta, no-op, wrong-target residue, scope-exit stop, repair-limit stop, and transition-gate audit completeness.
+
+### ADMCP-022 UI Test Runner For Local Apps
+
+Goal: Provide a repeatable runner for local UI development projects such as Phaser/Vite apps using the app-under-test session model.
+
+Status:
+
+- Planned.
+
+Depends on:
+
+- ADMCP-018 Scope Binding Runtime.
+- ADMCP-019 App-Scoped Real Click Gate.
+- ADMCP-020 App-Scoped Type Text Gate.
+- ADMCP-021 Post-Action Observation And Repair Loop.
+
+Required behavior:
+
+- Run a bounded app-under-test session with explicit user confirmation and visible-content acknowledgement.
+- Support `observe -> move -> click/type -> observe -> assert visual/test outcome -> repair`.
+- Save compact artifacts: session license, bound app scope, observations, actions, frame hashes or screenshots, transition classifications, audit events, and residue.
+- Keep app launch/dev-server setup outside this server unless a later workspace-runner model is documented.
+
+Acceptance criteria:
+
+- A local Phaser/Vite fixture can be tested through the governed desktop loop.
+- The runner stops on scope exit or forbidden boundaries.
+- The runner does not add shell, deployment, external publishing, or cross-app authority.

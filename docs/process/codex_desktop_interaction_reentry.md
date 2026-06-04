@@ -159,6 +159,13 @@ ADMCP-016 is implemented. The Windows real-observation provider now uses a persi
 - Live smoke showed the warmed path reducing a second observation to about 85-90 ms; cold helper startup can still vary and should be treated as residue.
 - It does not add click, typing, shell, app launch, OCR, accessibility interpretation, hidden polling, background capture, system change, or durable desktop mutation.
 
+Next unimplemented target: ADMCP-017 Licensed App Scope Model.
+
+- Re-center future real click/type work around a user-declared reversible app-under-test.
+- The primary governance boundary becomes "all agent-triggered interaction stays inside the bound app/window/process/local URL."
+- Click-candidate evidence remains useful as targeting-quality evidence, but it is not the main safety gate.
+- Real click/type remain disabled until app scope, scope binding, provider gates, and post-action observation/repair behavior are implemented and tested.
+
 ## Real Observation Manual Check
 
 Use `../testing/manual_real_observation_checklist.md` before relying on the Windows real-observation spike outside unit tests.

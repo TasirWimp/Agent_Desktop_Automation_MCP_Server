@@ -1,10 +1,12 @@
-# Safety Model
+# Scope-Enforced Interaction Model
 
 ## Default Posture
 
-The server is policy-first. A tool that can change desktop state must have a documented contract before implementation and must expose enough audit data for a user or reviewer to understand what happened.
+The server is policy-first, but the policy center for UI development/testing is scope enforcement. A tool that can change desktop state must have a documented contract before implementation and must expose enough audit data for a user or reviewer to understand what happened.
 
 The long-term interaction model is task-scoped licensed autonomy, not confirmation before every micro-action. The user grants a bounded desktop interaction session, the agent acts inside that license, every action leaves an audit trace, and every state-changing action is followed by observation.
+
+For real UI testing, the intended license is a user-declared app-under-test. The user identifies an app, window, process, workspace, or local URL and declares it safe and reversible for the requested test task. The server does not try to judge every in-app click as globally safe; it enforces that agent-triggered interactions stay inside the bound app scope and stops or escalates at boundary crossings.
 
 ## Initial Action Classes
 
@@ -13,6 +15,8 @@ The long-term interaction model is task-scoped licensed autonomy, not confirmati
 - `shell_command`, `credential_access`, `system_change` - blocked in the initial model.
 
 Inside a confirmed `desktop_interaction_session`, bounded low-risk actions such as observation, mouse movement, clicking visible controls in the allowed window, and typing generated test input may be licensed by the session instead of requiring repeated per-action confirmation as their tool contracts become available.
+
+Inside a declared reversible app-under-test session, future real click and typing tools may be licensed as ordinary test interactions when they stay inside the bound app, use generated test data, leave an audit trace, and are followed by observation. The main block condition becomes scope exit or an explicitly forbidden boundary, not generic click risk.
 
 ## Tool Contract Requirements
 
@@ -44,7 +48,8 @@ The planned session model is documented in `licensed_desktop_interaction_session
 Core boundary:
 
 - User confirmation is required before starting a bounded task session.
-- Low-risk actions inside the allowed app, window, process, or workspace scope can proceed without repeated user confirmation.
+- For future real click/type, the user must declare the app-under-test safe and reversible.
+- Low-risk actions inside the bound app, window, process, workspace, or local URL scope can proceed without repeated user confirmation.
 - Boundary crossings require stop or escalation.
 - Credential entry, payment, external publishing, destructive operations outside scope, unrelated private windows, and system changes remain blocked or escalated.
 - `active_window` scope is provisional until a real provider binds it to a concrete observed window identity before mutation.

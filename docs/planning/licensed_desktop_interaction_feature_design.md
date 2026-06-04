@@ -14,6 +14,22 @@ observe -> infer -> act -> observe delta -> repair -> continue.
 
 Codex should be able to launch or use a project app inside a user-granted session, interact with the UI like a user, observe the result, and repair the implementation or test scenario. The server must not collapse into a screenshot utility and must not expose raw desktop control without a session license.
 
+## Licensed App-Under-Test Model
+
+Future real click and typing capability should be governed primarily by app scope. The user declares a specific app, window, process, workspace, or local URL as the reversible app-under-test. The user is responsible for ensuring that app/test fixture cannot cause permanent damage outside the MCP server. The server is then responsible for binding that declaration to observed provider identity and enforcing that every agent-triggered interaction stays inside it.
+
+The governance target is:
+
+```text
+The user declares the app-under-test safe and reversible.
+The server binds the session to that app.
+Codex may act inside the bound app license.
+Every action is audited and followed by observation.
+Leaving scope stops or escalates.
+```
+
+Click-candidate evidence remains useful, but its role changes: it is a targeting-quality and repair signal inside the licensed app, not the main gate for whether clicking is globally safe.
+
 ## Interaction Transition Gates
 
 The observe-act-observe loop should be governed as a transition path between visual witnesses, not as isolated tool calls and not as a brittle coordinate-click sequence.
@@ -126,6 +142,8 @@ Goal: create a bounded session license after explicit user confirmation.
 Input:
 
 - user goal,
+- licensed app-under-test scope when real click or typing may be requested,
+- user declaration that the app-under-test is reversible and safe for the requested UI testing task,
 - allowed scopes,
 - allowed actions,
 - forbidden actions,
@@ -148,6 +166,7 @@ Required behavior:
 - reject missing user confirmation,
 - reject missing visible-content acknowledgement,
 - reject sessions without scope,
+- reject real click/type permissions unless a reversible app-under-test scope is declared,
 - initialize session state and audit log only after policy allows.
 
 Annotations:
@@ -219,6 +238,7 @@ Required behavior:
 - require active session,
 - require fresh pre-action observation,
 - validate observation session id, scope, freshness, and frame evidence,
+- validate bound app-under-test scope before real provider execution,
 - validate action scope,
 - log before execution,
 - require post-movement observation before the next non-observe action.
@@ -255,9 +275,13 @@ Output:
 Required behavior:
 
 - require active session,
+- require declared reversible app-under-test scope for real clicks,
+- require bound observed app identity before provider execution,
 - require fresh pre-action observation,
 - validate observation session id, scope, freshness, and frame evidence,
-- block or escalate high-risk or low-recoverability actions,
+- validate that the click target is inside the bound app-under-test scope,
+- use targeting-quality evidence to reduce wrong-target clicks inside the licensed app,
+- block or escalate scope exits, system dialogs, credential/payment/private prompts, external publishing, or other forbidden boundaries,
 - require post-action observation before success can be claimed.
 
 Annotations:
@@ -291,6 +315,9 @@ Output:
 Required behavior:
 
 - require session permission for typing,
+- require declared reversible app-under-test scope for real typing,
+- require bound observed app identity before provider execution,
+- validate that typing target is inside the bound app-under-test scope,
 - block credential-like or sensitive text,
 - require fresh pre-action observation,
 - require post-action observation before success can be claimed.
@@ -362,6 +389,8 @@ Minimum runtime state:
 
 - active sessions by session id,
 - session license packet,
+- licensed app-under-test declaration,
+- bound app/window/process/local URL identity when available,
 - observation packets by observation id,
 - action packets by action id,
 - interaction transition gates by action id,
@@ -746,7 +775,7 @@ Exit criteria:
 
 - The system can run `observe -> move_mouse -> observe transitionActionId` and produce a structured explanation of cursor movement and residual uncertainty.
 - The system still cannot execute a real click.
-- The next slice can consume ADMCP-014 witness packets to design a click-candidate witness gate.
+- Later app-scoped click work can consume ADMCP-014 witness packets as targeting-quality evidence after licensed app scope and scope binding exist.
 
 ## Test Matrix
 
@@ -782,6 +811,15 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-014, the next implementation should define a click-candidate witness gate that consumes cursor witness, movement delta witness, frame evidence, and explicit residue without executing a real click yet.
+After ADMCP-016, the next implementation should define the licensed app-under-test scope model before adding any real click or typing backend.
 
-That keeps the implementation aligned with the core design: session license first, session lifecycle tools second, mock observation third, actions fourth, real observation fifth, non-durable pointer movement sixth, repeatable governed probes and cursor/hover witnesses seventh, click-candidate witness policy next, and real click/type only after stronger visual witnesses.
+Recommended sequence:
+
+1. ADMCP-017 Licensed App Scope Model.
+2. ADMCP-018 Scope Binding Runtime.
+3. ADMCP-019 App-Scoped Real Click Gate.
+4. ADMCP-020 App-Scoped Type Text Gate.
+5. ADMCP-021 Post-Action Observation And Repair Loop.
+6. ADMCP-022 UI Test Runner For Local Apps.
+
+The former click-candidate witness gate should be folded into app-scoped click work as a targeting-quality gate. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.
