@@ -900,8 +900,9 @@ ADMCP-023 implementation guardrails:
 
 - Use existing MCP tools only; do not add new desktop authority.
 - Keep app/dev-server launch outside this server unless a later workspace-runner contract is documented.
-- Require a scenario contract with user goal, app-under-test scope, allowed actions, max cycle/action/time limits, forbidden boundaries, protected outcome, allowed evidence, and closure policy.
-- Require one cycle packet per action-bearing cycle with current pressure, active cut, before observation, action, after observation, transition classification, residue, next re-entry pressure, and cycle decision.
+- Require a scenario contract with user goal, session-license confirmation fields, app-under-test scope, allowed probes, allowed actions, max cycle/action/time limits, forbidden boundaries, protected outcome, allowed evidence, evidence strength, and closure policy.
+- Require one cycle packet per runner cycle with current pressure, cycle kind, active cut, observations, probe/action data, transition classification when applicable, residue, next re-entry pressure, and cycle decision.
+- Separate `observation_only`, `probe_action`, and `state_changing_action` cycles. Observation-only cycles may not have an action id; state-changing cycles must have before observation, action id, after observation through `transitionActionId`, and transition classification.
 - Maintain a run-level test-state carrier with protected outcome status, cycle ids, action ids, candidate targets, residue classes, and closure status.
 - Treat `expected_delta` as evidence to evaluate against the protected test goal, not as automatic test success.
 - Treat `no_op`, `wrong_target`, and `repair_needed` as bounded repair paths with residue carried forward.
@@ -926,6 +927,10 @@ Scenario contract:
 ui_test_scenario_contract:
   scenario_id:
   test_goal:
+  session_license:
+    user_confirmed: true
+    visible_content_acknowledged: true
+    reversible_app_under_test_declared: true
   app_under_test:
     scope:
       kind: active_window | process_name | window_title | local_url | local_origin
@@ -942,8 +947,10 @@ ui_test_scenario_contract:
       - scope_exit
       - low_recoverability
       - uninterpretable_state
-  allowed_actions:
+  allowed_probes:
     - observe
+    - evaluate_click_candidate
+  allowed_actions:
     - move_mouse
     - click
     - type_text
@@ -962,25 +969,50 @@ ui_test_scenario_contract:
     - provider_delta_summary
     - audit_log_event
     - human_supplied_expected_visual_cue
+  evidence_strength:
+    frame_hash_delta: weak_by_default
+    screenshot_reference: witness_only
+    cursor_position: targeting_or_probe_evidence
+    transition_classification: transition_evidence
+    provider_delta_summary: provider_transition_evidence
+    audit_log_event: trace_evidence
+    human_supplied_expected_visual_cue: scenario_authority
   closure_policy:
-    close_only_if:
-      - protected_outcome_satisfied_or_residualized
+    passed_allowed_if:
+      - protected_outcome_satisfied
+      - no_target_relevant_residue
       - scope_remained_bound
       - no_pending_transition_gate
-      - residue_named
       - artifact_replayable
+    partial_landfall_allowed_if:
+      - protected_outcome_residualized
+      - residue_visible
+      - no_same_license_probe_can_reduce_remaining_residue
+      - scope_remained_bound
+      - no_pending_transition_gate
+      - artifact_replayable
+    close_blocked_if:
+      - protected_outcome_only_residualized_but_status_marked_passed
+      - frame_hash_delta_used_as_visual_success_without_scenario_authority
 ```
+
+Evidence-strength rule:
+
+- `frame_hash_delta` is weak by default and can only say that some pixels changed.
+- A frame hash or screenshot reference cannot satisfy a protected visual outcome by itself unless the scenario contract explicitly declares that exact hash, visual region, or cue sufficient.
+- For Phaser/Vite canvas tests, the runner should classify declared visual/test evidence against protected outcomes; it must not infer arbitrary semantic canvas state.
 
 The runner should make this packet mandatory:
 
 ```yaml
 ui_test_cycle:
   cycle_id:
+  cycle_kind: observation_only | probe_action | state_changing_action
   test_goal:
   active_cut:
   current_pressure:
   licensed_probe_or_action:
-    type:
+    type: observe | evaluate_click_candidate | move_mouse | click | type_text
     semantic_target:
     target_scope:
   before_observation:
@@ -988,14 +1020,14 @@ ui_test_cycle:
     frame_hashes:
     active_window:
     cursor:
-  action:
+  action: # required for state_changing_action, omitted for observation_only
     action_id:
     result:
-  after_observation:
+  after_observation: # required for state_changing_action through transitionActionId
     observation_id:
     frame_hashes:
     active_window:
-  transition_classification:
+  transition_classification: # required after state-changing actions
     kind:
     evidence:
     residue:
@@ -1043,11 +1075,19 @@ Closure gate:
 
 ```yaml
 closure_gate:
-  close_allowed_if:
+  passed_allowed_if:
     - session_scope_still_bound
     - no_pending_transition_gate
-    - protected_test_outcome_satisfied_or_residualized
+    - protected_test_outcome_satisfied
+    - no_target_relevant_residue
+    - repair_budget_not_silently_exhausted
+    - final_artifact_replayable
+  partial_landfall_allowed_if:
+    - session_scope_still_bound
+    - no_pending_transition_gate
+    - protected_test_outcome_residualized
     - residue_visible
+    - no_same_license_probe_can_reduce_remaining_residue
     - repair_budget_not_silently_exhausted
     - final_artifact_replayable
   close_blocked_if:
@@ -1058,6 +1098,8 @@ closure_gate:
     - repair_limit_exhausted_without_final_residue_status
     - expected_delta_occurred_but_protected_goal_not_checked
     - no_op_or_wrong_target_relabelled_as_success
+    - protected_outcome_only_residualized_but_status_marked_passed
+    - frame_hash_delta_used_as_visual_success_without_scenario_authority
 ```
 
 The runner should also end every scenario with:
@@ -1085,3 +1127,10 @@ Recommended ADMCP-023 split:
 - ADMCP-023B Mock Cycle Runner: run the loop against deterministic mock/provider fixtures and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts.
 - ADMCP-023C Local App Manual Runner: use real observation/click/type only behind existing gates against a user-launched reversible app-under-test.
 - ADMCP-023D Phaser/Vite Fixture Pressure Test: pressure-test pass, no-op, wrong-target, delayed-transition, and scope-exit cases in a deliberately small local fixture.
+
+Implementation readiness:
+
+- ADMCP-023 planning is ready.
+- ADMCP-023A is ready after these schema constraints are preserved in code.
+- ADMCP-023B, ADMCP-023C, and ADMCP-023D remain later slices.
+- The next code change should implement ADMCP-023A only: scenario contract schema, cycle packet schema, carrier schema, closure gate schema, landfall packet schema, and schema tests. It must execute no desktop actions and must not add runner orchestration.

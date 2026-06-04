@@ -122,11 +122,15 @@ For ADMCP-023, tests must cover the governed UI test cycle runner, not a generic
 Unit tests:
 
 - scenario contract validation,
+- required session-license fields in scenario contracts,
+- allowed probes versus allowed actions,
+- evidence-strength defaults, including `frame_hash_delta` as weak by default,
+- observation-only, probe-action, and state-changing cycle packet variants,
 - cycle packet creation and update,
 - carrier update from transition classification,
 - residue carry-forward into `next_reentry_pressure`,
 - protected outcome status updates,
-- closure-gate allow/block decisions,
+- closure-gate allow/block decisions, including pass versus partial-landfall distinction,
 - max cycle/action/time enforcement,
 - final landfall/re-entry packet shape.
 
@@ -134,6 +138,7 @@ Runner/protocol tests:
 
 - `expected_delta` with protected outcome satisfied -> close,
 - `expected_delta` with protected outcome unresolved -> continue or partial landfall, not silent pass,
+- frame-hash delta without scenario-declared sufficient visual cue -> not passed by itself,
 - `no_op` -> residue and repair or ask,
 - `wrong_target` -> bounded repair,
 - `repair_needed` -> bounded repair,
@@ -142,6 +147,8 @@ Runner/protocol tests:
 - `uninterpretable_state` -> stop/escalate,
 - repair-limit exhaustion -> visible residue and no silent pass,
 - pending transition gate blocks the next non-observe action,
+- observation-only cycles can record orientation evidence without requiring action id or transition classification,
+- state-changing cycles require before observation, action id, after observation through `transitionActionId`, and transition classification,
 - artifact includes scenario contract, cycle packets, carrier, observations, actions, classifications, audit events, residue, closure gate result, and final status.
 
 Manual checks:

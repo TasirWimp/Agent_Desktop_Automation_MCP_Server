@@ -248,24 +248,26 @@ test goal -> active cut -> observe -> licensed probe/action -> observe transitio
 
 Every action-bearing cycle should produce a `ui_test_cycle` packet with current pressure, active cut, before observation, action id, after observation, post-action classification, residue, next re-entry pressure, and cycle decision. The runner should end with a landfall/re-entry packet that states protected observables, satisfied observables, unsatisfied residue, audit count, stop conditions, closure status, and re-entry notes.
 
-Do not claim scenario success only because a click happened, text was typed, or frame hashes changed. `expected_delta` is evidence to compare against the protected test goal. `no_op`, `wrong_target`, and `repair_needed` must carry residue into the next cycle. `scope_exit`, `risk_prompt`, `uninterpretable_state`, or repair-limit exhaustion must stop or escalate.
+Do not claim scenario success only because a click happened, text was typed, or frame hashes changed. `expected_delta` is evidence to compare against the protected test goal. `frame_hash_delta` is weak by default: it can support "something changed" but cannot satisfy a protected visual outcome unless the scenario contract explicitly declares that hash, visual region, or cue sufficient. `no_op`, `wrong_target`, and `repair_needed` must carry residue into the next cycle. `scope_exit`, `risk_prompt`, `uninterpretable_state`, or repair-limit exhaustion must stop or escalate.
 
 ADMCP-023 implementation must start with local runner artifacts:
 
-- `ui_test_scenario_contract`: scenario id, test goal, reversible app-under-test scope, allowed actions, max cycles/actions/time, observation cadence, forbidden boundaries, protected outcome, allowed evidence, and closure policy.
-- `ui_test_cycle`: one packet per action-bearing cycle with pressure, active cut, observations, action, transition classification, carrier update, residue, next re-entry pressure, and decision.
+- `ui_test_scenario_contract`: scenario id, test goal, session-license fields (`user_confirmed`, `visible_content_acknowledged`, `reversible_app_under_test_declared`), reversible app-under-test scope, allowed probes (`observe`, `evaluate_click_candidate`), allowed actions (`move_mouse`, `click`, `type_text`), max cycles/actions/time, observation cadence, forbidden boundaries, protected outcome, allowed evidence, evidence strength, and closure policy.
+- `ui_test_cycle`: one packet per runner cycle with `cycle_kind: observation_only | probe_action | state_changing_action`, pressure, active cut, observations, probe/action data, transition classification when applicable, carrier update, residue, next re-entry pressure, and decision.
 - `ui_test_carrier`: run-level state with bound app scope, known controls/candidate targets, protected outcome status, cycle ids, action ids, residue classes, and closure status.
-- `closure_gate`: closes only when scope is still bound, no transition gate is pending, protected outcome is satisfied or residualized, residue is visible, and artifacts are replayable.
+- `closure_gate`: separates `passed_allowed_if` from `partial_landfall_allowed_if`. Passing requires protected outcome satisfied and no target-relevant residue. Partial landfall may residualize the protected outcome only when residue is visible and no same-license probe can reduce it.
 - `ui_test_landfall`: final artifact explaining whether the run passed, failed, stopped, asked, or landed partially.
 
 Recommended split:
 
-- ADMCP-023A: scenario contract, cycle, carrier, closure, and landfall schemas; no desktop actions.
+- ADMCP-023A: scenario contract, cycle, carrier, closure, and landfall schemas; no desktop actions and no runner orchestration.
 - ADMCP-023B: mock cycle runner and artifact writer.
 - ADMCP-023C: local app manual runner using existing real-provider gates only.
 - ADMCP-023D: Phaser/Vite fixture pressure test with pass, no-op, wrong-target, delayed-transition, and scope-exit cases.
 
 Do not add app launch, dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, or new desktop mutation authority in ADMCP-023.
+
+Next safe code step: implement ADMCP-023A only.
 
 ## Real Observation Manual Check
 

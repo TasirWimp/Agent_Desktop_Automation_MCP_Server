@@ -1149,7 +1149,8 @@ Required behavior:
 - Run a bounded app-under-test session from a first-class scenario contract with explicit user confirmation, visible-content acknowledgement, reversible app-under-test declaration, allowed actions, forbidden boundaries, protected test outcome, max cycles, max actions, max duration, and observation cadence.
 - Execute multi-cycle governed test steps using only existing MCP tools: `desktop_start_interaction_session`, `desktop_observe`, `desktop_move_mouse`, `desktop_evaluate_click_candidate`, `desktop_click`, `desktop_type_text`, `desktop_session_audit_log`, and `desktop_end_interaction_session`.
 - Preserve the cycle shape `goal -> active cut -> observe -> licensed action/probe -> observe transitionActionId -> classify delta -> carry residue -> continue/repair/ask/close`.
-- Record a required cycle packet for every action-bearing cycle with test goal, active cut, current pressure, licensed action/probe, before observation id, action id, after observation id, post-action classification, residue, next re-entry pressure, and cycle decision.
+- Record a required cycle packet for every runner cycle with test goal, cycle kind, active cut, current pressure, licensed probe/action, observations, transition classification when applicable, residue, next re-entry pressure, and cycle decision.
+- Separate observation-only cycles from action-bearing cycles: `observation_only` cycles may omit action and after-observation fields, while `state_changing_action` cycles require before observation, action id, after observation through `transitionActionId`, and transition classification.
 - Maintain a run-level test-state carrier across cycles with protected outcome status, observations, actions, transition classifications, candidate targets, residue classes, and closure state.
 - Save compact artifacts: scenario contract, session license, bound app scope, cycle packets, observations, actions, frame hashes or screenshots, transition classifications, audit events, residue, next re-entry pressure, test-state carrier, and final landfall/re-entry packet.
 - Stop or ask when the next useful move crosses a domain-authority boundary, leaves the bound app scope, hits a forbidden boundary, produces uninterpretable state, reaches the repair limit, or needs product knowledge that the agent cannot witness.
@@ -1162,6 +1163,10 @@ Scenario contract shape:
 ui_test_scenario_contract:
   scenario_id:
   test_goal:
+  session_license:
+    user_confirmed: true
+    visible_content_acknowledged: true
+    reversible_app_under_test_declared: true
   app_under_test:
     scope:
       kind: active_window | process_name | window_title | local_url | local_origin
@@ -1178,8 +1183,10 @@ ui_test_scenario_contract:
       - scope_exit
       - low_recoverability
       - uninterpretable_state
-  allowed_actions:
+  allowed_probes:
     - observe
+    - evaluate_click_candidate
+  allowed_actions:
     - move_mouse
     - click
     - type_text
@@ -1198,26 +1205,51 @@ ui_test_scenario_contract:
     - provider_delta_summary
     - audit_log_event
     - human_supplied_expected_visual_cue
+  evidence_strength:
+    frame_hash_delta: weak_by_default
+    screenshot_reference: witness_only
+    cursor_position: targeting_or_probe_evidence
+    transition_classification: transition_evidence
+    provider_delta_summary: provider_transition_evidence
+    audit_log_event: trace_evidence
+    human_supplied_expected_visual_cue: scenario_authority
   closure_policy:
-    close_only_if:
-      - protected_outcome_satisfied_or_residualized
+    passed_allowed_if:
+      - protected_outcome_satisfied
+      - no_target_relevant_residue
       - scope_remained_bound
       - no_pending_transition_gate
-      - residue_named
       - artifact_replayable
+    partial_landfall_allowed_if:
+      - protected_outcome_residualized
+      - residue_visible
+      - no_same_license_probe_can_reduce_remaining_residue
+      - scope_remained_bound
+      - no_pending_transition_gate
+      - artifact_replayable
+    close_blocked_if:
+      - protected_outcome_only_residualized_but_status_marked_passed
+      - frame_hash_delta_used_as_visual_success_without_scenario_authority
 ```
+
+Frame-hash rule:
+
+- `frame_hash_delta` may support "something changed".
+- `frame_hash_delta` cannot by itself satisfy a protected visual outcome unless the scenario contract explicitly declares that specific hash or visual-region delta sufficient.
+- For Phaser/Vite canvas tests, screenshot references and hash deltas are witnesses, not semantic proof, unless the protected outcome defines the acceptable visual cue.
 
 Required cycle packet shape:
 
 ```yaml
 ui_test_cycle:
   cycle_id: C1
+  cycle_kind: observation_only | probe_action | state_changing_action
   test_goal: "verify the requested UI behavior in the local app"
   active_cut: "what this cycle is trying to prove or reduce"
   current_pressure:
     - "target-relevant uncertainty before the cycle"
   licensed_probe_or_action:
-    type: observe | move_mouse | click | type_text
+    type: observe | evaluate_click_candidate | move_mouse | click | type_text
     semantic_target: "rough UI target or witness goal"
     target_scope: "bound app-under-test scope"
   before_observation:
@@ -1225,14 +1257,14 @@ ui_test_cycle:
     frame_hashes:
     active_window:
     cursor:
-  action:
+  action: # required for state_changing_action, omitted for observation_only
     action_id:
     result:
-  after_observation:
+  after_observation: # required for state_changing_action through transitionActionId
     observation_id:
     frame_hashes:
     active_window:
-  transition_classification:
+  transition_classification: # required after state-changing actions
     kind: expected_delta | no_op | wrong_target | scope_exit | risk_prompt | uninterpretable_state | repair_needed
     evidence:
     residue:
@@ -1281,11 +1313,19 @@ Closure gate:
 
 ```yaml
 closure_gate:
-  close_allowed_if:
+  passed_allowed_if:
     - session_scope_still_bound
     - no_pending_transition_gate
-    - protected_test_outcome_satisfied_or_residualized
+    - protected_test_outcome_satisfied
+    - no_target_relevant_residue
+    - repair_budget_not_silently_exhausted
+    - final_artifact_replays_scenario_contract_cycles_actions_classifications_residue_and_decision
+  partial_landfall_allowed_if:
+    - session_scope_still_bound
+    - no_pending_transition_gate
+    - protected_test_outcome_residualized
     - residue_visible
+    - no_same_license_probe_can_reduce_remaining_residue
     - repair_budget_not_silently_exhausted
     - final_artifact_replays_scenario_contract_cycles_actions_classifications_residue_and_decision
   close_blocked_if:
@@ -1296,6 +1336,8 @@ closure_gate:
     - repair_limit_exhausted_without_final_residue_status
     - expected_delta_occurred_but_protected_goal_not_checked
     - no_op_or_wrong_target_relabelled_as_success
+    - protected_outcome_only_residualized_but_status_marked_passed
+    - frame_hash_delta_used_as_visual_success_without_scenario_authority
 ```
 
 Anti-drift requirements:
@@ -1323,7 +1365,7 @@ ui_test_landfall:
       decision:
   audit_event_count:
   stop_conditions:
-  closure_status: closed | partial_landfall | open | stopped
+  closure_status: passed | failed | partial_landfall | open | ask_required | stopped
   closure_allowed: true | false
   reentry_notes:
     - "what a later Codex agent can recover without hidden session memory"
@@ -1333,8 +1375,9 @@ Recommended implementation split:
 
 - ADMCP-023A Scenario Contract And Artifact Schemas.
   - Add schema modules for scenario contract, cycle packet, carrier, closure gate, and landfall artifact.
-  - Add schema tests for app-under-test contract, allowed actions, forbidden boundaries, max cycles/actions/time, protected outcome declaration, and artifact replay fields.
+  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, protected outcome declaration, evidence-strength defaults, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, and artifact replay fields.
   - Execute no desktop action in this slice.
+  - ADMCP-023A is the next implementation target; do not start runner orchestration in ADMCP-023A.
 - ADMCP-023B Mock Cycle Runner.
   - Use existing MCP/server tool paths against mock/provider-backed deterministic fixtures.
   - Cover expected delta with protected outcome satisfied, expected delta with outcome unresolved, no-op, wrong-target, repair-needed, uninterpretable, repair-limit, and closure-gate behavior.
