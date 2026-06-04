@@ -877,6 +877,211 @@ ADMCP-022 keeps the loop session-first instead of adding a new runner:
 
 Recommended sequence:
 
-1. ADMCP-023 UI Test Runner For Local Apps.
+1. ADMCP-023 Governed UI Test Cycle Runner For Local Apps.
 
 Click-candidate witness evidence should be consumed by app-scoped click work as targeting-quality evidence. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.
+
+ADMCP-023 should be implemented as a governed multi-cycle UI test carrier, not as a generic UI automation runner. The runner's purpose is to preserve orientation and residue across real app test cycles:
+
+```text
+test pressure
+  -> active cut
+    -> observe bound app
+      -> licensed probe/action
+        -> observe transition
+          -> classify delta
+            -> carry residue
+              -> continue / repair / ask / partial landfall / close
+```
+
+For Phaser/Vite applications, the runner must assume that the useful witness may be visual/canvas-based and that DOM or accessibility evidence may not be enough. A test case can require multiple cycles because game state, canvas rendering, animation timing, hover effects, disabled controls, and wrong-target deltas can all produce plausible but incomplete pressure reduction. The runner should therefore preserve a cycle carrier rather than merely execute a list of actions.
+
+ADMCP-023 implementation guardrails:
+
+- Use existing MCP tools only; do not add new desktop authority.
+- Keep app/dev-server launch outside this server unless a later workspace-runner contract is documented.
+- Require a scenario contract with user goal, app-under-test scope, allowed actions, max cycle/action/time limits, forbidden boundaries, protected outcome, allowed evidence, and closure policy.
+- Require one cycle packet per action-bearing cycle with current pressure, active cut, before observation, action, after observation, transition classification, residue, next re-entry pressure, and cycle decision.
+- Maintain a run-level test-state carrier with protected outcome status, cycle ids, action ids, candidate targets, residue classes, and closure status.
+- Treat `expected_delta` as evidence to evaluate against the protected test goal, not as automatic test success.
+- Treat `no_op`, `wrong_target`, and `repair_needed` as bounded repair paths with residue carried forward.
+- Treat `scope_exit`, `risk_prompt`, `uninterpretable_state`, and repair-limit exhaustion as stop/escalation conditions.
+- Require a final landfall/re-entry packet before claiming test closure.
+- Preserve enough artifact data for a later Codex agent to re-enter without hidden session memory.
+
+The runner owns these local artifacts:
+
+- scenario contract,
+- cycle packet,
+- test-state carrier,
+- closure gate,
+- compact artifact writer,
+- final landfall/re-entry packet.
+
+The MCP session tools remain the only action surface. ADMCP-023 must not add raw desktop-control primitives, hidden polling, OCR as a dependency, semantic localization as a prerequisite, shell execution, app launch, deployment, external publishing, or cross-app authority.
+
+Scenario contract:
+
+```yaml
+ui_test_scenario_contract:
+  scenario_id:
+  test_goal:
+  app_under_test:
+    scope:
+      kind: active_window | process_name | window_title | local_url | local_origin
+      value:
+    reversible: true
+    forbidden_boundaries:
+      - credential_or_secret_prompt
+      - payment_or_purchase
+      - external_message_or_email
+      - external_publish_or_deploy
+      - destructive_operation
+      - system_settings
+      - unrelated_private_window
+      - scope_exit
+      - low_recoverability
+      - uninterpretable_state
+  allowed_actions:
+    - observe
+    - move_mouse
+    - click
+    - type_text
+  max_cycles:
+  max_actions:
+  max_duration_ms:
+  observation_cadence:
+    max_observation_gap_ms:
+  protected_test_outcome:
+    - "declared scenario observable"
+  allowed_evidence:
+    - frame_hash_delta
+    - screenshot_reference
+    - cursor_position
+    - transition_classification
+    - provider_delta_summary
+    - audit_log_event
+    - human_supplied_expected_visual_cue
+  closure_policy:
+    close_only_if:
+      - protected_outcome_satisfied_or_residualized
+      - scope_remained_bound
+      - no_pending_transition_gate
+      - residue_named
+      - artifact_replayable
+```
+
+The runner should make this packet mandatory:
+
+```yaml
+ui_test_cycle:
+  cycle_id:
+  test_goal:
+  active_cut:
+  current_pressure:
+  licensed_probe_or_action:
+    type:
+    semantic_target:
+    target_scope:
+  before_observation:
+    observation_id:
+    frame_hashes:
+    active_window:
+    cursor:
+  action:
+    action_id:
+    result:
+  after_observation:
+    observation_id:
+    frame_hashes:
+    active_window:
+  transition_classification:
+    kind:
+    evidence:
+    residue:
+  carrier_update:
+    satisfied_observables:
+    newly_visible:
+    forgotten_or_compressed:
+    remaining_residue:
+  next_reentry_pressure:
+  cycle_decision:
+```
+
+The run-level carrier prevents hidden drift between cycles:
+
+```yaml
+ui_test_carrier:
+  scenario_id:
+  session_id:
+  bound_app_scope:
+  test_goal:
+  current_model:
+    active_screen_or_state: unknown
+    known_controls:
+    candidate_targets:
+    protected_outcome_status:
+      - observable:
+        status: yes | no | unresolved
+        evidence:
+  cycle_ids:
+  transition_action_ids:
+  residue:
+    unresolved_visual_state:
+    ambiguous_targeting:
+    timing_or_animation_uncertainty:
+    missing_expected_evidence:
+    repair_limit_pressure:
+    domain_authority_needed:
+  closure_status:
+    status: open | partial_landfall | passed | failed | ask_required | stopped
+    reason:
+    replayable_from_artifact: true | false
+```
+
+Closure gate:
+
+```yaml
+closure_gate:
+  close_allowed_if:
+    - session_scope_still_bound
+    - no_pending_transition_gate
+    - protected_test_outcome_satisfied_or_residualized
+    - residue_visible
+    - repair_budget_not_silently_exhausted
+    - final_artifact_replayable
+  close_blocked_if:
+    - pending_transition_requires_observation
+    - scope_exit
+    - risk_prompt
+    - uninterpretable_state
+    - repair_limit_exhausted_without_final_residue_status
+    - expected_delta_occurred_but_protected_goal_not_checked
+    - no_op_or_wrong_target_relabelled_as_success
+```
+
+The runner should also end every scenario with:
+
+```yaml
+ui_test_landfall:
+  test_goal:
+  declared_scope:
+  protected_observables:
+  satisfied_observables:
+  unsatisfied_residue:
+  cycle_history:
+  audit_event_count:
+  stop_conditions:
+  closure_status:
+  closure_allowed:
+  reentry_notes:
+```
+
+This blocks the default UI-runner failure mode where a sequence of actions is executed, a visible change lowers pressure, and the agent prematurely treats that as a passed test.
+
+Recommended ADMCP-023 split:
+
+- ADMCP-023A Scenario Contract And Artifact Schemas: validate scenario, cycle, carrier, closure, and landfall schemas without executing desktop actions.
+- ADMCP-023B Mock Cycle Runner: run the loop against deterministic mock/provider fixtures and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts.
+- ADMCP-023C Local App Manual Runner: use real observation/click/type only behind existing gates against a user-launched reversible app-under-test.
+- ADMCP-023D Phaser/Vite Fixture Pressure Test: pressure-test pass, no-op, wrong-target, delayed-transition, and scope-exit cases in a deliberately small local fixture.

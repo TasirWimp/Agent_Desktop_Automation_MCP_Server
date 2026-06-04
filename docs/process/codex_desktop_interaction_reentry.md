@@ -236,7 +236,36 @@ ADMCP-022 post-action observation and repair-loop classification is implemented.
 - `desktop_capabilities` reports `postActionRepairClassification: true`.
 - ADMCP-022 does not add a UI test runner, OCR, semantic localization, app launching, shell execution, or new desktop mutation authority.
 
-Next unimplemented target: ADMCP-023 UI Test Runner For Local Apps.
+Next unimplemented target: ADMCP-023 Governed UI Test Cycle Runner For Local Apps.
+
+ADMCP-023 should not drift into a default ordered click/type runner. The target is a multi-cycle carrier for real UI testing, especially for Phaser/Vite apps where canvas visuals, animation timing, hover state, and subtle frame deltas can make a one-cycle assertion misleading.
+
+The runner should use the existing MCP tools only and preserve this cycle shape:
+
+```text
+test goal -> active cut -> observe -> licensed probe/action -> observe transitionActionId -> classify delta -> carry residue -> continue/repair/ask/close
+```
+
+Every action-bearing cycle should produce a `ui_test_cycle` packet with current pressure, active cut, before observation, action id, after observation, post-action classification, residue, next re-entry pressure, and cycle decision. The runner should end with a landfall/re-entry packet that states protected observables, satisfied observables, unsatisfied residue, audit count, stop conditions, closure status, and re-entry notes.
+
+Do not claim scenario success only because a click happened, text was typed, or frame hashes changed. `expected_delta` is evidence to compare against the protected test goal. `no_op`, `wrong_target`, and `repair_needed` must carry residue into the next cycle. `scope_exit`, `risk_prompt`, `uninterpretable_state`, or repair-limit exhaustion must stop or escalate.
+
+ADMCP-023 implementation must start with local runner artifacts:
+
+- `ui_test_scenario_contract`: scenario id, test goal, reversible app-under-test scope, allowed actions, max cycles/actions/time, observation cadence, forbidden boundaries, protected outcome, allowed evidence, and closure policy.
+- `ui_test_cycle`: one packet per action-bearing cycle with pressure, active cut, observations, action, transition classification, carrier update, residue, next re-entry pressure, and decision.
+- `ui_test_carrier`: run-level state with bound app scope, known controls/candidate targets, protected outcome status, cycle ids, action ids, residue classes, and closure status.
+- `closure_gate`: closes only when scope is still bound, no transition gate is pending, protected outcome is satisfied or residualized, residue is visible, and artifacts are replayable.
+- `ui_test_landfall`: final artifact explaining whether the run passed, failed, stopped, asked, or landed partially.
+
+Recommended split:
+
+- ADMCP-023A: scenario contract, cycle, carrier, closure, and landfall schemas; no desktop actions.
+- ADMCP-023B: mock cycle runner and artifact writer.
+- ADMCP-023C: local app manual runner using existing real-provider gates only.
+- ADMCP-023D: Phaser/Vite fixture pressure test with pass, no-op, wrong-target, delayed-transition, and scope-exit cases.
+
+Do not add app launch, dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, or new desktop mutation authority in ADMCP-023.
 
 ## Real Observation Manual Check
 

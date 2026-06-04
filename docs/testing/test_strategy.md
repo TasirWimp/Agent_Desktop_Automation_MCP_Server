@@ -117,7 +117,43 @@ For ADMCP-021, tests must cover app-scoped real typing of generated test input. 
 
 For ADMCP-022, tests must cover post-action observation and repair-loop classification: expected delta, no-op, wrong target, scope exit, risk prompt, uninterpretable state, repair attempt counting, and transition-gate audit completeness.
 
-For ADMCP-023, tests and manual checks must cover a local app-under-test runner. The runner should exercise a reversible UI fixture, stop on scope exit, save compact artifacts, and avoid adding shell, deployment, external publishing, or cross-app authority.
+For ADMCP-023, tests must cover the governed UI test cycle runner, not a generic ordered click/type script.
+
+Unit tests:
+
+- scenario contract validation,
+- cycle packet creation and update,
+- carrier update from transition classification,
+- residue carry-forward into `next_reentry_pressure`,
+- protected outcome status updates,
+- closure-gate allow/block decisions,
+- max cycle/action/time enforcement,
+- final landfall/re-entry packet shape.
+
+Runner/protocol tests:
+
+- `expected_delta` with protected outcome satisfied -> close,
+- `expected_delta` with protected outcome unresolved -> continue or partial landfall, not silent pass,
+- `no_op` -> residue and repair or ask,
+- `wrong_target` -> bounded repair,
+- `repair_needed` -> bounded repair,
+- `scope_exit` -> stop/escalate,
+- `risk_prompt` -> stop/escalate,
+- `uninterpretable_state` -> stop/escalate,
+- repair-limit exhaustion -> visible residue and no silent pass,
+- pending transition gate blocks the next non-observe action,
+- artifact includes scenario contract, cycle packets, carrier, observations, actions, classifications, audit events, residue, closure gate result, and final status.
+
+Manual checks:
+
+- local reversible Phaser/Vite fixture,
+- app launch/dev-server performed outside the MCP server,
+- pass case witnesses declared protected outcome,
+- no-op and wrong-target cases do not close,
+- delayed transition uses bounded re-observe/repair instead of immediate blind retry,
+- scope exit stops,
+- visible outcome and rollback/cleanup are documented,
+- no shell, app launch, deployment, external publishing, OCR dependency, hidden polling, semantic-localization prerequisite, or cross-app authority is added.
 
 ## Reporting Requirements
 
