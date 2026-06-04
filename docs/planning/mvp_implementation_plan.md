@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
 
 ## Planning Document Roles
 
@@ -143,7 +143,7 @@ Extracted implementation slices:
 - ADMCP-017 Click-Candidate Witness Gate - implemented.
 - ADMCP-018 Licensed App Scope Model - implemented.
 - ADMCP-019 Scope Binding Runtime - implemented.
-- ADMCP-020 App-Scoped Real Click Gate - planned.
+- ADMCP-020 App-Scoped Real Click Gate - implemented.
 - ADMCP-021 App-Scoped Type Text Gate - planned.
 - ADMCP-022 Post-Action Observation And Repair Loop - planned.
 - ADMCP-023 UI Test Runner For Local Apps - planned.
@@ -982,7 +982,7 @@ Verification:
 Residual scope:
 
 - Local URL/origin binding is schema-ready but still needs a provider that can supply browser/app URL identity.
-- Real click and real typing remain unavailable until ADMCP-020 and ADMCP-021 add explicit provider gates.
+- Real typing remains unavailable until ADMCP-021 adds an explicit provider gate.
 - Scope binding is a runtime guard and audit source; it does not perform semantic localization, OCR, accessibility inspection, or repair-loop classification.
 
 ### ADMCP-020 App-Scoped Real Click Gate
@@ -991,7 +991,7 @@ Goal: Enable opt-in real clicking only inside the bound app-under-test scope.
 
 Status:
 
-- Planned.
+- Implemented.
 
 Depends on:
 
@@ -1006,10 +1006,53 @@ Required behavior:
 - Require post-click observation before any next non-observe action and before success can be claimed.
 - Block or escalate clicks that leave scope, hit system dialogs, target credentials/payments/private prompts, or cross forbidden boundaries.
 
+Delivered behavior:
+
+- Adds `ADMCP_ENABLE_REAL_CLICK=true` as a separate Windows provider gate.
+- Keeps the default provider mock-only and keeps Windows real clicking disabled unless real observation and the click gate are both enabled.
+- Reports `supportsClick`, `realDesktopClick`, `realDesktopMutation`, and `executeDesktopActions` only when the click gate is active.
+- Implements Windows real click through the existing `desktop_click` tool path; no raw click tool is added.
+- Requires the existing session policy checks before provider execution: active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, matching app scope, in-frame target point, low-risk action packet, audit logging, and no pending transition gate.
+- Converts active-window-frame click points to screen coordinates inside the provider.
+- Checks active-window scope before clicking and records post-click active-window scope residue for follow-up observation.
+- Records real click action packets and transition gates through the same runtime path as mock clicks.
+- Requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+- Keeps real typing, shell, app launch, system changes, external publishing, hidden polling, background capture, OCR, accessibility interpretation, and broad desktop control unavailable.
+
+Implemented files:
+
+- `src/providers/desktopProvider.ts`
+- `src/providers/defaultDesktopProvider.ts`
+- `src/providers/windowsDesktopObservationProvider.ts`
+- `src/server.ts`
+- `src/session/actionTools.ts`
+- `tests/defaultDesktopProvider.test.ts`
+- `tests/windowsDesktopObservationProvider.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `README.md`
+- `docs/architecture/safety_model.md`
+- `docs/architecture/licensed_desktop_interaction_sessions.md`
+- `docs/process/codex_desktop_interaction_reentry.md`
+- `docs/product/requirements.md`
+- `docs/testing/test_strategy.md`
+
 Acceptance criteria:
 
 - Tests cover in-scope allowed click, out-of-scope blocked click, unbound-app blocked click, stale-observation blocked click, click gate disabled, and post-click observation requirement.
 - Manual acceptance checks use only a local reversible app-under-test.
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+
+Residual scope:
+
+- Real typing remains unavailable until ADMCP-021.
+- Click-candidate witness output is still targeting-quality evidence; `desktop_click` does not yet require a stored candidate witness id.
+- Post-click repair classification remains deferred to ADMCP-022.
+- Local URL/origin app binding remains provider-dependent future work.
 
 ### ADMCP-021 App-Scoped Type Text Gate
 

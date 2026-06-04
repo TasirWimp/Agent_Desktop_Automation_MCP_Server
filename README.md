@@ -11,7 +11,7 @@ The current server exposes:
 - `desktop_observe` - records a bounded observation frame session for an active interaction session.
 - `desktop_move_mouse` - runs a bounded movement probe inside an active interaction session and requires follow-up observation.
 - `desktop_evaluate_click_candidate` - evaluates current observation, cursor, scope, and risk evidence for a future app-scoped click request without clicking.
-- `desktop_click` - simulates a bounded mock click inside an active interaction session and requires follow-up observation.
+- `desktop_click` - runs a bounded app-scoped click inside an active interaction session and requires follow-up observation; real clicking is opt-in only.
 - `desktop_type_text` - simulates bounded mock test-text entry without storing text content and requires follow-up observation.
 - `desktop_end_interaction_session` - ends an active interaction session.
 - `desktop_session_audit_log` - reads the session lifecycle audit log.
@@ -20,7 +20,7 @@ Real desktop capture and pointer movement are disabled by default. The default p
 
 The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
 
-Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. This app-scope binding does not enable real click or typing; those remain disabled until later provider-gate slices.
+Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. Real clicking additionally requires the explicit Windows click provider gate. Real typing remains disabled until a later provider-gate slice.
 
 ## Real Observation And Pointer Probe
 
@@ -43,7 +43,18 @@ $env:ADMCP_ENABLE_REAL_MOUSE_MOVEMENT = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. After that follow-up observation, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for a future app-scoped click request. It does not click. `desktop_click` and `desktop_type_text` remain non-real unless a later provider gate explicitly enables them.
+With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. After that follow-up observation, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
+
+Real clicking is a separate app-scoped gate:
+
+```powershell
+$env:ADMCP_DESKTOP_PROVIDER = "windows-active-window"
+$env:ADMCP_ENABLE_REAL_OBSERVATION = "true"
+$env:ADMCP_ENABLE_REAL_CLICK = "true"
+npm run dev
+```
+
+With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action. Real typing remains disabled.
 
 For real Windows observation or movement sessions, set `observationCadence.maxObservationGapMs` to `60000` unless the task explicitly needs a tighter freshness window. A 5s gap is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds. This value keeps sessions bounded; it does not permit hidden polling, background capture, or stale action chains.
 

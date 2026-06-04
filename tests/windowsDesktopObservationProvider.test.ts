@@ -30,6 +30,7 @@ class FakeWindowsBackend implements WindowsObservationBackend {
   public getActiveWindowCount = 0;
   public captureCount = 0;
   public movedPoints: DesktopPoint[] = [];
+  public clickedPoints: Array<{ point: DesktopPoint; button: "left" | "middle" | "right" }> = [];
   public disposed = false;
   private cursorPosition: DesktopPoint;
 
@@ -63,6 +64,19 @@ class FakeWindowsBackend implements WindowsObservationBackend {
 
   async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
     this.movedPoints.push(point);
+    this.cursorPosition = point;
+
+    return this.cursorPosition;
+  }
+
+  async clickMouseAt(
+    point: DesktopPoint,
+    button: "left" | "middle" | "right"
+  ): Promise<DesktopPoint> {
+    this.clickedPoints.push({
+      point,
+      button
+    });
     this.cursorPosition = point;
 
     return this.cursorPosition;
@@ -115,7 +129,9 @@ class FakeWindowsHelperClient implements WindowsObservationHelperClient {
               }
             : command === "move_mouse"
               ? payload?.point
-              : {};
+              : command === "click_mouse"
+                ? payload?.point
+                : {};
 
     return result as T;
   }
@@ -196,6 +212,10 @@ describe("WindowsDesktopObservationProvider", () => {
       x: 33,
       y: 44
     });
+    await expect(backend.clickMouseAt({ x: 35, y: 46 }, "left")).resolves.toEqual({
+      x: 35,
+      y: 46
+    });
     backend.dispose();
 
     expect(helperClient.commands).toEqual([
@@ -218,6 +238,16 @@ describe("WindowsDesktopObservationProvider", () => {
             x: 33,
             y: 44
           }
+        }
+      },
+      {
+        command: "click_mouse",
+        payload: {
+          point: {
+            x: 35,
+            y: 46
+          },
+          button: "left"
         }
       }
     ]);
@@ -266,6 +296,24 @@ describe("WindowsDesktopObservationProvider", () => {
       realDesktopCapture: true,
       realDesktopMouseMovement: true,
       realDesktopMutation: false
+    });
+  });
+
+  it("reports opt-in real click capability behind a separate gate", () => {
+    const provider = new WindowsDesktopObservationProvider({
+      backend: new FakeWindowsBackend(),
+      platform: "win32",
+      enableRealClick: true
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      supportsMouse: false,
+      supportsClick: true,
+      supportsTyping: false,
+      realDesktopCapture: true,
+      realDesktopMouseMovement: true,
+      realDesktopMutation: true
     });
   });
 
@@ -715,6 +763,189 @@ describe("WindowsDesktopObservationProvider", () => {
       simulated: false
     });
     expect(backend.movedPoints).toEqual([]);
+  });
+
+  it("clicks through the backend only when explicitly enabled", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealClick: true
+    });
+
+    await expect(
+      provider.click({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 120,
+          y: 80
+        },
+        button: "left",
+        intendedSemanticTarget: "Submit button"
+      })
+    ).resolves.toMatchObject({
+      executed: true,
+      simulated: false,
+      clickedButton: "left",
+      cursorPosition: {
+        x: 120,
+        y: 80
+      },
+      providerTiming: {
+        providerName: "windows_active_window_observation_provider",
+        providerKind: "real",
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            operation: "pre_click_active_window_metadata_lookup"
+          }),
+          expect.objectContaining({
+            operation: "click_mouse"
+          }),
+          expect.objectContaining({
+            operation: "post_click_active_window_metadata_lookup"
+          })
+        ])
+      }
+    });
+    expect(backend.clickedPoints).toEqual([
+      {
+        point: {
+          x: 130,
+          y: 100
+        },
+        button: "left"
+      }
+    ]);
+  });
+
+  it("keeps real clicking disabled by default", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32"
+    });
+
+    await expect(
+      provider.click({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 120,
+          y: 80
+        },
+        button: "left"
+      })
+    ).resolves.toMatchObject({
+      executed: false,
+      simulated: false
+    });
+    expect(backend.clickedPoints).toEqual([]);
+  });
+
+  it("rejects out-of-window clicks before clicking", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealClick: true
+    });
+
+    await expect(
+      provider.click({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 700,
+          y: 80
+        },
+        button: "left"
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_action_target"
+    });
+    expect(backend.clickedPoints).toEqual([]);
+  });
+
+  it("records click execution residue when post-click metadata cannot be verified", async () => {
+    let activeWindowCalls = 0;
+    const clickedPoints: DesktopPoint[] = [];
+    const backend: WindowsObservationBackend = {
+      async getActiveWindow() {
+        activeWindowCalls += 1;
+
+        if (activeWindowCalls > 1) {
+          throw new Error("post-click metadata unavailable");
+        }
+
+        return activeWindow;
+      },
+      async getCursorPosition() {
+        return {
+          x: 130,
+          y: 100
+        };
+      },
+      async captureActiveWindowPng() {
+        return {
+          ...activeWindow,
+          dataBase64: pngBase64
+        };
+      },
+      async moveMouseTo(point) {
+        return point;
+      },
+      async clickMouseAt(point) {
+        clickedPoints.push(point);
+
+        return point;
+      }
+    };
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealClick: true
+    });
+
+    await expect(
+      provider.click({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        point: {
+          x: 120,
+          y: 80
+        },
+        button: "left"
+      })
+    ).resolves.toMatchObject({
+      executed: true,
+      simulated: false,
+      residue: expect.arrayContaining([
+        "Post-click active-window metadata could not be verified; follow-up observation must audit the transition."
+      ])
+    });
+    expect(clickedPoints).toEqual([
+      {
+        x: 130,
+        y: 100
+      }
+    ]);
   });
 
   it("rejects out-of-window movement before moving the cursor", async () => {

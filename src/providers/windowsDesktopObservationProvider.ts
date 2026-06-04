@@ -63,6 +63,10 @@ export interface WindowsObservationBackend {
   getCursorPosition(): Promise<DesktopPoint>;
   captureActiveWindowPng(): Promise<WindowsCapturedFrame>;
   moveMouseTo(point: DesktopPoint): Promise<DesktopPoint>;
+  clickMouseAt?(
+    point: DesktopPoint,
+    button: "left" | "middle" | "right"
+  ): Promise<DesktopPoint>;
   dispose?(): void;
 }
 
@@ -70,6 +74,7 @@ export interface WindowsDesktopObservationProviderOptions {
   backend?: WindowsObservationBackend;
   platform?: NodeJS.Platform;
   enableRealMouseMovement?: boolean;
+  enableRealClick?: boolean;
   maxFramesPerObservation?: number;
   maxObservationDurationMs?: number;
   frameDelay?: (milliseconds: number) => Promise<void>;
@@ -80,6 +85,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   private readonly backend: WindowsObservationBackend;
   private readonly platform: NodeJS.Platform;
   private readonly enableRealMouseMovement: boolean;
+  private readonly enableRealClick: boolean;
   private readonly maxFramesPerObservation: number;
   private readonly maxObservationDurationMs: number;
   private readonly frameDelay: (milliseconds: number) => Promise<void>;
@@ -92,6 +98,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
         : new PersistentPowerShellWindowsObservationBackend());
     this.platform = options.platform ?? process.platform;
     this.enableRealMouseMovement = options.enableRealMouseMovement ?? false;
+    this.enableRealClick = options.enableRealClick ?? false;
     this.maxFramesPerObservation = options.maxFramesPerObservation ?? 6;
     this.maxObservationDurationMs = options.maxObservationDurationMs ?? 2_000;
     this.frameDelay = options.frameDelay ?? delay;
@@ -103,11 +110,11 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       providerKind: "real",
       supportsObservation: true,
       supportsMouse: this.enableRealMouseMovement,
-      supportsClick: false,
+      supportsClick: this.enableRealClick,
       supportsTyping: false,
       realDesktopCapture: true,
-      realDesktopMouseMovement: this.enableRealMouseMovement,
-      realDesktopMutation: false,
+      realDesktopMouseMovement: this.enableRealMouseMovement || this.enableRealClick,
+      realDesktopMutation: this.enableRealClick,
       maxFramesPerObservation: this.maxFramesPerObservation,
       maxObservationDurationMs: this.maxObservationDurationMs,
       residue: [
@@ -118,7 +125,10 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
         this.enableRealMouseMovement
           ? "Provider may move the real mouse pointer as an opt-in active-window-scoped probe."
           : "Provider does not move the real mouse pointer unless the explicit movement gate is enabled.",
-        "Provider does not click, type, launch apps, or make durable desktop changes.",
+        this.enableRealClick
+          ? "Provider may click the real desktop only through the explicit app-scoped real-click gate."
+          : "Provider does not click unless the explicit app-scoped real-click gate is enabled.",
+        "Provider does not type, launch apps, or make durable desktop changes beyond gated clicks.",
         "Provider performs no OCR, localization, hidden polling, or background capture."
       ]
     };
@@ -268,8 +278,80 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     };
   }
 
-  async click(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
-    return unsupportedActionResult("click");
+  async click(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
+    const timing = new ProviderTimingCollector(
+      "windows_active_window_observation_provider",
+      "real"
+    );
+
+    if (!this.enableRealClick) {
+      return unsupportedActionResult("click");
+    }
+
+    this.ensureAvailable();
+
+    if (request.point === undefined) {
+      throw new DesktopProviderError(
+        "invalid_action_target",
+        "Clicking requires a target point.",
+        ["No real click occurred."]
+      );
+    }
+
+    const button = request.button ?? "left";
+    const activeWindow = await timing.measure("pre_click_active_window_metadata_lookup", () =>
+      this.safeGetActiveWindow()
+    );
+    this.assertTargetScopeMatchesActiveWindow(request.targetScope, activeWindow);
+    const screenPoint = pointToActiveWindowScreenPoint(
+      request.point,
+      activeWindow,
+      "No real click occurred."
+    );
+    const clickedCursor = await timing.measure("click_mouse", () =>
+      this.safeClickMouseAt(screenPoint, button)
+    );
+    const residue = [
+      "Real desktop click occurred through the explicit app-scoped real-click gate.",
+      "Requested point was interpreted in active-window frame coordinates.",
+      "A post-click observation is required before the next non-observe action.",
+      ...(request.intendedSemanticTarget === undefined
+        ? []
+        : [`Intended semantic target: ${request.intendedSemanticTarget}.`])
+    ];
+    let cursorPosition = cursorToActiveWindowPoint(clickedCursor, activeWindow);
+
+    try {
+      const postClickActiveWindow = await timing.measure(
+        "post_click_active_window_metadata_lookup",
+        () => this.safeGetActiveWindow()
+      );
+      this.assertTargetScopeMatchesActiveWindow(request.targetScope, postClickActiveWindow);
+      cursorPosition = cursorToActiveWindowPoint(clickedCursor, postClickActiveWindow);
+      residue.push("Post-click active-window metadata still matches the requested scope.");
+    } catch (error: unknown) {
+      if (error instanceof DesktopProviderError) {
+        residue.push(
+          error.code === "scope_mismatch"
+            ? "Post-click active-window metadata no longer matches the requested scope; follow-up observation must audit the transition."
+            : "Post-click active-window metadata could not be verified; follow-up observation must audit the transition."
+        );
+        residue.push(...error.residue);
+      } else {
+        throw error;
+      }
+    }
+
+    return {
+      executed: true,
+      simulated: false,
+      cursorPosition,
+      clickedButton: button,
+      providerTiming: timing.finish([
+        "Provider click timing is diagnostic only and is not used as policy evidence."
+      ]),
+      residue
+    };
   }
 
   async typeText(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
@@ -360,6 +442,25 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     }
   }
 
+  private async safeClickMouseAt(
+    point: DesktopPoint,
+    button: "left" | "middle" | "right"
+  ): Promise<DesktopPoint> {
+    if (this.backend.clickMouseAt === undefined) {
+      throw new DesktopProviderError(
+        "real_control_disabled",
+        "The Windows observation backend does not support real clicking.",
+        ["No real click occurred."]
+      );
+    }
+
+    try {
+      return await this.backend.clickMouseAt(point, button);
+    } catch (error: unknown) {
+      throw providerControlError(error, "Failed to click the mouse pointer.");
+    }
+  }
+
   private assertTargetScopeMatchesActiveWindow(
     targetScope: DesktopInteractionScope,
     activeWindow: WindowsActiveWindowSnapshot
@@ -385,6 +486,7 @@ type WindowsHelperCommand =
   | "get_cursor_position"
   | "capture_active_window_png"
   | "move_mouse"
+  | "click_mouse"
   | "shutdown";
 
 export interface WindowsObservationHelperClient {
@@ -425,6 +527,16 @@ export class PersistentPowerShellWindowsObservationBackend implements WindowsObs
   async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
     return this.helperClient.request<DesktopPoint>("move_mouse", {
       point
+    });
+  }
+
+  async clickMouseAt(
+    point: DesktopPoint,
+    button: "left" | "middle" | "right"
+  ): Promise<DesktopPoint> {
+    return this.helperClient.request<DesktopPoint>("click_mouse", {
+      point,
+      button
     });
   }
 
@@ -701,6 +813,13 @@ class PowerShellWindowsObservationBackend implements WindowsObservationBackend {
   async moveMouseTo(point: DesktopPoint): Promise<DesktopPoint> {
     return runPowerShellJson<DesktopPoint>(moveMouseScript(point));
   }
+
+  async clickMouseAt(
+    point: DesktopPoint,
+    button: "left" | "middle" | "right"
+  ): Promise<DesktopPoint> {
+    return runPowerShellJson<DesktopPoint>(clickMouseScript(point, button));
+  }
 }
 
 async function runPowerShellJson<T>(script: string): Promise<T> {
@@ -867,9 +986,25 @@ function providerCaptureError(error: unknown, fallbackMessage: string): DesktopP
   );
 }
 
+function providerControlError(error: unknown, fallbackMessage: string): DesktopProviderError {
+  if (error instanceof DesktopProviderError) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : fallbackMessage;
+  const denied = /access is denied|permission|denied/i.test(message);
+
+  return new DesktopProviderError(
+    denied ? "permission_denied" : "control_failed",
+    message,
+    ["No real desktop control action was recorded for the session."]
+  );
+}
+
 function pointToActiveWindowScreenPoint(
   point: DesktopPoint,
-  activeWindow: WindowsActiveWindowSnapshot
+  activeWindow: WindowsActiveWindowSnapshot,
+  blockedResidue = "No real cursor movement occurred."
 ): DesktopPoint {
   const bounds = activeWindow.bounds;
 
@@ -877,7 +1012,7 @@ function pointToActiveWindowScreenPoint(
     throw new DesktopProviderError(
       "invalid_action_target",
       "Active-window bounds are required before moving the mouse pointer.",
-      ["No real cursor movement occurred."]
+      [blockedResidue]
     );
   }
 
@@ -891,7 +1026,7 @@ function pointToActiveWindowScreenPoint(
       "invalid_action_target",
       "The requested mouse point is outside the active-window capture frame.",
       [
-        "No real cursor movement occurred.",
+        blockedResidue,
         `Requested point: x=${point.x}, y=${point.y}.`,
         `Active-window frame: width=${bounds.width}, height=${bounds.height}.`
       ]
@@ -1108,6 +1243,9 @@ public class AdmcpWin32 {
   public static extern bool SetCursorPos(int x, int y);
 
   [DllImport("user32.dll", SetLastError=true)]
+  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+
+  [DllImport("user32.dll", SetLastError=true)]
   public static extern bool GetCursorInfo(ref CURSORINFO pci);
 
   [DllImport("user32.dll", SetLastError=true)]
@@ -1222,6 +1360,45 @@ function Get-AdmcpCursorPosition {
     x = $point.X
     y = $point.Y
   }
+}
+
+function Invoke-AdmcpMouseClick {
+  param(
+    [Parameter(Mandatory = $true)] [int] $X,
+    [Parameter(Mandatory = $true)] [int] $Y,
+    [Parameter(Mandatory = $true)] [string] $Button
+  )
+
+  if (-not [AdmcpWin32]::SetCursorPos($X, $Y)) {
+    throw "Could not move cursor position before click."
+  }
+
+  $downFlag = 0
+  $upFlag = 0
+
+  switch ($Button) {
+    "left" {
+      $downFlag = 0x0002
+      $upFlag = 0x0004
+    }
+    "right" {
+      $downFlag = 0x0008
+      $upFlag = 0x0010
+    }
+    "middle" {
+      $downFlag = 0x0020
+      $upFlag = 0x0040
+    }
+    default {
+      throw ("Unsupported click button: {0}" -f $Button)
+    }
+  }
+
+  [AdmcpWin32]::mouse_event([uint32]$downFlag, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 40
+  [AdmcpWin32]::mouse_event([uint32]$upFlag, 0, 0, 0, [UIntPtr]::Zero)
+
+  Get-AdmcpCursorPosition
 }
 
 function Add-AdmcpCursorOverlay {
@@ -1511,6 +1688,19 @@ Get-AdmcpCursorPosition | ConvertTo-Json -Compress -Depth 6
 `;
 }
 
+function clickMouseScript(
+  point: DesktopPoint,
+  button: "left" | "middle" | "right"
+): string {
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+
+  return String.raw`
+${activeWindowPreamble}
+Invoke-AdmcpMouseClick -X ${x} -Y ${y} -Button "${button}" | ConvertTo-Json -Compress -Depth 6
+`;
+}
+
 const persistentWindowsObservationHelperScript = String.raw`
 ${activeWindowPreamble}
 
@@ -1625,6 +1815,13 @@ while (-not $shouldStop) {
         }
 
         Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Get-AdmcpCursorPosition)
+      }
+      "click_mouse" {
+        $x = [int][Math]::Round([double]$request.point.x)
+        $y = [int][Math]::Round([double]$request.point.y)
+        $button = [string]$request.button
+
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Invoke-AdmcpMouseClick -X $x -Y $y -Button $button)
       }
       "shutdown" {
         Write-AdmcpHelperResponse -Id $id -Ok $true -Result ([pscustomobject]@{

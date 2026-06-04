@@ -58,4 +58,22 @@ describe("createDefaultDesktopProvider", () => {
       supportsTyping: false
     });
   });
+
+  it("enables Windows real clicking only behind the explicit click gate", () => {
+    const provider = createDefaultDesktopProvider({
+      ADMCP_DESKTOP_PROVIDER: "windows-active-window",
+      ADMCP_ENABLE_REAL_OBSERVATION: "true",
+      ADMCP_ENABLE_REAL_CLICK: "true"
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      realDesktopCapture: true,
+      realDesktopMouseMovement: true,
+      realDesktopMutation: true,
+      supportsMouse: false,
+      supportsClick: true,
+      supportsTyping: false
+    });
+  });
 });

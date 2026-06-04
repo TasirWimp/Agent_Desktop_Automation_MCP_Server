@@ -10,6 +10,7 @@ export interface DesktopProviderEnvironment {
   ADMCP_DESKTOP_PROVIDER?: string;
   ADMCP_ENABLE_REAL_OBSERVATION?: string;
   ADMCP_ENABLE_REAL_MOUSE_MOVEMENT?: string;
+  ADMCP_ENABLE_REAL_CLICK?: string;
 }
 
 export function createDefaultDesktopProvider(
@@ -20,7 +21,8 @@ export function createDefaultDesktopProvider(
     env.ADMCP_ENABLE_REAL_OBSERVATION === "true"
   ) {
     return new WindowsDesktopObservationProvider({
-      enableRealMouseMovement: env.ADMCP_ENABLE_REAL_MOUSE_MOVEMENT === "true"
+      enableRealMouseMovement: env.ADMCP_ENABLE_REAL_MOUSE_MOVEMENT === "true",
+      enableRealClick: env.ADMCP_ENABLE_REAL_CLICK === "true"
     });
   }
 

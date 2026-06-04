@@ -37,7 +37,8 @@ export type DesktopProviderErrorCode =
   | "permission_denied"
   | "scope_mismatch"
   | "invalid_action_target"
-  | "capture_failed";
+  | "capture_failed"
+  | "control_failed";
 
 export class DesktopProviderError extends Error {
   constructor(

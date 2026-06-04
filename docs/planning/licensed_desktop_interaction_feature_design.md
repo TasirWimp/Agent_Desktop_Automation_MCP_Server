@@ -864,13 +864,12 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-ADMCP-018 implemented the licensed app-under-test scope model. ADMCP-019 implemented runtime binding of that declared scope to concrete observed provider identity through `desktop_observe`, including `boundAppScope` session state and `scope_exit` stop/audit evidence on drift. The next implementation should add an explicit app-scoped real click provider gate without weakening the binding requirement.
+ADMCP-018 implemented the licensed app-under-test scope model. ADMCP-019 implemented runtime binding of that declared scope to concrete observed provider identity through `desktop_observe`, including `boundAppScope` session state and `scope_exit` stop/audit evidence on drift. ADMCP-020 implemented the explicit app-scoped Windows real-click provider gate without adding a raw click primitive or weakening the binding requirement. The next implementation should add app-scoped generated test-input typing behind its own provider gate.
 
 Recommended sequence:
 
-1. ADMCP-020 App-Scoped Real Click Gate.
-2. ADMCP-021 App-Scoped Type Text Gate.
-3. ADMCP-022 Post-Action Observation And Repair Loop.
-4. ADMCP-023 UI Test Runner For Local Apps.
+1. ADMCP-021 App-Scoped Type Text Gate.
+2. ADMCP-022 Post-Action Observation And Repair Loop.
+3. ADMCP-023 UI Test Runner For Local Apps.
 
 Click-candidate witness evidence should be consumed by app-scoped click work as targeting-quality evidence. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.

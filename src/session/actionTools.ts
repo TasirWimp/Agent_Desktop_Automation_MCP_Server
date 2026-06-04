@@ -567,9 +567,9 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
   server.registerTool(
     "desktop_click",
     {
-      title: "Mock Desktop Click Probe",
+      title: "Desktop Click Probe",
       description:
-        "Simulate a bounded click inside an active desktop interaction session. The default provider does not click the real desktop.",
+        "Run a bounded app-scoped click inside an active desktop interaction session. Real clicking is available only when the active provider explicitly supports it.",
       inputSchema: clickInputSchema,
       annotations: {
         readOnlyHint: false,
@@ -624,12 +624,12 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
           "no credential, payment, publishing, destructive, or system boundary appears"
         ],
         allowedSummary:
-          "Mock click was licensed and simulated; post-click observation is required.",
+          "Click was licensed through the active provider; post-click observation is required.",
         policyBlockedResidue: "Policy blocked the click before any provider call.",
-        providerCallBlockedResidue: "No provider call was made and no click was simulated.",
+        providerCallBlockedResidue: "No provider call was made and no click occurred.",
         recordedResidue: [
-          "Mock click was recorded.",
-          "No real click, typing, OS capture, or OS mutation occurred.",
+          "Click was recorded.",
+          "The active provider result states whether the click was real or simulated.",
           "The next non-observe action is blocked until the transition gate is audited by observation."
         ]
       })

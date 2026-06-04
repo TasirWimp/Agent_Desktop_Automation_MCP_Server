@@ -111,7 +111,7 @@ For ADMCP-018, tests must cover the licensed app-under-test scope model. Session
 
 For ADMCP-019, tests cover scope binding runtime behavior. Unit and protocol tests verify binding to observed window/process/title identity, unbound app-scope action blocks, stale binding handling, pre-action observation mismatch, active-window focus drift, and scope-exit stop conditions. Local URL/origin binding remains provider-dependent future coverage.
 
-For ADMCP-020, tests must cover app-scoped real click gating without allowing broad desktop clicks. Tests should verify provider gate disabled, in-scope allowed click, out-of-scope blocked click, missing app declaration blocked, stale pre-action observation blocked, audit event creation, and mandatory post-click observation.
+For ADMCP-020, tests cover app-scoped real click gating without allowing broad desktop clicks. Provider and protocol tests verify the provider gate disabled, explicit click gate enabled, in-scope allowed click, out-of-scope blocked click, missing app declaration blocked through session policy, stale pre-action observation blocked, audit event creation, and mandatory post-click observation. Manual checks should use only a local reversible app-under-test.
 
 For ADMCP-021, tests must cover app-scoped real typing of generated test input. Tests should verify provider gate disabled, in-scope generated input allowed, credential-like or secret-like input blocked, out-of-scope typing blocked, text content not stored in audit/action packets, and mandatory post-type observation.
 

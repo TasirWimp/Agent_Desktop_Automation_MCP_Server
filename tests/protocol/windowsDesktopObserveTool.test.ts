@@ -31,6 +31,7 @@ const activeWindow: WindowsActiveWindowSnapshot = {
 class FakeWindowsBackend implements WindowsObservationBackend {
   public captureCount = 0;
   public movedPoints: DesktopPoint[] = [];
+  public clickedPoints: Array<{ point: DesktopPoint; button: "left" | "middle" | "right" }> = [];
   private cursorPosition: DesktopPoint;
 
   constructor(
@@ -65,23 +66,40 @@ class FakeWindowsBackend implements WindowsObservationBackend {
 
     return this.cursorPosition;
   }
+
+  async clickMouseAt(
+    point: DesktopPoint,
+    button: "left" | "middle" | "right"
+  ): Promise<DesktopPoint> {
+    this.clickedPoints.push({
+      point,
+      button
+    });
+    this.cursorPosition = point;
+
+    return this.cursorPosition;
+  }
 }
 
 async function createConnectedClient(
   backend = new FakeWindowsBackend(),
-  enableRealMouseMovement = false
+  enableRealMouseMovement = false,
+  enableRealClick = false,
+  initialNow = fixedNow
 ) {
   const sessionStore = new InMemoryDesktopSessionStore();
   let idCounter = 0;
+  let currentNow = initialNow;
   const server = createServer({
     sessionStore,
     desktopProvider: new WindowsDesktopObservationProvider({
       backend,
       platform: "win32",
       enableRealMouseMovement,
+      enableRealClick,
       frameDelay: async () => undefined
     }),
-    now: () => fixedNow,
+    now: () => currentNow,
     generateId: (prefix) => `${prefix}-fixed-${++idCounter}`
   });
   const client = new Client({
@@ -96,7 +114,10 @@ async function createConnectedClient(
     client,
     server,
     sessionStore,
-    backend
+    backend,
+    setNow: (nextNow: string) => {
+      currentNow = nextNow;
+    }
   };
 }
 
@@ -200,6 +221,41 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         realDesktopMutation: false,
         desktopMouseKeyboardTools: false,
         executeDesktopActions: false
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("reports app-scoped real click capability only when the click gate is enabled", async () => {
+    const { client, server } = await createConnectedClient(
+      new FakeWindowsBackend(),
+      false,
+      true
+    );
+
+    try {
+      const result = await client.callTool({
+        name: "desktop_capabilities",
+        arguments: {}
+      });
+      const structured = parseJsonText(result);
+
+      expect(structured.provider).toMatchObject({
+        providerKind: "real",
+        realDesktopCapture: true,
+        realDesktopMouseMovement: true,
+        realDesktopMutation: true,
+        supportsMouse: false,
+        supportsClick: true,
+        supportsTyping: false
+      });
+      expect(structured.capabilities).toMatchObject({
+        executeDesktopActions: true,
+        realDesktopClick: true,
+        realDesktopMutation: true,
+        closedLoopClickExecution: false
       });
     } finally {
       await client.close();
@@ -732,6 +788,268 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         realDesktopMutation: false
       });
       expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("executes a real provider click only inside the bound licensed app scope", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(
+      backend,
+      false,
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "click"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "click"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_click",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          button: "left",
+          intendedSemanticTarget: "Submit button"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("requires_post_action_observation");
+      expect(structured.providerCapabilities).toMatchObject({
+        supportsClick: true,
+        realDesktopMutation: true
+      });
+      expect(structured.providerResult).toMatchObject({
+        executed: true,
+        simulated: false,
+        clickedButton: "left",
+        cursorPosition: {
+          x: 120,
+          y: 80
+        }
+      });
+      expect(structured.transitionGate).toMatchObject({
+        status: "pending_observation",
+        sourceObservationId: "observation-fixed-2"
+      });
+      expect(backend.clickedPoints).toEqual([
+        {
+          point: {
+            x: 130,
+            y: 100
+          },
+          button: "left"
+        }
+      ]);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(1);
+      expect(sessionStore.findBlockingTransitionGate("session-real-observe-001")).toMatchObject({
+        status: "pending_observation"
+      });
+
+      const blockedResult = await client.callTool({
+        name: "desktop_click",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 121,
+            y: 81
+          },
+          button: "left",
+          intendedSemanticTarget: "Second click before post-click observation"
+        }
+      });
+      const blockedStructured = parseStructuredContent(blockedResult);
+
+      expect(blockedResult.isError).toBe(true);
+      expect(blockedStructured.status).toBe("blocked");
+      expect(backend.clickedPoints).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks real provider click when the pre-action observation is stale", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, setNow } = await createConnectedClient(
+      backend,
+      false,
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "click"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "click"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+
+      setNow("2026-05-28T10:00:06.000Z");
+
+      const result = await client.callTool({
+        name: "desktop_click",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          button: "left",
+          intendedSemanticTarget: "Submit button"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.status).toBe("block");
+      expect(structured.policy).toMatchObject({
+        stopConditions: [
+          {
+            condition: "stale_pre_action_observation"
+          }
+        ]
+      });
+      expect(backend.clickedPoints).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks real provider click outside the licensed app scope before provider execution", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server } = await createConnectedClient(
+      backend,
+      false,
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedScopes: [
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            {
+              kind: "process_name",
+              value: "node"
+            }
+          ],
+          allowedActions: ["observe", "click"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "click"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_click",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "process_name",
+            value: "node"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          button: "left",
+          intendedSemanticTarget: "Outside licensed app target"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.status).toBe("escalate");
+      expect(structured.policy).toMatchObject({
+        stopConditions: [
+          {
+            condition: "outside_allowed_scope"
+          }
+        ]
+      });
+      expect(backend.clickedPoints).toEqual([]);
     } finally {
       await client.close();
       await server.close();

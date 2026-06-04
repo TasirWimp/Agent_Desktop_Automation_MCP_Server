@@ -142,7 +142,7 @@ Clicking is licensed by:
 
 The current policy slice validates observation references when observation packets are supplied to the evaluator. Provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop action.
 
-The current scope-binding runtime validates that app-scoped click/type policy has a fresh `boundAppScope` and that the referenced pre-action observation still matches that bound app identity. Real click and typing providers remain unavailable until separate provider gates are implemented.
+The current scope-binding runtime validates that app-scoped click/type policy has a fresh `boundAppScope` and that the referenced pre-action observation still matches that bound app identity. Real clicking is available only through the explicit app-scoped Windows provider gate. Real typing remains unavailable until a separate provider gate is implemented.
 
 ## Relationship To Existing Policy
 

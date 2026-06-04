@@ -63,7 +63,7 @@ The witness licenses only a candidate click packet. It does not execute the clic
 
 Actual `mouse_input` remains a desktop state change. Outside a licensed session it must still pass `automation_policy_check` and require explicit user confirmation. Inside a future licensed session it may proceed only when the action stays inside session scope, has current visual evidence, is low risk and recoverable, leaves an audit trace, and requires post-action observation. A planning packet can say "candidate click is policy-ready"; it cannot perform the click.
 
-The current server exposes only opt-in real observation and opt-in real mouse movement as a non-durable pointer probe. It exposes no real click or typing backend. This pilot keeps that boundary intact.
+The current server exposes opt-in real observation, opt-in real mouse movement as a non-durable pointer probe, and an opt-in app-scoped real-click gate. It exposes no real typing backend. This pilot still does not execute clicks; any real click must go through `desktop_click` inside a bound licensed app-under-test session and must be followed by observation.
 
 ## Post-Action Verification
 
