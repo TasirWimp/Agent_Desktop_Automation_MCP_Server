@@ -145,7 +145,7 @@ Extracted implementation slices:
 - ADMCP-019 Scope Binding Runtime - implemented.
 - ADMCP-020 App-Scoped Real Click Gate - implemented.
 - ADMCP-021 App-Scoped Type Text Gate - implemented.
-- ADMCP-022 Post-Action Observation And Repair Loop - planned.
+- ADMCP-022 Post-Action Observation And Repair Loop - implemented.
 - ADMCP-023 UI Test Runner For Local Apps - planned.
 
 Acceptance gate before app-scoped real click, typing, or durable OS mutation:
@@ -1093,7 +1093,7 @@ Goal: Turn app-scoped click/type actions into a closed-loop test interaction ins
 
 Status:
 
-- Planned.
+- Implemented.
 
 Depends on:
 
@@ -1109,7 +1109,16 @@ Required behavior:
 
 Acceptance criteria:
 
-- Tests cover expected delta, no-op, wrong-target residue, scope-exit stop, repair-limit stop, and transition-gate audit completeness.
+- Tests cover expected delta, no-op, wrong-target residue, risk-prompt escalation, uninterpretable-state escalation, scope-exit stop, repair-limit stop, and transition-gate audit completeness.
+
+Delivered implementation:
+
+- `desktop_observe` classifies post-action transition observations as `expected_delta`, `no_op`, `wrong_target`, `scope_exit`, `risk_prompt`, `uninterpretable_state`, or `repair_needed`.
+- Transition gates preserve `postActionClassification` with confidence, disposition, evidence, repair count, repair-limit state, and residue.
+- Expected deltas reset the consecutive repair-attempt count.
+- No-op, wrong-target, and repair-needed classifications consume bounded repair budget while allowing the next licensed repair action until the limit is reached.
+- Scope exit, forbidden-boundary/risk prompts, uninterpretable follow-up observations, and repair-limit exhaustion create stop/escalation evidence.
+- ADMCP-022 does not add OCR, accessibility trees, hidden polling, app launching, shell execution, or new desktop mutation authority.
 
 ### ADMCP-023 UI Test Runner For Local Apps
 

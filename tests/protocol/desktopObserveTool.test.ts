@@ -119,6 +119,7 @@ describe("desktop_observe MCP tool", () => {
         desktopMoveMouseTool: true,
         desktopClickTool: true,
         desktopTypeTextTool: true,
+        postActionRepairClassification: true,
         realDesktopObservation: false,
         realDesktopMutation: false,
         desktopMouseKeyboardTools: false,

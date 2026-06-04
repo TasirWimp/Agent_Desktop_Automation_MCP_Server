@@ -72,13 +72,13 @@ Run these only after the user has granted a bounded session license for clicking
 
 1. Call `desktop_capabilities`.
 2. Confirm `provider.supportsClick`, `capabilities.realDesktopClick`, `provider.realDesktopMutation`, and `capabilities.executeDesktopActions` are `true`.
-3. Confirm `capabilities.closedLoopClickExecution` is `false`; ADMCP-022 repair classification is not implemented yet.
+3. Confirm `capabilities.closedLoopClickExecution` is `false`; ADMCP-022 repair classification is implemented, but ADMCP-023 runner orchestration is not.
 4. Start a session whose allowed actions include `observe` and `click`, with `licensedAppScope` set to the reversible app-under-test.
 5. Call `desktop_observe` and confirm it records `boundAppScope`.
 6. Call `desktop_click` with a point inside the active-window capture frame and the observation id as `preActionObservationId`.
 7. Confirm the result has `executed: true`, `simulated: false`, `requiresPostActionObservation: true`, and a pending transition gate.
 8. Call `desktop_observe` with `transitionActionId` set to the click action id.
-9. Confirm the follow-up observation audits the transition gate and that the active window remains inside `boundAppScope`.
+9. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
 10. Attempt a second `desktop_click` before the post-click observation in a separate test session and confirm it is blocked by the pending transition gate.
 11. Attempt a click with a stale pre-action observation and confirm it is blocked before provider execution.
 12. Attempt a click outside the licensed app scope and confirm it is blocked before provider execution.
@@ -97,7 +97,7 @@ Run these only after the user has granted a bounded session license for typing g
 7. Confirm the result has `executed: true`, `simulated: false`, `typedTextLength` equal to the generated input length, `requiresPostActionObservation: true`, and a pending transition gate.
 8. Confirm the returned action and audit events record text length/classification but not raw text content.
 9. Call `desktop_observe` with `transitionActionId` set to the typing action id.
-10. Confirm the follow-up observation audits the transition gate and that the active window remains inside `boundAppScope`.
+10. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
 11. Attempt credential-like text such as `password=example` and confirm it is blocked before provider execution and raw text is not stored.
 12. Attempt typing outside the licensed app scope and confirm it is blocked before provider execution.
 13. Confirm shell, app launch, system change, external publishing, and broad desktop control remain unavailable.

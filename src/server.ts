@@ -102,6 +102,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           desktopEvaluateClickCandidateTool: true,
           desktopClickTool: true,
           desktopTypeTextTool: true,
+          postActionRepairClassification: true,
           realDesktopObservation: desktopProviderCapabilities.realDesktopCapture,
           realDesktopMouseMovement: desktopProviderCapabilities.realDesktopMouseMovement,
           realDesktopClick,

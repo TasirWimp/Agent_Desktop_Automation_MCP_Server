@@ -864,11 +864,19 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-ADMCP-018 implemented the licensed app-under-test scope model. ADMCP-019 implemented runtime binding of that declared scope to concrete observed provider identity through `desktop_observe`, including `boundAppScope` session state and `scope_exit` stop/audit evidence on drift. ADMCP-020 implemented the explicit app-scoped Windows real-click provider gate without adding a raw click primitive or weakening the binding requirement. ADMCP-021 implemented app-scoped generated test-input typing behind its own provider gate, preserving text-content non-persistence, credential-like input blocking, bound app scope, and post-type observation. The next implementation should classify post-action observations and repair paths.
+ADMCP-018 implemented the licensed app-under-test scope model. ADMCP-019 implemented runtime binding of that declared scope to concrete observed provider identity through `desktop_observe`, including `boundAppScope` session state and `scope_exit` stop/audit evidence on drift. ADMCP-020 implemented the explicit app-scoped Windows real-click provider gate without adding a raw click primitive or weakening the binding requirement. ADMCP-021 implemented app-scoped generated test-input typing behind its own provider gate, preserving text-content non-persistence, credential-like input blocking, bound app scope, and post-type observation. ADMCP-022 implemented post-action observation classification and bounded repair accounting on interaction transition gates.
+
+ADMCP-022 keeps the loop session-first instead of adding a new runner:
+
+- `desktop_observe` with `transitionActionId` classifies the follow-up as `expected_delta`, `no_op`, `wrong_target`, `scope_exit`, `risk_prompt`, `uninterpretable_state`, or `repair_needed`.
+- The transition gate keeps the action id, source observation id, follow-up observation id when recorded, expected evidence, observed delta summary, classification, repair count, and residue.
+- Expected deltas reset consecutive repair attempts.
+- No-op, wrong-target, and repair-needed classifications allow bounded in-scope repair until the session repair limit is reached.
+- Scope exit, forbidden-boundary/risk prompts, uninterpretable state, and repair-limit exhaustion stop or escalate.
+- This does not add OCR, semantic localization, a UI test runner, shell/app launch authority, or any new desktop mutation gate.
 
 Recommended sequence:
 
-1. ADMCP-022 Post-Action Observation And Repair Loop.
-2. ADMCP-023 UI Test Runner For Local Apps.
+1. ADMCP-023 UI Test Runner For Local Apps.
 
 Click-candidate witness evidence should be consumed by app-scoped click work as targeting-quality evidence. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.

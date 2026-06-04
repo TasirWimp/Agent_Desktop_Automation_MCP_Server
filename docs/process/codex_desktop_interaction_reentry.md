@@ -226,7 +226,17 @@ ADMCP-021 app-scoped type text gate is implemented.
 - The provider checks active-window scope before typing and reports post-typing active-window residue for the follow-up observation.
 - Credentials, secrets, private data, external publishing, shell, app launch, system changes, and broad desktop control remain blocked or unavailable.
 
-Next unimplemented target: ADMCP-022 Post-Action Observation And Repair Loop.
+ADMCP-022 post-action observation and repair-loop classification is implemented.
+
+- `desktop_observe` with `transitionActionId` now classifies the action follow-up as `expected_delta`, `no_op`, `wrong_target`, `scope_exit`, `risk_prompt`, `uninterpretable_state`, or `repair_needed`.
+- The transition gate includes `postActionClassification` with confidence, disposition, evidence, repair count, repair-limit state, and residue.
+- `expected_delta` resets consecutive repair attempts.
+- `no_op`, `wrong_target`, and `repair_needed` consume bounded repair budget while allowing the next licensed in-scope repair action until the session limit is reached.
+- `scope_exit`, `risk_prompt`, `uninterpretable_state`, or repair-limit exhaustion stops or escalates through audit and stop-condition evidence.
+- `desktop_capabilities` reports `postActionRepairClassification: true`.
+- ADMCP-022 does not add a UI test runner, OCR, semantic localization, app launching, shell execution, or new desktop mutation authority.
+
+Next unimplemented target: ADMCP-023 UI Test Runner For Local Apps.
 
 ## Real Observation Manual Check
 

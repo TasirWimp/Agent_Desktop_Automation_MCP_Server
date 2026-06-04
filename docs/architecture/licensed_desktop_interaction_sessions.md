@@ -127,6 +127,14 @@ Mouse movement is a probe. It can move roughly toward a semantic target, observe
 
 State-changing actions should be mediated by interaction transition gates. A transition gate records the source observation, action id, target scope, protected observables, expected follow-up evidence, follow-up observation id, status, and residue. The next non-observe action is blocked until the relevant gate has been audited or escalated.
 
+When the follow-up observation is attached, the transition gate also records a post-action classification:
+
+- `expected_delta` - the follow-up has enough evidence to treat the action as completed and reset consecutive repair attempts,
+- `no_op`, `wrong_target`, or `repair_needed` - a bounded repair path remains available inside the licensed app scope until the session repair limit is reached,
+- `scope_exit`, `risk_prompt`, or `uninterpretable_state` - the session must stop or escalate before another non-observe action.
+
+Classification is based on available witness packets, scope/frame evidence, frame-hash deltas, provider delta summaries, and forbidden-boundary terms. It is not OCR, semantic localization, or a guarantee that the target UI state is semantically correct.
+
 Clicking is licensed by:
 
 - active session scope,

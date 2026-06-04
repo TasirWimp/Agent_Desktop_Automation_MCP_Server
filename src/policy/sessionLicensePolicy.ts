@@ -344,6 +344,8 @@ export const desktopSessionStopConditionTypes = [
   "app_scope_binding_stale",
   "user_reversibility_declaration_required",
   "forbidden_boundary_declaration_required",
+  "forbidden_boundary_detected",
+  "uninterpretable_post_action_state",
   "low_recoverability"
 ] as const;
 

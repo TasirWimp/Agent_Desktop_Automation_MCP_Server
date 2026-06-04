@@ -19,7 +19,11 @@ import {
 } from "../providers/desktopProvider.js";
 import {
   auditInteractionTransitionGate,
+  markInteractionTransitionScopeExit,
+  repairDispositionRequiresAttempt,
   transitionGateBlocksNonObserveAction,
+  withExpectedDeltaRepairReset,
+  withPostActionRepairAttempt,
   type InteractionTransitionGate
 } from "./interactionTransitionGate.js";
 import {
@@ -189,7 +193,9 @@ function scopeExitObserveResult(
   auditEvent: DesktopSessionAuditEvent,
   boundAppScope: DesktopAppScopeBinding | undefined,
   observation: DesktopObservationPacket,
-  residue: string[]
+  residue: string[],
+  transitionGate?: InteractionTransitionGate,
+  postActionAuditEvent?: DesktopSessionAuditEvent
 ) {
   return structuredResult(
     {
@@ -197,6 +203,8 @@ function scopeExitObserveResult(
       status: "scope_exit",
       stopCondition,
       auditEvent,
+      transitionGate,
+      postActionAuditEvent,
       boundAppScope,
       observedTargetScope: observation.targetScope,
       observedActiveWindow: observation.activeWindow,
@@ -208,6 +216,121 @@ function scopeExitObserveResult(
     },
     true
   );
+}
+
+function stopConditionForPostActionClassification(
+  sessionId: string,
+  gate: InteractionTransitionGate
+): DesktopSessionStopCondition | undefined {
+  const classification = gate.postActionClassification;
+
+  if (classification === undefined) {
+    return undefined;
+  }
+
+  if (classification.repairLimitReached) {
+    return {
+      condition: "max_repair_attempts_reached",
+      sessionId,
+      actionId: gate.actionId,
+      reason:
+        "The desktop interaction session reached its consecutive repair-attempt limit.",
+      residue: classification.residue
+    };
+  }
+
+  if (classification.kind === "risk_prompt") {
+    return {
+      condition: "forbidden_boundary_detected",
+      sessionId,
+      actionId: gate.actionId,
+      reason:
+        "The post-action observation indicates a forbidden or high-risk app boundary.",
+      residue: classification.residue
+    };
+  }
+
+  if (classification.kind === "scope_exit") {
+    return {
+      condition: "outside_allowed_scope",
+      sessionId,
+      actionId: gate.actionId,
+      reason: "The post-action observation left the licensed app scope.",
+      residue: classification.residue
+    };
+  }
+
+  if (classification.kind === "uninterpretable_state") {
+    return {
+      condition: "uninterpretable_post_action_state",
+      sessionId,
+      actionId: gate.actionId,
+      reason:
+        "The post-action observation could not be interpreted safely.",
+      residue: classification.residue
+    };
+  }
+
+  return undefined;
+}
+
+function classifyAndAccountForRepair(
+  runtime: ObservationToolRuntime,
+  session: DesktopSessionSnapshot,
+  gate: InteractionTransitionGate
+): {
+  transitionGate: InteractionTransitionGate;
+  stopCondition?: DesktopSessionStopCondition;
+} {
+  const classification = gate.postActionClassification;
+
+  if (classification === undefined) {
+    return { transitionGate: gate };
+  }
+
+  if (classification.kind === "expected_delta") {
+    runtime.sessionStore.resetRepairAttemptCount(session.sessionId);
+    return {
+      transitionGate: withExpectedDeltaRepairReset(gate, runtime.now())
+    };
+  }
+
+  if (repairDispositionRequiresAttempt(classification)) {
+    const currentRepairAttemptCount =
+      runtime.sessionStore.requireActiveSession(session.sessionId).repairAttemptCount;
+    const maxRepairAttempts = session.license.riskLimits.maxConsecutiveRepairAttempts;
+
+    if (currentRepairAttemptCount >= maxRepairAttempts) {
+      const transitionGate = withPostActionRepairAttempt(
+        gate,
+        currentRepairAttemptCount,
+        true,
+        runtime.now()
+      );
+
+      return {
+        transitionGate,
+        stopCondition: stopConditionForPostActionClassification(session.sessionId, transitionGate)
+      };
+    }
+
+    const repairAttemptCount = runtime.sessionStore.incrementRepairAttemptCount(
+      session.sessionId
+    );
+    const transitionGate = withPostActionRepairAttempt(
+      gate,
+      repairAttemptCount,
+      false,
+      runtime.now()
+    );
+
+    return { transitionGate };
+  }
+
+  return {
+    transitionGate: gate,
+    stopCondition: stopConditionForPostActionClassification(session.sessionId, gate)
+  };
 }
 
 export function registerObservationTools(
@@ -347,13 +470,43 @@ export function registerObservationTools(
             runtime.sessionStore.appendStopCondition(stopCondition);
             runtime.sessionStore.appendAuditEvent(scopeExitAuditEvent);
 
+            const scopeExitTransitionGate =
+              transitionGate === undefined
+                ? undefined
+                : runtime.sessionStore.updateTransitionGate(
+                    markInteractionTransitionScopeExit(
+                      transitionGate,
+                      runtime.now(),
+                      appScopeBindingResult.residue
+                    )
+                  );
+            const postActionAuditEvent: DesktopSessionAuditEvent | undefined =
+              scopeExitTransitionGate === undefined
+                ? undefined
+                : {
+                    eventId: runtime.generateId("event"),
+                    sessionId: input.sessionId,
+                    eventType: "escalation_required",
+                    occurredAt: runtime.now(),
+                    actionId: scopeExitTransitionGate.actionId,
+                    summary:
+                      "Post-action observation detected scope exit and escalated the transition gate.",
+                    residue: scopeExitTransitionGate.residue
+                  };
+
+            if (postActionAuditEvent !== undefined) {
+              runtime.sessionStore.appendAuditEvent(postActionAuditEvent);
+            }
+
             return scopeExitObserveResult(
               input.sessionId,
               stopCondition,
               scopeExitAuditEvent,
               existingAppScopeBinding,
               observation,
-              appScopeBindingResult.residue
+              appScopeBindingResult.residue,
+              scopeExitTransitionGate,
+              postActionAuditEvent
             );
           }
 
@@ -422,16 +575,37 @@ export function registerObservationTools(
           runtime.sessionStore.appendAuditEvent(appScopeBindingAuditEvent);
         }
 
-        const auditedTransitionGate =
+        const sourceObservation =
           transitionGate === undefined
             ? undefined
-            : runtime.sessionStore.updateTransitionGate(
+            : runtime.sessionStore.getObservation(
+                input.sessionId,
+                transitionGate.sourceObservationId
+              );
+        const transitionAuditResult =
+          transitionGate === undefined
+            ? undefined
+            : classifyAndAccountForRepair(
+                runtime,
+                session,
                 auditInteractionTransitionGate(
                   transitionGate,
                   recordedObservation,
-                  runtime.now()
+                  runtime.now(),
+                  sourceObservation
                 )
               );
+        const auditedTransitionGate =
+          transitionAuditResult === undefined
+            ? undefined
+            : runtime.sessionStore.updateTransitionGate(
+                transitionAuditResult.transitionGate
+              );
+        const postActionStopCondition = transitionAuditResult?.stopCondition;
+
+        if (postActionStopCondition !== undefined) {
+          runtime.sessionStore.appendStopCondition(postActionStopCondition);
+        }
         const postActionAuditEvent: DesktopSessionAuditEvent | undefined =
           auditedTransitionGate === undefined
             ? undefined
@@ -447,8 +621,8 @@ export function registerObservationTools(
                 observationId: recordedObservation.observationId,
                 summary:
                   auditedTransitionGate.status === "audited"
-                    ? "Post-action observation audited the interaction transition gate."
-                    : "Post-action observation could not close the interaction transition gate.",
+                    ? `Post-action observation classified as ${auditedTransitionGate.postActionClassification?.kind ?? "observed"}.`
+                    : `Post-action observation escalated as ${auditedTransitionGate.postActionClassification?.kind ?? "unresolved"}.`,
                 residue: auditedTransitionGate.residue
               };
 
@@ -465,6 +639,7 @@ export function registerObservationTools(
             appScopeBinding: recordedAppScopeBinding,
             appScopeBindingAuditEvent,
             transitionGate: auditedTransitionGate,
+            postActionStopCondition,
             postActionAuditEvent,
             providerCapabilities,
             residue: [

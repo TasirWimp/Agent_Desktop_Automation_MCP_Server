@@ -18,6 +18,43 @@ export const interactionTransitionStatuses = [
 
 export type InteractionTransitionStatus = (typeof interactionTransitionStatuses)[number];
 
+export const postActionObservationClassificationKinds = [
+  "expected_delta",
+  "no_op",
+  "wrong_target",
+  "scope_exit",
+  "risk_prompt",
+  "uninterpretable_state",
+  "repair_needed"
+] as const;
+
+export type PostActionObservationClassificationKind =
+  (typeof postActionObservationClassificationKinds)[number];
+
+export const postActionRepairDispositions = [
+  "complete",
+  "repair_allowed",
+  "stop_or_escalate"
+] as const;
+
+export type PostActionRepairDisposition =
+  (typeof postActionRepairDispositions)[number];
+
+export const postActionObservationClassificationSchema = z.object({
+  kind: z.enum(postActionObservationClassificationKinds),
+  confidence: z.enum(["low", "medium", "high"]),
+  disposition: z.enum(postActionRepairDispositions),
+  reason: z.string().min(1),
+  evidence: z.array(z.string().min(1)),
+  repairAttemptCount: z.number().int().nonnegative().optional(),
+  repairLimitReached: z.boolean().default(false),
+  residue: z.array(z.string())
+});
+
+export type PostActionObservationClassification = z.infer<
+  typeof postActionObservationClassificationSchema
+>;
+
 export const interactionTransitionGateSchema = z.object({
   transitionId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -37,6 +74,7 @@ export const interactionTransitionGateSchema = z.object({
   protectedObservables: z.array(z.string().min(1)),
   expectedEvidenceAfterAction: z.array(z.string().min(1)),
   observedDeltaSummary: z.string().min(1).optional(),
+  postActionClassification: postActionObservationClassificationSchema.optional(),
   movementDeltaWitness: z
     .object({
       intendedPoint: desktopPointSchema.optional(),
@@ -94,7 +132,8 @@ export function createPendingInteractionTransitionGate(
 export function auditInteractionTransitionGate(
   gate: InteractionTransitionGate,
   observation: DesktopObservationPacket,
-  auditedAt: string
+  auditedAt: string,
+  sourceObservation?: DesktopObservationPacket
 ): InteractionTransitionGate {
   const scopeMatches = desktopInteractionScopesMatch(gate.targetScope, observation.targetScope);
   const hasFrameEvidence = observation.frames.length > 0;
@@ -102,8 +141,20 @@ export function auditInteractionTransitionGate(
     gate.actionType === "move_mouse"
       ? buildMovementDeltaWitness(gate, observation, scopeMatches)
       : undefined;
+  const postActionClassification = classifyPostActionObservation({
+    gate,
+    observation,
+    sourceObservation,
+    scopeMatches,
+    hasFrameEvidence,
+    movementDeltaWitness
+  });
   const status: InteractionTransitionStatus =
-    scopeMatches && hasFrameEvidence ? "audited" : "blocked";
+    postActionClassification.disposition === "stop_or_escalate"
+      ? "escalation_required"
+      : scopeMatches && hasFrameEvidence
+        ? "audited"
+        : "blocked";
   const residue = [
     ...gate.residue,
     ...(scopeMatches
@@ -112,7 +163,8 @@ export function auditInteractionTransitionGate(
     ...(hasFrameEvidence
       ? ["Follow-up observation included frame evidence."]
       : ["Follow-up observation did not include frame evidence."]),
-    ...(movementDeltaWitness?.residue ?? [])
+    ...(movementDeltaWitness?.residue ?? []),
+    ...postActionClassification.residue
   ];
 
   return interactionTransitionGateSchema.parse({
@@ -121,6 +173,7 @@ export function auditInteractionTransitionGate(
     updatedAt: auditedAt,
     followUpObservationId: observation.observationId,
     movementDeltaWitness,
+    postActionClassification,
     observedDeltaSummary:
       movementDeltaWitness === undefined
         ? observation.lastActionDeltaSummary ??
@@ -128,6 +181,414 @@ export function auditInteractionTransitionGate(
         : summarizeMovementDeltaWitness(movementDeltaWitness),
     residue
   });
+}
+
+export function markInteractionTransitionScopeExit(
+  gate: InteractionTransitionGate,
+  observedAt: string,
+  residue: string[]
+): InteractionTransitionGate {
+  const classification: PostActionObservationClassification = {
+    kind: "scope_exit",
+    confidence: "high",
+    disposition: "stop_or_escalate",
+    reason: "The follow-up observation left the bound app-under-test scope.",
+    evidence: ["scope_exit"],
+    repairLimitReached: true,
+    residue: [
+      "Post-action observation detected scope exit before recording frame evidence.",
+      "The out-of-scope provider output was not stored as session evidence.",
+      ...residue
+    ]
+  };
+
+  return interactionTransitionGateSchema.parse({
+    ...gate,
+    status: "escalation_required",
+    updatedAt: observedAt,
+    observedDeltaSummary:
+      "Post-action observation detected scope exit from the bound app-under-test.",
+    postActionClassification: classification,
+    residue: [...gate.residue, ...classification.residue]
+  });
+}
+
+export function repairDispositionRequiresAttempt(
+  classification: PostActionObservationClassification | undefined
+): boolean {
+  return classification?.disposition === "repair_allowed";
+}
+
+export function withPostActionRepairAttempt(
+  gate: InteractionTransitionGate,
+  repairAttemptCount: number,
+  repairLimitReached: boolean,
+  updatedAt: string
+): InteractionTransitionGate {
+  if (gate.postActionClassification === undefined) {
+    return gate;
+  }
+
+  const postActionClassification = postActionObservationClassificationSchema.parse({
+    ...gate.postActionClassification,
+    repairAttemptCount,
+    repairLimitReached,
+    disposition: repairLimitReached ? "stop_or_escalate" : gate.postActionClassification.disposition,
+    residue: [
+      ...gate.postActionClassification.residue,
+      `Repair attempt count is ${repairAttemptCount}.`,
+      ...(repairLimitReached
+        ? ["Repair-attempt limit reached; stop or escalate before another action."]
+        : ["Bounded repair remains available inside the licensed app scope."])
+    ]
+  });
+
+  return interactionTransitionGateSchema.parse({
+    ...gate,
+    status: repairLimitReached ? "escalation_required" : gate.status,
+    updatedAt,
+    postActionClassification,
+    residue: [
+      ...gate.residue,
+      `Repair attempt count is ${repairAttemptCount}.`,
+      ...(repairLimitReached
+        ? ["Repair-attempt limit reached; stop or escalate before another action."]
+        : ["Bounded repair remains available inside the licensed app scope."])
+    ]
+  });
+}
+
+export function withExpectedDeltaRepairReset(
+  gate: InteractionTransitionGate,
+  updatedAt: string
+): InteractionTransitionGate {
+  if (gate.postActionClassification?.kind !== "expected_delta") {
+    return gate;
+  }
+
+  return interactionTransitionGateSchema.parse({
+    ...gate,
+    updatedAt,
+    residue: [
+      ...gate.residue,
+      "Expected post-action delta observed; consecutive repair attempt count was reset."
+    ]
+  });
+}
+
+interface ClassifyPostActionObservationInput {
+  gate: InteractionTransitionGate;
+  observation: DesktopObservationPacket;
+  sourceObservation?: DesktopObservationPacket;
+  scopeMatches: boolean;
+  hasFrameEvidence: boolean;
+  movementDeltaWitness?: NonNullable<InteractionTransitionGate["movementDeltaWitness"]>;
+}
+
+function classifyPostActionObservation(
+  input: ClassifyPostActionObservationInput
+): PostActionObservationClassification {
+  if (!input.scopeMatches) {
+    return classification({
+      kind: "scope_exit",
+      confidence: "high",
+      disposition: "stop_or_escalate",
+      reason: "The follow-up observation target scope did not match the action target scope.",
+      evidence: ["target_scope_mismatch"],
+      residue: ["Scope mismatch prevents post-action success from being claimed."]
+    });
+  }
+
+  if (!input.hasFrameEvidence) {
+    return classification({
+      kind: "uninterpretable_state",
+      confidence: "high",
+      disposition: "stop_or_escalate",
+      reason: "The follow-up observation had no frame evidence.",
+      evidence: ["missing_frame_evidence"],
+      residue: ["Without frame evidence, the post-action state cannot be interpreted."]
+    });
+  }
+
+  const textualEvidence = postActionTextualEvidence(input.observation);
+  const explicitKind = explicitClassificationFromText(textualEvidence.join("\n"));
+
+  if (explicitKind !== undefined) {
+    return classificationForKind(explicitKind, {
+      confidence: "high",
+      evidence: textualEvidence,
+      residue: ["Post-action classification used provider or observation textual evidence."]
+    });
+  }
+
+  if (input.gate.actionType === "move_mouse") {
+    return classifyMovementObservation(input);
+  }
+
+  const frameDelta = compareFrameEvidence(input.sourceObservation, input.observation);
+
+  if (frameDelta === "changed") {
+    return classification({
+      kind: "expected_delta",
+      confidence: "medium",
+      disposition: "complete",
+      reason: "Follow-up frame evidence changed after the action.",
+      evidence: ["frame_hash_changed"],
+      residue: [
+        "Frame hashes changed between source and follow-up observations.",
+        "No OCR, accessibility-tree, or semantic localization claim was made."
+      ]
+    });
+  }
+
+  if (frameDelta === "unchanged") {
+    return classification({
+      kind: "no_op",
+      confidence: "medium",
+      disposition: "repair_allowed",
+      reason: "Follow-up frame evidence did not visibly change after the action.",
+      evidence: ["frame_hash_unchanged"],
+      residue: [
+        "Frame hashes matched between source and follow-up observations.",
+        "A bounded repair action may refine the target inside the licensed app scope."
+      ]
+    });
+  }
+
+  return classification({
+    kind: "repair_needed",
+    confidence: "low",
+    disposition: "repair_allowed",
+    reason: "The follow-up observation was recorded, but the delta was not decisive.",
+    evidence: ["delta_not_decisive"],
+    residue: [
+      "The classifier could not prove expected success from current evidence.",
+      "A bounded repair action may collect more evidence or refine the target."
+    ]
+  });
+}
+
+function classifyMovementObservation(
+  input: ClassifyPostActionObservationInput
+): PostActionObservationClassification {
+  const witness = input.movementDeltaWitness;
+
+  if (witness?.cursorObserved && witness.scopeStable) {
+    if (
+      witness.distanceFromIntendedPx !== undefined &&
+      witness.distanceFromIntendedPx <= 32
+    ) {
+      return classification({
+        kind: "expected_delta",
+        confidence: witness.confidence,
+        disposition: "complete",
+        reason: "The cursor witness was close to the intended movement target.",
+        evidence: ["cursor_position_delta", "scope_stable"],
+        residue: [
+          "Mouse movement was treated as a probe and verified by follow-up cursor witness."
+        ]
+      });
+    }
+
+    return classification({
+      kind: "wrong_target",
+      confidence: "medium",
+      disposition: "repair_allowed",
+      reason: "The cursor witness did not land close enough to the intended movement target.",
+      evidence: ["cursor_position_delta"],
+      residue: [
+        "Movement landed away from the intended point.",
+        "A bounded repair movement may refine the path inside the licensed app scope."
+      ]
+    });
+  }
+
+  const frameDelta = compareFrameEvidence(input.sourceObservation, input.observation);
+
+  if (frameDelta === "changed") {
+    return classification({
+      kind: "repair_needed",
+      confidence: "low",
+      disposition: "repair_allowed",
+      reason: "The frame changed, but cursor evidence was insufficient for movement verification.",
+      evidence: ["frame_hash_changed", "cursor_witness_missing_or_unstable"],
+      residue: [
+        "Movement probe created some visible delta, but the cursor witness is incomplete."
+      ]
+    });
+  }
+
+  return classification({
+    kind: "uninterpretable_state",
+    confidence: "low",
+    disposition: "stop_or_escalate",
+    reason: "The movement follow-up observation did not provide usable cursor evidence.",
+    evidence: ["cursor_witness_missing_or_unstable"],
+    residue: [
+      "Mouse movement is a probe; without cursor or usable frame delta, the next action would be blind."
+    ]
+  });
+}
+
+function classificationForKind(
+  kind: PostActionObservationClassificationKind,
+  input: {
+    confidence: PostActionObservationClassification["confidence"];
+    evidence: string[];
+    residue: string[];
+  }
+): PostActionObservationClassification {
+  const disposition: PostActionRepairDisposition =
+    kind === "expected_delta"
+      ? "complete"
+      : kind === "risk_prompt" || kind === "scope_exit" || kind === "uninterpretable_state"
+        ? "stop_or_escalate"
+        : "repair_allowed";
+
+  return classification({
+    kind,
+    confidence: input.confidence,
+    disposition,
+    reason: reasonForClassificationKind(kind),
+    evidence: input.evidence,
+    residue: input.residue
+  });
+}
+
+function classification(
+  input: Omit<PostActionObservationClassification, "repairLimitReached">
+): PostActionObservationClassification {
+  return postActionObservationClassificationSchema.parse({
+    ...input,
+    repairLimitReached: false
+  });
+}
+
+function reasonForClassificationKind(kind: PostActionObservationClassificationKind): string {
+  switch (kind) {
+    case "expected_delta":
+      return "The follow-up observation contains evidence of the expected state delta.";
+    case "no_op":
+      return "The follow-up observation indicates no visible action effect.";
+    case "wrong_target":
+      return "The follow-up observation indicates the action affected the wrong target.";
+    case "scope_exit":
+      return "The follow-up observation left the licensed scope.";
+    case "risk_prompt":
+      return "The follow-up observation indicates a forbidden or high-risk prompt.";
+    case "uninterpretable_state":
+      return "The follow-up observation cannot be interpreted safely.";
+    case "repair_needed":
+      return "The follow-up observation indicates a bounded repair path is needed.";
+  }
+}
+
+function explicitClassificationFromText(
+  rawText: string
+): PostActionObservationClassificationKind | undefined {
+  const text = normalize(rawText);
+
+  if (text.length === 0) {
+    return undefined;
+  }
+
+  if (containsAny(text, [
+    "credential",
+    "password",
+    "secret",
+    "api key",
+    "token",
+    "payment",
+    "purchase",
+    "checkout",
+    "credit card",
+    "send email",
+    "send message",
+    "publish",
+    "deploy",
+    "delete",
+    "destructive",
+    "system settings"
+  ])) {
+    return "risk_prompt";
+  }
+
+  if (containsAny(text, ["scope exit", "outside allowed scope", "unrelated private window"])) {
+    return "scope_exit";
+  }
+
+  if (containsAny(text, ["wrong target", "unexpected target", "mis-target", "mistarget"])) {
+    return "wrong_target";
+  }
+
+  if (containsAny(text, ["no-op", "no op", "no visible change", "unchanged", "did not change"])) {
+    return "no_op";
+  }
+
+  if (containsAny(text, ["uninterpretable", "cannot interpret", "could not interpret", "unknown state"])) {
+    return "uninterpretable_state";
+  }
+
+  if (containsAny(text, ["repair needed", "retry needed", "refine target", "needs repair"])) {
+    return "repair_needed";
+  }
+
+  if (containsAny(text, [
+    "expected delta",
+    "visible state changes",
+    "visible control highlighted",
+    "highlighted after",
+    "text field",
+    "reflects the generated test input",
+    "length",
+    "changed after",
+    "opened",
+    "focused",
+    "tooltip"
+  ])) {
+    return "expected_delta";
+  }
+
+  return undefined;
+}
+
+function compareFrameEvidence(
+  sourceObservation: DesktopObservationPacket | undefined,
+  followUpObservation: DesktopObservationPacket
+): "changed" | "unchanged" | "unknown" {
+  if (sourceObservation === undefined) {
+    return "unknown";
+  }
+
+  const sourceHashes = sourceObservation.frames.map((frame) => frame.sha256);
+  const followUpHashes = followUpObservation.frames.map((frame) => frame.sha256);
+
+  if (sourceHashes.length === 0 || followUpHashes.length === 0) {
+    return "unknown";
+  }
+
+  const sharedLength = Math.min(sourceHashes.length, followUpHashes.length);
+  const allSharedFramesMatch = sourceHashes
+    .slice(0, sharedLength)
+    .every((hash, index) => hash === followUpHashes[index]);
+
+  return allSharedFramesMatch && sourceHashes.length === followUpHashes.length
+    ? "unchanged"
+    : "changed";
+}
+
+function postActionTextualEvidence(observation: DesktopObservationPacket): string[] {
+  return [
+    observation.lastActionDeltaSummary,
+    observation.activeWindow?.title,
+    observation.activeWindow?.appName,
+    ...observation.residue,
+    ...(observation.hoverWitness?.signals ?? [])
+  ].filter((value): value is string => value !== undefined && value.trim().length > 0);
+}
+
+function containsAny(text: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => text.includes(pattern));
 }
 
 function buildMovementDeltaWitness(
