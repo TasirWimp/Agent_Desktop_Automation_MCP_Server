@@ -15,6 +15,7 @@ import { buildUiIntersectionPlan } from "./uiPlanning/intersectionPolicy.js";
 import type { DesktopInteractionProvider } from "./providers/desktopProvider.js";
 import { createDefaultDesktopProvider } from "./providers/defaultDesktopProvider.js";
 import { registerActionTools } from "./session/actionTools.js";
+import { registerClickCandidateWitnessTools } from "./session/clickCandidateWitnessTools.js";
 import { registerObservationTools } from "./session/observationTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
 import { registerSessionTools } from "./session/sessionTools.js";
@@ -75,6 +76,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           interactionSessions: true,
           sessionLifecycleTools: true,
           sessionAuditLog: true,
+          clickCandidateWitnessGate: true,
           mockDesktopProvider: desktopProviderCapabilities.providerKind === "mock",
           mockDesktopMovement:
             desktopProviderCapabilities.providerKind === "mock" &&
@@ -89,10 +91,12 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           closedLoopClickExecution: false,
           desktopObserveTool: true,
           desktopMoveMouseTool: true,
+          desktopEvaluateClickCandidateTool: true,
           desktopClickTool: true,
           desktopTypeTextTool: true,
           realDesktopObservation: desktopProviderCapabilities.realDesktopCapture,
           realDesktopMouseMovement: desktopProviderCapabilities.realDesktopMouseMovement,
+          realDesktopClick: false,
           realDesktopMutation: desktopProviderCapabilities.realDesktopMutation,
           desktopMouseKeyboardTools:
             desktopProviderCapabilities.providerKind === "real" &&
@@ -144,6 +148,13 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   });
 
   registerActionTools(server, {
+    sessionStore,
+    desktopProvider,
+    now,
+    generateId
+  });
+
+  registerClickCandidateWitnessTools(server, {
     sessionStore,
     desktopProvider,
     now,

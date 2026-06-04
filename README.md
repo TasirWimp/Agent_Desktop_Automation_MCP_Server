@@ -10,6 +10,7 @@ The current server exposes:
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
 - `desktop_observe` - records a bounded observation frame session for an active interaction session.
 - `desktop_move_mouse` - runs a bounded movement probe inside an active interaction session and requires follow-up observation.
+- `desktop_evaluate_click_candidate` - evaluates current observation, cursor, scope, and risk evidence for a future app-scoped click request without clicking.
 - `desktop_click` - simulates a bounded mock click inside an active interaction session and requires follow-up observation.
 - `desktop_type_text` - simulates bounded mock test-text entry without storing text content and requires follow-up observation.
 - `desktop_end_interaction_session` - ends an active interaction session.
@@ -40,7 +41,7 @@ $env:ADMCP_ENABLE_REAL_MOUSE_MOVEMENT = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. `desktop_click` and `desktop_type_text` remain non-real unless a later provider gate explicitly enables them.
+With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. After that follow-up observation, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for a future app-scoped click request. It does not click. `desktop_click` and `desktop_type_text` remain non-real unless a later provider gate explicitly enables them.
 
 For real Windows observation or movement sessions, set `observationCadence.maxObservationGapMs` to `60000` unless the task explicitly needs a tighter freshness window. A 5s gap is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds. This value keeps sessions bounded; it does not permit hidden polling, background capture, or stale action chains.
 

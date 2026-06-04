@@ -10,6 +10,7 @@ Available MCP tools:
 - `desktop_start_interaction_session`
 - `desktop_observe`
 - `desktop_move_mouse`
+- `desktop_evaluate_click_candidate`
 - `desktop_click`
 - `desktop_type_text`
 - `desktop_end_interaction_session`
@@ -57,14 +58,16 @@ Use the session tools to create a bounded task license, record mock observation 
 9. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
 10. Call `desktop_move_mouse` only after a fresh observation and pass that observation id as `preActionObservationId`.
 11. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state. If real mouse movement is enabled, the move can affect cursor position and hover state but still must not click or type.
-12. Call `desktop_click` or `desktop_type_text` only after a fresh observation and only when no prior transition gate is pending.
-13. For `desktop_type_text`, use generated test input only. The tool records text length but not text content.
-14. After every movement, click, or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
-15. Do not call another non-observe action until the transition gate returns `audited`.
-16. Use `desktop_session_audit_log` to inspect the session trace.
-17. Use `desktop_end_interaction_session` when the task license should stop.
+12. After an audited movement observation, call `desktop_evaluate_click_candidate` when a future click is being considered.
+13. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, frame evidence, scope match, cursor/candidate proximity, movement-transition evidence when supplied, and low-risk packet. It records a `click_candidate_evaluated` audit event and never clicks.
+14. Call `desktop_click` or `desktop_type_text` only after a fresh observation and only when no prior transition gate is pending.
+15. For `desktop_type_text`, use generated test input only. The tool records text length but not text content.
+16. After every movement, click, or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
+17. Do not call another non-observe action until the transition gate returns `audited`.
+18. Use `desktop_session_audit_log` to inspect the session trace.
+19. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, opt-in real movement, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, and movement-delta audit events. It can exercise the `observe -> move_mouse -> observe transitionActionId` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
+The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, opt-in real movement, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement-delta audit events, and click-candidate witness evaluations. It can exercise the `observe -> move_mouse -> observe transitionActionId -> evaluate_click_candidate` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
 
 ## Stop Or Escalate
 
@@ -159,7 +162,14 @@ ADMCP-016 is implemented. The Windows real-observation provider now uses a persi
 - Live smoke showed the warmed path reducing a second observation to about 85-90 ms; cold helper startup can still vary and should be treated as residue.
 - It does not add click, typing, shell, app launch, OCR, accessibility interpretation, hidden polling, background capture, system change, or durable desktop mutation.
 
-Next unimplemented target: ADMCP-017 Licensed App Scope Model.
+ADMCP-017 click-candidate witness gate is implemented as targeting-quality evidence, not as a real click backend.
+
+- Use `desktop_evaluate_click_candidate` after a fresh observation, preferably the follow-up observation that audited a movement probe.
+- A ready result means the current candidate has enough session, scope, frame, cursor, movement, and risk evidence for a future app-scoped click request.
+- A ready result does not execute a click and does not make real clicking available.
+- Failed results are repair input: observe again, move again as a reversible probe, refresh stale evidence, or correct scope.
+
+Next unimplemented target: Licensed App Scope Model.
 
 - Re-center future real click/type work around a user-declared reversible app-under-test.
 - The primary governance boundary becomes "all agent-triggered interaction stays inside the bound app/window/process/local URL."

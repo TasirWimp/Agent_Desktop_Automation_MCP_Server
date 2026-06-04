@@ -241,6 +241,7 @@ export const desktopSessionAuditEventTypes = [
   "action_blocked",
   "action_completed",
   "post_action_observed",
+  "click_candidate_evaluated",
   "session_stopped",
   "escalation_required"
 ] as const;

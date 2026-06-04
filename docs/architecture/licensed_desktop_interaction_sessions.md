@@ -75,6 +75,7 @@ Planned tools:
 - `desktop_start_interaction_session`
 - `desktop_observe`
 - `desktop_move_mouse`
+- `desktop_evaluate_click_candidate`
 - `desktop_click`
 - `desktop_type_text`
 - `desktop_end_interaction_session`
@@ -123,6 +124,8 @@ Clicking is licensed by:
 - user's declaration that the app-under-test is reversible,
 - audit logging,
 - post-action verification.
+
+`desktop_evaluate_click_candidate` is the current non-executing witness gate for click targeting. It can run after a fresh observation, and should usually run after `observe -> move_mouse -> observe transitionActionId` when movement was used as a probe. It evaluates whether the current session has enough scope, frame, cursor, optional movement-delta, and risk evidence to request a future app-scoped click. It records audit residue and never executes a click. A ready candidate is evidence for targeting quality, not permission to click outside the licensed app-under-test model.
 
 The current policy slice validates observation references when observation packets are supplied to the evaluator. Provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop action.
 

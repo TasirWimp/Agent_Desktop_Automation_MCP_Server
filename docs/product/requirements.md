@@ -20,7 +20,7 @@ The MVP provides:
 - a read-only UI intersection planning tool for future closed-loop click candidates,
 - policy contracts for future task-scoped licensed desktop interaction sessions,
 - a path toward user-declared reversible app-under-test sessions,
-- session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe,
+- session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, a click-candidate witness gate, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe,
 - a governed manual probe runner for repeatable observation/movement path-finding checks,
 - documented scope-enforcement boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
@@ -50,6 +50,7 @@ The MVP provides:
 - Session-license policy contracts require user confirmation to start a bounded task session and keep low-risk in-session actions auditable.
 - `desktop_observe` requires an active session, stays bounded, records observation packets, and captures real desktop frames only when the Windows active-window observation spike is explicitly enabled.
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and moves the real cursor only when the Windows real mouse-movement gate is explicitly enabled.
+- `desktop_evaluate_click_candidate` requires a current recorded observation, checks session scope, freshness, frame/cursor evidence, optional movement-transition evidence, and low-risk packet, records a witness audit event, and never clicks.
 - `desktop_click` and `desktop_type_text` require fresh pre-action observation, record interaction transition gates, require post-action observation, and do not click or type in the real desktop.
 - `desktop_type_text` blocks credential-like or secret-like text before provider calls and does not store text content in action packets or audit events.
 - Future real click/type gates require a user-declared reversible app-under-test, concrete scope binding, action audit, and post-action observation before success can be claimed.

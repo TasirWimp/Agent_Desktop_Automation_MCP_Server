@@ -113,6 +113,7 @@ The server should expose a small coherent desktop interaction surface:
 - `desktop_start_interaction_session`
 - `desktop_observe`
 - `desktop_move_mouse`
+- `desktop_evaluate_click_candidate`
 - `desktop_click`
 - `desktop_type_text`
 - `desktop_end_interaction_session`
@@ -246,6 +247,56 @@ Required behavior:
 Annotations:
 
 - `readOnlyHint: false`
+- `destructiveHint: false`
+- `idempotentHint: false`
+- `openWorldHint: false`
+
+### desktop_evaluate_click_candidate
+
+Goal: evaluate whether the current observed cursor/target state is ready for a future app-scoped click request.
+
+Input:
+
+- session id,
+- observation id,
+- target scope,
+- intended semantic target,
+- candidate point or candidate bounding box,
+- optional movement action id for the audited movement-transition witness,
+- recoverability/risk assessment.
+
+Output:
+
+- click-candidate witness packet,
+- readiness status,
+- audit event,
+- provider click capability summary,
+- residue,
+- `wouldExecuteClick: false`,
+- `realClickExecutionAvailable: false`,
+- `requiresPostClickObservation: true`.
+
+Required behavior:
+
+- require active session,
+- require a recorded observation from the same session,
+- require `click` to be allowed by the session before a candidate can be ready,
+- validate observation freshness, target scope, and frame evidence,
+- validate cursor evidence and cursor/candidate proximity,
+- if a movement action id is supplied, require the transition gate to be audited and to match the follow-up observation,
+- preserve hover uncertainty instead of inventing hover success,
+- block candidate readiness for credential, destructive, external-effect, system-change, or low-recoverability risk,
+- append a `click_candidate_evaluated` audit event,
+- never move the cursor, click, type, capture new frames, or mutate OS state.
+
+Design boundary:
+
+- This is a targeting-quality and repair gate, not the main safety boundary for future real clicking.
+- Future real click tools must still require declared reversible app-under-test scope, bound app identity, provider click gate, audit logging, and post-click observation.
+
+Annotations:
+
+- `readOnlyHint: true`
 - `destructiveHint: false`
 - `idempotentHint: false`
 - `openWorldHint: false`
@@ -811,15 +862,15 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-After ADMCP-016, the next implementation should define the licensed app-under-test scope model before adding any real click or typing backend.
+ADMCP-017 implemented the click-candidate witness gate as a non-executing targeting-quality step. The next implementation should define the licensed app-under-test scope model before adding any real click or typing backend.
 
 Recommended sequence:
 
-1. ADMCP-017 Licensed App Scope Model.
-2. ADMCP-018 Scope Binding Runtime.
-3. ADMCP-019 App-Scoped Real Click Gate.
-4. ADMCP-020 App-Scoped Type Text Gate.
-5. ADMCP-021 Post-Action Observation And Repair Loop.
-6. ADMCP-022 UI Test Runner For Local Apps.
+1. ADMCP-018 Licensed App Scope Model.
+2. ADMCP-019 Scope Binding Runtime.
+3. ADMCP-020 App-Scoped Real Click Gate.
+4. ADMCP-021 App-Scoped Type Text Gate.
+5. ADMCP-022 Post-Action Observation And Repair Loop.
+6. ADMCP-023 UI Test Runner For Local Apps.
 
-The former click-candidate witness gate should be folded into app-scoped click work as a targeting-quality gate. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.
+Click-candidate witness evidence should be consumed by app-scoped click work as targeting-quality evidence. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.
