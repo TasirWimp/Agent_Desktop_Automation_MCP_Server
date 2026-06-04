@@ -31,7 +31,7 @@ Every execution tool must document:
 
 ## Current Decision
 
-The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, mock movement/click/type probes, cursor and movement-delta witness packets, opt-in Windows active-window observation, and an opt-in Windows real mouse-movement probe. The default provider remains mock-only. Real clicking, real typing, shell commands, app launching, system changes, and durable desktop mutation remain disabled.
+The server exposes capability reporting, policy classification, read-only UI intersection planning, session lifecycle tools, mock observation, mock movement/click/type probes, cursor and movement-delta witness packets, licensed app-scope declarations, runtime app-scope binding, opt-in Windows active-window observation, and an opt-in Windows real mouse-movement probe. The default provider remains mock-only. Real clicking, real typing, shell commands, app launching, system changes, and durable desktop mutation remain disabled.
 
 `ui_intersection_plan` may prepare a policy-gated candidate packet from semantic localization and frame evidence. It must not move the cursor, click, capture screens, or claim success. Actual `mouse_input` remains a state-changing action that requires either single-action policy confirmation or an active session license, audit logging, scope checks, and post-action observation.
 
@@ -42,6 +42,8 @@ The server exposes capability reporting, policy classification, read-only UI int
 `desktop_click` and `desktop_type_text` remain mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not click the real desktop, type into the real desktop, or control the OS. Sessions that grant `click` or `type_text` must now declare a reversible `licensedAppScope` with app-scoped allowed actions and forbidden boundaries. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
 
 `desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, reports active-window-relative cursor witness metadata when available, can render the visible cursor and a high-contrast cursor witness marker into active-window frames when provider cursor evidence is sufficient, validates active-window scope before capture, and does not enable real clicking, typing, or durable desktop mutation.
+
+When a session declares `licensedAppScope`, `desktop_observe` binds the declared app-under-test to observed provider identity and stores it as `boundAppScope`. Later observations must match that binding. If focus or active-window identity drifts outside the bound app, the tool returns `status: "scope_exit"`, appends an `outside_allowed_scope` stop condition and `escalation_required` audit event, and does not record or return the out-of-scope frame as session evidence.
 
 ## Session License Direction
 
@@ -54,7 +56,7 @@ Core boundary:
 - Low-risk actions inside the bound app, window, process, workspace, or local URL scope can proceed without repeated user confirmation.
 - Boundary crossings require stop or escalation.
 - Credential entry, payment, external publishing, destructive operations outside scope, unrelated private windows, and system changes remain blocked or escalated.
-- `active_window` scope is provisional until a real provider binds it to a concrete observed window identity before mutation.
-- `observed_window_identity`, `local_url`, and `local_origin` scope kinds are modeled for future provider binding, but binding is not implemented yet.
+- `active_window` scope is provisional until `desktop_observe` binds it to concrete observed window identity before mutation.
+- `observed_window_identity`, `local_url`, and `local_origin` scope kinds are modeled; URL/origin binding still needs a provider that can supply URL identity.
 - Provider-backed tools must validate observation existence, freshness, session id, scope, and frame linkage before state-changing actions.
 - No background capture, hidden polling loop, OCR dependency, real click backend, real typing backend, shell backend, or durable OS mutation backend is part of the current implementation.

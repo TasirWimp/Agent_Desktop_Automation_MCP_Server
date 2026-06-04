@@ -55,6 +55,9 @@ Use the session tools to create a bounded task license, record mock observation 
    - A 5s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds before the next action call.
    - Keep the cadence bounded; widening this value is not permission for hidden polling, background capture, or stale action chains.
 6. Call `desktop_observe` only after the session is active.
+   - If the session has `licensedAppScope`, the first matching observation creates `boundAppScope`.
+   - Later matching observations refresh `boundAppScope`.
+   - If the active target drifts outside `boundAppScope`, `desktop_observe` returns `status: "scope_exit"`, records an `outside_allowed_scope` stop condition and `escalation_required` audit event, and does not record or return the out-of-scope frame.
 7. Keep `mode: "frame_session"` unless a single-frame witness is explicitly enough for the test.
 8. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
 9. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
@@ -69,7 +72,7 @@ Use the session tools to create a bounded task license, record mock observation 
 18. Use `desktop_session_audit_log` to inspect the session trace.
 19. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, opt-in real movement, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement-delta audit events, and click-candidate witness evaluations. It can exercise the `observe -> move_mouse -> observe transitionActionId -> evaluate_click_candidate` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
+The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, opt-in real movement, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement-delta audit events, and click-candidate witness evaluations. It can exercise the `observe -> move_mouse -> observe transitionActionId -> evaluate_click_candidate` loop against the real active window when both real provider gates are enabled. It cannot click the real desktop or type into the real desktop.
 
 ## Stop Or Escalate
 
@@ -79,6 +82,7 @@ Stop or ask the user before continuing if:
 - visible-content acknowledgement is absent,
 - the requested scope is unrelated to the user's task,
 - an interaction transition gate is blocked or cannot be audited from the available observation,
+- `desktop_observe` returns `status: "scope_exit"` because the active target drifted outside `boundAppScope`,
 - the request implies credentials, payments, messages, publishing, destructive operations, shell execution, or system settings,
 - `desktop_type_text` input is credential-like, secret-like, private, or not generated test input,
 - the user expects real clicking, typing, app launch, shell execution, system changes, or durable desktop mutation,
@@ -180,10 +184,20 @@ ADMCP-018 licensed app scope model is implemented at the session-policy layer.
 - Click-candidate evidence remains useful as targeting-quality evidence, but it is not the main safety gate.
 - Real click/type remain disabled until scope binding, provider gates, and post-action observation/repair behavior are implemented and tested.
 
-Next unimplemented target: ADMCP-019 Scope Binding Runtime.
+ADMCP-019 scope binding runtime is implemented.
 
-- Bind the declared app-under-test scope to concrete observed provider identity.
-- Stop or escalate if active-window focus drifts, scope cannot be proven, or the target leaves the declared app.
+- `desktop_observe` binds declared `licensedAppScope` to concrete observed provider identity and stores it as `boundAppScope`.
+- Session summaries include `boundAppScope`.
+- Later observations refresh the binding when they still match.
+- If focus drifts or the observed active-window identity no longer matches, `desktop_observe` returns `scope_exit`, appends an `outside_allowed_scope` stop condition, appends an `escalation_required` audit event, and does not record the out-of-scope frame.
+- App-scoped click/type policy now blocks unbound, stale, or mismatched app scope before any future provider execution.
+- Real click/type remain disabled until separate provider gates are implemented.
+
+Next unimplemented target: ADMCP-020 App-Scoped Real Click Gate.
+
+- Add an explicit provider/environment gate for real click.
+- Require active session, reversible `licensedAppScope`, fresh `boundAppScope`, fresh pre-action observation, in-scope target point, app-scoped `click`, audit logging, and post-click observation.
+- Keep real typing, shell, app launch, system changes, external publishing, and broad desktop clicking unavailable.
 
 ## Real Observation Manual Check
 

@@ -49,6 +49,7 @@ The MVP provides:
 - `ui_intersection_plan` returns planning, residue, and policy reminder packets without moving the cursor or clicking.
 - Session-license policy contracts require user confirmation to start a bounded task session and keep low-risk in-session actions auditable.
 - Sessions that grant `click` or `type_text` must declare a reversible `licensedAppScope` with forbidden boundaries, and click/type policy checks are scoped to that declared app-under-test.
+- Sessions with `licensedAppScope` bind that app-under-test through `desktop_observe`, expose the binding as `boundAppScope`, and stop/escalate with `scope_exit` evidence if later observations drift outside the bound app.
 - `desktop_observe` requires an active session, stays bounded, records observation packets, and captures real desktop frames only when the Windows active-window observation spike is explicitly enabled.
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and moves the real cursor only when the Windows real mouse-movement gate is explicitly enabled.
 - `desktop_evaluate_click_candidate` requires a current recorded observation, checks session scope, freshness, frame/cursor evidence, optional movement-transition evidence, and low-risk packet, records a witness audit event, and never clicks.

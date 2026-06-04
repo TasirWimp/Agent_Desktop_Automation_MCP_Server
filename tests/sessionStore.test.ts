@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type DesktopActionPacket,
+  type DesktopAppScopeBinding,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
   type DesktopSessionAuditEvent,
@@ -123,6 +124,32 @@ function observationFixture(
     residue: [],
     ...overrides,
     observationId
+  };
+}
+
+function boundAppScopeFixture(
+  overrides: Partial<DesktopAppScopeBinding> = {}
+): DesktopAppScopeBinding {
+  return {
+    bindingId: "binding-generated-app",
+    sessionId: baseLicense.sessionId,
+    licensedScope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    boundScope: {
+      kind: "active_window",
+      value: "node:Generated Test App"
+    },
+    boundAt: "2026-05-27T10:00:02.000Z",
+    observationId: "obs-001",
+    activeWindow: {
+      title: "Generated Test App",
+      processName: "node"
+    },
+    observedWindowIdentity: "node:Generated Test App",
+    residue: ["Bound app scope fixture."],
+    ...overrides
   };
 }
 
@@ -255,6 +282,23 @@ describe("InMemoryDesktopSessionStore", () => {
     expect(store.getAction(baseLicense.sessionId, "action-001")).toEqual(action);
     expect(store.getObservation(baseLicense.sessionId, "missing")).toBeUndefined();
     expect(store.getAction(baseLicense.sessionId, "missing")).toBeUndefined();
+  });
+
+  it("stores and exposes bound app scope runtime evidence", () => {
+    const store = new InMemoryDesktopSessionStore();
+    store.createSession(baseLicense);
+    const binding = store.bindAppScope(boundAppScopeFixture());
+
+    expect(binding).toMatchObject({
+      bindingId: "binding-generated-app",
+      observedWindowIdentity: "node:Generated Test App"
+    });
+    expect(store.getBoundAppScope(baseLicense.sessionId)).toMatchObject({
+      bindingId: "binding-generated-app"
+    });
+    expect(store.requireActiveSession(baseLicense.sessionId).boundAppScope).toMatchObject({
+      bindingId: "binding-generated-app"
+    });
   });
 
   it("records, updates, and lists interaction transition gates by action id", () => {

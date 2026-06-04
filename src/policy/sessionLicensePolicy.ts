@@ -246,6 +246,20 @@ export const desktopObservationPacketSchema = z.object({
 
 export type DesktopObservationPacket = z.infer<typeof desktopObservationPacketSchema>;
 
+export const desktopAppScopeBindingSchema = z.object({
+  bindingId: z.string().min(1),
+  sessionId: z.string().min(1),
+  licensedScope: desktopInteractionScopeSchema,
+  boundScope: desktopInteractionScopeSchema,
+  boundAt: z.string().min(1),
+  observationId: z.string().min(1),
+  activeWindow: desktopWindowMetadataSchema.optional(),
+  observedWindowIdentity: z.string().min(1).optional(),
+  residue: z.array(z.string())
+});
+
+export type DesktopAppScopeBinding = z.infer<typeof desktopAppScopeBindingSchema>;
+
 export const desktopActionRiskSchema = z.object({
   credentialExposure: z.boolean(),
   destructive: z.boolean(),
@@ -288,6 +302,7 @@ export const desktopSessionAuditEventTypes = [
   "action_blocked",
   "action_completed",
   "post_action_observed",
+  "app_scope_bound",
   "click_candidate_evaluated",
   "session_stopped",
   "escalation_required"
@@ -325,6 +340,8 @@ export const desktopSessionStopConditionTypes = [
   "post_action_observation_scope_mismatch",
   "missing_audit_event",
   "licensed_app_scope_required",
+  "app_scope_binding_required",
+  "app_scope_binding_stale",
   "user_reversibility_declaration_required",
   "forbidden_boundary_declaration_required",
   "low_recoverability"
@@ -364,6 +381,7 @@ export interface DesktopSessionActionPolicyContext {
   repairAttemptCount: number;
   auditEvents: DesktopSessionAuditEvent[];
   observations: DesktopObservationPacket[];
+  boundAppScope?: DesktopAppScopeBinding;
   now: string;
 }
 
@@ -426,6 +444,20 @@ function result(
 
 function normalize(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+export function observedWindowIdentity(
+  activeWindow: DesktopWindowMetadata | undefined
+): string | undefined {
+  if (activeWindow?.windowId !== undefined && activeWindow.windowId.trim().length > 0) {
+    return activeWindow.windowId;
+  }
+
+  const parts = [activeWindow?.processName, activeWindow?.title].filter(
+    (part): part is string => part !== undefined && part.trim().length > 0
+  );
+
+  return parts.length === 0 ? undefined : parts.join(":");
 }
 
 function appScopedActionsRequested(
@@ -514,6 +546,37 @@ function isObservationFresh(
   }
 
   return requestedMs - observedMs <= license.observationCadence.maxObservationGapMs;
+}
+
+function isAppScopeBindingFresh(
+  binding: DesktopAppScopeBinding,
+  now: string,
+  maxObservationGapMs: number
+): boolean {
+  const boundMs = Date.parse(binding.boundAt);
+  const nowMs = Date.parse(now);
+
+  if (Number.isNaN(boundMs) || Number.isNaN(nowMs)) {
+    return true;
+  }
+
+  return nowMs - boundMs <= maxObservationGapMs;
+}
+
+function observationMatchesBoundAppScope(
+  binding: DesktopAppScopeBinding,
+  observation: DesktopObservationPacket
+): boolean {
+  const observationIdentity = observedWindowIdentity(observation.activeWindow);
+
+  if (
+    binding.observedWindowIdentity !== undefined &&
+    observationIdentity !== undefined
+  ) {
+    return normalize(binding.observedWindowIdentity) === normalize(observationIdentity);
+  }
+
+  return scopeMatches(binding.boundScope, observation.targetScope);
 }
 
 function findObservation(
@@ -993,6 +1056,62 @@ export function evaluateSessionActionPolicy(
       );
 
       return result("block", [stop.reason], [...auditTags, "missing_frame_evidence"], [stop]);
+    }
+
+    if (appScopedActionTypes.has(action.actionType as DesktopLicensedAppActionType)) {
+      if (context.boundAppScope === undefined) {
+        const stop = stopCondition(
+          "app_scope_binding_required",
+          license.sessionId,
+          `${action.actionType} requires the licensed app-under-test scope to be bound to an observation before execution.`,
+          action.actionId
+        );
+
+        return result(
+          "block",
+          [stop.reason],
+          [...auditTags, "app_scope_binding_required"],
+          [stop]
+        );
+      }
+
+      if (
+        !isAppScopeBindingFresh(
+          context.boundAppScope,
+          context.now,
+          license.observationCadence.maxObservationGapMs
+        )
+      ) {
+        const stop = stopCondition(
+          "app_scope_binding_stale",
+          license.sessionId,
+          "The licensed app-under-test binding is older than the session observation cadence allows.",
+          action.actionId
+        );
+
+        return result(
+          "block",
+          [stop.reason],
+          [...auditTags, "app_scope_binding_stale"],
+          [stop]
+        );
+      }
+
+      if (!observationMatchesBoundAppScope(context.boundAppScope, preActionObservation)) {
+        const stop = stopCondition(
+          "outside_allowed_scope",
+          license.sessionId,
+          "The referenced pre-action observation does not match the bound app-under-test identity.",
+          action.actionId
+        );
+
+        return result(
+          "escalate",
+          [stop.reason],
+          [...auditTags, "outside_allowed_scope", "bound_app_scope_mismatch"],
+          [stop]
+        );
+      }
     }
   }
 

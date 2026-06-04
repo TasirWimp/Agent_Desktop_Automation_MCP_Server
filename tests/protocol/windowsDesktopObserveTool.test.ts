@@ -34,7 +34,7 @@ class FakeWindowsBackend implements WindowsObservationBackend {
   private cursorPosition: DesktopPoint;
 
   constructor(
-    private readonly metadata: WindowsActiveWindowSnapshot = activeWindow,
+    public metadata: WindowsActiveWindowSnapshot = activeWindow,
     cursorPosition: DesktopPoint = {
       x: activeWindow.bounds.left + 12,
       y: activeWindow.bounds.top + 8
@@ -150,6 +150,28 @@ const startArguments = {
     maxObservationGapMs: 5_000
   }
 };
+
+function licensedAppScopeFor(
+  scope: Record<string, unknown>,
+  allowedActions = ["observe"]
+) {
+  return {
+    description: "Generated Test App is a local reversible UI test fixture.",
+    scope,
+    userDeclaredReversible: true,
+    allowedActions,
+    forbiddenBoundaries: [
+      "credential_or_secret_prompt",
+      "payment_or_purchase",
+      "external_publish_or_deploy",
+      "destructive_operation",
+      "system_settings",
+      "unrelated_private_window",
+      "scope_exit"
+    ],
+    scopeExitStopConditions: ["outside_allowed_scope"]
+  };
+}
 
 describe("desktop_observe with WindowsDesktopObservationProvider", () => {
   it("reports real observation provider capabilities without real mutation", async () => {
@@ -301,6 +323,227 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         kind: "active_window",
         value: "hwnd:0x123"
       });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("stops observation when focus drifts from the bound active window", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(backend);
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedScopes: [
+            {
+              kind: "active_window"
+            }
+          ],
+          licensedAppScope: licensedAppScopeFor({
+            kind: "active_window"
+          })
+        }
+      });
+      const initialResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "active_window"
+          }
+        }
+      });
+      const initialStructured = parseStructuredContent(initialResult);
+
+      expect(initialResult.isError).not.toBe(true);
+      expect(initialStructured.appScopeBinding).toMatchObject({
+        observedWindowIdentity: "hwnd:0x123"
+      });
+      expect(sessionStore.listObservations("session-real-observe-001")).toHaveLength(1);
+
+      backend.metadata = {
+        ...activeWindow,
+        windowId: "hwnd:0x999",
+        title: "Unrelated Private Window",
+        processName: "browser",
+        appName: "Browser"
+      };
+
+      const driftResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "active_window"
+          }
+        }
+      });
+      const driftStructured = parseStructuredContent(driftResult);
+
+      expect(driftResult.isError).toBe(true);
+      expect(driftStructured).toMatchObject({
+        status: "scope_exit",
+        stopCondition: {
+          condition: "outside_allowed_scope"
+        },
+        auditEvent: {
+          eventType: "escalation_required"
+        },
+        boundAppScope: {
+          observedWindowIdentity: "hwnd:0x123"
+        },
+        observedActiveWindow: {
+          windowId: "hwnd:0x999",
+          title: "Unrelated Private Window",
+          processName: "browser"
+        }
+      });
+      expect(driftStructured).not.toHaveProperty("observation");
+      expect(sessionStore.listObservations("session-real-observe-001")).toHaveLength(1);
+      expect(sessionStore.requireActiveSession("session-real-observe-001")).toMatchObject({
+        stopConditions: [
+          {
+            condition: "outside_allowed_scope"
+          }
+        ]
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not capture or bind real active_window scope without concrete window identity", async () => {
+    const backend = new FakeWindowsBackend({
+      windowId: undefined,
+      title: undefined,
+      processName: undefined,
+      appName: undefined,
+      bounds: activeWindow.bounds
+    });
+    const { client, server, sessionStore } = await createConnectedClient(backend);
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedScopes: [
+            {
+              kind: "active_window"
+            }
+          ],
+          licensedAppScope: licensedAppScopeFor({
+            kind: "active_window"
+          })
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "active_window"
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured).toMatchObject({
+        error: {
+          code: "scope_mismatch"
+        },
+        residue: expect.arrayContaining([
+          "No desktop frame was recorded for the session."
+        ])
+      });
+      expect(backend.captureCount).toBe(0);
+      expect(sessionStore.getBoundAppScope("session-real-observe-001")).toBeUndefined();
+      expect(sessionStore.listObservations("session-real-observe-001")).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("stops observation when a bound title scope no longer matches the active window identity", async () => {
+    const backend = new FakeWindowsBackend({
+      ...activeWindow,
+      windowId: undefined
+    });
+    const { client, server, sessionStore } = await createConnectedClient(backend);
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedScopes: [
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            {
+              kind: "active_window"
+            }
+          ],
+          licensedAppScope: licensedAppScopeFor({
+            kind: "window_title",
+            value: "Generated Test App"
+          })
+        }
+      });
+      const initialResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const initialStructured = parseStructuredContent(initialResult);
+
+      expect(initialResult.isError).not.toBe(true);
+      expect(initialStructured.appScopeBinding).toMatchObject({
+        observedWindowIdentity: "node:Generated Test App"
+      });
+
+      backend.metadata = {
+        ...activeWindow,
+        windowId: undefined,
+        title: "Different Test App"
+      };
+
+      const mismatchResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "active_window"
+          }
+        }
+      });
+      const mismatchStructured = parseStructuredContent(mismatchResult);
+
+      expect(mismatchResult.isError).toBe(true);
+      expect(mismatchStructured).toMatchObject({
+        status: "scope_exit",
+        stopCondition: {
+          condition: "outside_allowed_scope"
+        },
+        observedActiveWindow: {
+          title: "Different Test App",
+          processName: "node"
+        }
+      });
+      expect(sessionStore.listObservations("session-real-observe-001")).toHaveLength(1);
     } finally {
       await client.close();
       await server.close();

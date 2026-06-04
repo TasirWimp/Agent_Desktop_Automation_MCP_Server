@@ -20,7 +20,7 @@ Real desktop capture and pointer movement are disabled by default. The default p
 
 The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
 
-Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. This app-scope declaration does not enable real click or typing; those remain disabled until later binding and provider-gate slices.
+Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. This app-scope binding does not enable real click or typing; those remain disabled until later provider-gate slices.
 
 ## Real Observation And Pointer Probe
 

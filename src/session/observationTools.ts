@@ -3,7 +3,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   desktopInteractionScopeSchema,
+  desktopAppScopeBindingSchema,
   isDesktopInteractionScopeAllowed,
+  observedWindowIdentity,
+  type DesktopAppScopeBinding,
   type DesktopInteractionScope,
   type DesktopObservationPacket,
   type DesktopSessionAuditEvent,
@@ -24,6 +27,10 @@ import {
   SessionStoreError,
   type DesktopSessionSnapshot
 } from "./sessionStore.js";
+import {
+  createAppScopeBindingFromObservation,
+  observationMatchesAppScopeBinding
+} from "./appScopeBinding.js";
 
 export interface ObservationToolRuntime {
   sessionStore: InMemoryDesktopSessionStore;
@@ -115,20 +122,6 @@ function sessionExpired(session: DesktopSessionSnapshot, now: string): boolean {
   return nowMs - startedMs > session.license.riskLimits.maxDurationMs || nowMs >= expiresMs;
 }
 
-function observedWindowIdentity(
-  activeWindow: DesktopObservationPacket["activeWindow"]
-): string | undefined {
-  if (activeWindow?.windowId !== undefined && activeWindow.windowId.trim().length > 0) {
-    return activeWindow.windowId;
-  }
-
-  const parts = [activeWindow?.processName, activeWindow?.title].filter(
-    (part): part is string => part !== undefined && part.trim().length > 0
-  );
-
-  return parts.length === 0 ? undefined : parts.join(":");
-}
-
 function bindActiveWindowScope(
   requestedScope: DesktopInteractionScope,
   activeWindow: DesktopObservationPacket["activeWindow"]
@@ -184,6 +177,33 @@ function transitionGateNotPendingResult(
       residue: [
         `Transition gate for action ${transitionGate.actionId} is already ${transitionGate.status}.`,
         "No provider call was made and no desktop observation was recorded."
+      ]
+    },
+    true
+  );
+}
+
+function scopeExitObserveResult(
+  sessionId: string,
+  stopCondition: DesktopSessionStopCondition,
+  auditEvent: DesktopSessionAuditEvent,
+  boundAppScope: DesktopAppScopeBinding | undefined,
+  observation: DesktopObservationPacket,
+  residue: string[]
+) {
+  return structuredResult(
+    {
+      sessionId,
+      status: "scope_exit",
+      stopCondition,
+      auditEvent,
+      boundAppScope,
+      observedTargetScope: observation.targetScope,
+      observedActiveWindow: observation.activeWindow,
+      residue: [
+        ...residue,
+        "Provider observation output was not recorded as a session observation.",
+        "No image content was returned for the out-of-scope observation."
       ]
     },
     true
@@ -288,6 +308,86 @@ export function registerObservationTools(
               : [])
           ]
         };
+        const existingAppScopeBinding =
+          session.boundAppScope ?? runtime.sessionStore.getBoundAppScope(input.sessionId);
+        let appScopeBinding: DesktopAppScopeBinding | undefined;
+
+        if (session.license.licensedAppScope !== undefined) {
+          const strictActiveWindowMatch = providerCapabilities.providerKind === "real";
+          const appScopeBindingResult =
+            existingAppScopeBinding === undefined
+              ? createAppScopeBindingFromObservation({
+                  bindingId: `app-scope-binding-${observation.observationId}`,
+                  sessionId: input.sessionId,
+                  licensedScope: session.license.licensedAppScope.scope,
+                  observation,
+                  boundAt: runtime.now(),
+                  strictActiveWindowMatch
+                })
+              : observationMatchesAppScopeBinding(existingAppScopeBinding, observation);
+
+          if (!appScopeBindingResult.matches) {
+            const stopCondition: DesktopSessionStopCondition = {
+              condition: "outside_allowed_scope",
+              sessionId: input.sessionId,
+              reason:
+                "Observed active-window identity is outside the bound app-under-test scope.",
+              residue: appScopeBindingResult.residue
+            };
+            const scopeExitAuditEvent: DesktopSessionAuditEvent = {
+              eventId: runtime.generateId("event"),
+              sessionId: input.sessionId,
+              eventType: "escalation_required",
+              occurredAt: runtime.now(),
+              summary:
+                "Observation detected a scope exit from the bound app-under-test.",
+              residue: appScopeBindingResult.residue
+            };
+
+            runtime.sessionStore.appendStopCondition(stopCondition);
+            runtime.sessionStore.appendAuditEvent(scopeExitAuditEvent);
+
+            return scopeExitObserveResult(
+              input.sessionId,
+              stopCondition,
+              scopeExitAuditEvent,
+              existingAppScopeBinding,
+              observation,
+              appScopeBindingResult.residue
+            );
+          }
+
+          const createdBinding =
+            "binding" in appScopeBindingResult
+              ? appScopeBindingResult.binding
+              : undefined;
+
+          if (createdBinding !== undefined) {
+            appScopeBinding = desktopAppScopeBindingSchema.parse(createdBinding);
+          } else if (existingAppScopeBinding !== undefined) {
+            const identity = observedWindowIdentity(observation.activeWindow);
+
+            appScopeBinding = desktopAppScopeBindingSchema.parse({
+              ...existingAppScopeBinding,
+              bindingId: `app-scope-binding-${observation.observationId}`,
+              boundAt: runtime.now(),
+              observationId: observation.observationId,
+              activeWindow: observation.activeWindow,
+              observedWindowIdentity: identity,
+              boundScope:
+                identity === undefined
+                  ? observation.targetScope
+                  : {
+                      kind: "active_window",
+                      value: identity
+                    },
+              residue: [
+                "Licensed app-under-test binding was refreshed from a matching observation.",
+                ...appScopeBindingResult.residue
+              ]
+            });
+          }
+        }
         const auditEvent: DesktopSessionAuditEvent = {
           eventId: runtime.generateId("event"),
           sessionId: input.sessionId,
@@ -300,6 +400,28 @@ export function registerObservationTools(
 
         const recordedObservation = runtime.sessionStore.recordObservation(observation);
         runtime.sessionStore.appendAuditEvent(auditEvent);
+        const recordedAppScopeBinding =
+          appScopeBinding === undefined
+            ? undefined
+            : runtime.sessionStore.bindAppScope(appScopeBinding);
+        const appScopeBindingAuditEvent: DesktopSessionAuditEvent | undefined =
+          recordedAppScopeBinding === undefined
+            ? undefined
+            : {
+                eventId: `event-app-scope-bound-${recordedObservation.observationId}`,
+                sessionId: input.sessionId,
+                eventType: "app_scope_bound",
+                occurredAt: runtime.now(),
+                observationId: recordedObservation.observationId,
+                summary:
+                  "Licensed app-under-test scope was bound to observed provider identity.",
+                residue: recordedAppScopeBinding.residue
+              };
+
+        if (appScopeBindingAuditEvent !== undefined) {
+          runtime.sessionStore.appendAuditEvent(appScopeBindingAuditEvent);
+        }
+
         const auditedTransitionGate =
           transitionGate === undefined
             ? undefined
@@ -340,6 +462,8 @@ export function registerObservationTools(
             status: "observed",
             observation: recordedObservation,
             auditEvent,
+            appScopeBinding: recordedAppScopeBinding,
+            appScopeBindingAuditEvent,
             transitionGate: auditedTransitionGate,
             postActionAuditEvent,
             providerCapabilities,

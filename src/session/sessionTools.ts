@@ -70,6 +70,7 @@ function summarizeSession(snapshot: DesktopSessionSnapshot) {
     allowedActions: snapshot.license.allowedActions,
     forbiddenActions: snapshot.license.forbiddenActions,
     licensedAppScope: snapshot.license.licensedAppScope,
+    boundAppScope: snapshot.boundAppScope,
     actionCount: snapshot.actionCount,
     repairAttemptCount: snapshot.repairAttemptCount,
     auditEventCount: snapshot.auditEvents.length,

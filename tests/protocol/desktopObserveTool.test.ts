@@ -224,10 +224,25 @@ describe("desktop_observe MCP tool", () => {
         realDesktopCapture: false,
         realDesktopMutation: false
       });
+      expect(structured.appScopeBinding).toMatchObject({
+        sessionId: "session-observe-001",
+        licensedScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        observationId: "observation-fixed-2"
+      });
+      expect(sessionStore.getBoundAppScope("session-observe-001")).toMatchObject({
+        observationId: "observation-fixed-2"
+      });
       expect(sessionStore.listObservations("session-observe-001")).toHaveLength(1);
-      expect(sessionStore.listAuditEvents("session-observe-001")).toHaveLength(2);
+      expect(sessionStore.listAuditEvents("session-observe-001")).toHaveLength(3);
       expect(sessionStore.listAuditEvents("session-observe-001")[1]).toMatchObject({
         eventType: "observation_recorded",
+        observationId: "observation-fixed-2"
+      });
+      expect(sessionStore.listAuditEvents("session-observe-001")[2]).toMatchObject({
+        eventType: "app_scope_bound",
         observationId: "observation-fixed-2"
       });
     } finally {

@@ -48,9 +48,9 @@ The current license schema includes `licensedAppScope` for this declaration. It 
 - forbidden boundaries,
 - scope-exit stop conditions.
 
-Sessions that grant `click` or `type_text` must include a reversible `licensedAppScope` with forbidden boundaries. The current implementation enforces that declaration and scopes click/type policy checks to it, but it does not yet bind the declaration to a concrete observed provider identity.
+Sessions that grant `click` or `type_text` must include a reversible `licensedAppScope` with forbidden boundaries. The current implementation enforces that declaration, binds it to observed provider identity through `desktop_observe`, stores the result as `boundAppScope`, and scopes click/type policy checks to that binding.
 
-`active_window` is a provisional scope kind. Mock policy may use it as shorthand, but a real provider must bind it to a concrete observed window identity, such as title, process, window id, or a stable provider-specific handle, before allowing desktop mutation. An unbound active-window license must not silently follow focus into unrelated private windows.
+`active_window` is a provisional scope kind until the first matching observation. Mock policy may use it as shorthand, but a real provider must bind it to a concrete observed window identity, such as title, process, window id, or a stable provider-specific handle, before allowing desktop mutation. An active-window license must not silently follow focus into unrelated private windows; later observations that drift from `boundAppScope` return `scope_exit` evidence and append a stop condition instead of recording the out-of-scope frame.
 
 Examples of session-licensed low-risk actions:
 
@@ -108,6 +108,8 @@ The first implementation slices may use mock or provider-based backends. The pub
 
 Observation must be bounded. There must be no hidden polling loop, no background capture after a tool returns, and no OCR or localization requirement in the first version.
 
+When a session has `licensedAppScope`, `desktop_observe` is also the app-scope binding point. The first matching observation creates `boundAppScope`; later matching observations refresh it; mismatching observations stop or escalate with `outside_allowed_scope` and are not recorded as session observations. This keeps the visual witness session attached to the declared app-under-test instead of whatever window happens to become active later.
+
 ## Action Contract
 
 `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` must:
@@ -139,6 +141,8 @@ Clicking is licensed by:
 `desktop_evaluate_click_candidate` is the current non-executing witness gate for click targeting. It can run after a fresh observation, and should usually run after `observe -> move_mouse -> observe transitionActionId` when movement was used as a probe. It evaluates whether the current session has enough scope, frame, cursor, optional movement-delta, and risk evidence to request a future app-scoped click. It records audit residue and never executes a click. A ready candidate is evidence for targeting quality, not permission to click outside the licensed app-under-test model.
 
 The current policy slice validates observation references when observation packets are supplied to the evaluator. Provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop action.
+
+The current scope-binding runtime validates that app-scoped click/type policy has a fresh `boundAppScope` and that the referenced pre-action observation still matches that bound app identity. Real click and typing providers remain unavailable until separate provider gates are implemented.
 
 ## Relationship To Existing Policy
 

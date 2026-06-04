@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type DesktopActionPacket,
+  type DesktopAppScopeBinding,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
   type DesktopSessionActionType,
@@ -123,6 +124,32 @@ function observationFixture(
   };
 }
 
+function boundAppScopeFixture(
+  overrides: Partial<DesktopAppScopeBinding> = {}
+): DesktopAppScopeBinding {
+  return {
+    bindingId: "binding-generated-app",
+    sessionId: baseLicense.sessionId,
+    licensedScope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    boundScope: {
+      kind: "active_window",
+      value: "node:Generated Test App"
+    },
+    boundAt: "2026-05-27T10:00:01.500Z",
+    observationId: "obs-before-001",
+    activeWindow: {
+      title: "Generated Test App",
+      processName: "node"
+    },
+    observedWindowIdentity: "node:Generated Test App",
+    residue: ["Bound app scope fixture."],
+    ...overrides
+  };
+}
+
 function actionFixture(
   actionType: DesktopSessionActionType,
   overrides: Partial<DesktopActionPacket> = {}
@@ -174,6 +201,7 @@ function contextFor(action: DesktopActionPacket, phase: "preflight" | "completio
         lastActionDeltaSummary: "The visible control highlighted after the action."
       })
     ],
+    boundAppScope: boundAppScopeFixture(),
     now: "2026-05-27T10:00:03.000Z"
   };
 }
@@ -373,6 +401,51 @@ describe("evaluateSessionActionPolicy", () => {
     expect(result.decision).toBe("block");
     expect(result.requiresPostActionObservation).toBe(true);
     expect(result.auditTags).toContain("missing_post_action_observation");
+  });
+
+  it("blocks click actions when the licensed app scope has not been bound", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      boundAppScope: undefined
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("app_scope_binding_required");
+    expect(result.stopConditions[0]?.condition).toBe("app_scope_binding_required");
+  });
+
+  it("blocks click actions when the bound app scope is stale", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      boundAppScope: boundAppScopeFixture({
+        boundAt: "2026-05-27T09:59:00.000Z"
+      })
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("app_scope_binding_stale");
+    expect(result.stopConditions[0]?.condition).toBe("app_scope_binding_stale");
+  });
+
+  it("escalates click actions when the pre-action observation no longer matches the bound app", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [
+        observationFixture("obs-before-001", {
+          activeWindow: {
+            title: "Private Window",
+            processName: "browser"
+          }
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("escalate");
+    expect(result.auditTags).toContain("bound_app_scope_mismatch");
+    expect(result.stopConditions[0]?.condition).toBe("outside_allowed_scope");
   });
 
   it("requires post-movement observation before a mouse movement can be completed", () => {

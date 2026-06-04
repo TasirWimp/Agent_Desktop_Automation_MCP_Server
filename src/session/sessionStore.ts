@@ -1,11 +1,13 @@
 import {
   type DesktopActionPacket,
+  type DesktopAppScopeBinding,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
   type DesktopSessionActionPolicyContext,
   type DesktopSessionAuditEvent,
   type DesktopSessionStopCondition,
   desktopActionPacketSchema,
+  desktopAppScopeBindingSchema,
   desktopInteractionSessionLicenseSchema,
   desktopObservationPacketSchema,
   desktopSessionAuditEventSchema,
@@ -58,6 +60,7 @@ export interface DesktopSessionSnapshot {
   actions: DesktopActionPacket[];
   transitionGates: InteractionTransitionGate[];
   stopConditions: DesktopSessionStopCondition[];
+  boundAppScope?: DesktopAppScopeBinding;
 }
 
 export interface CreateSessionOptions {
@@ -83,6 +86,7 @@ interface DesktopSessionEntry {
   actions: Map<string, DesktopActionPacket>;
   transitionGates: Map<string, InteractionTransitionGate>;
   stopConditions: DesktopSessionStopCondition[];
+  boundAppScope?: DesktopAppScopeBinding;
 }
 
 function clone<T>(value: T): T {
@@ -116,7 +120,8 @@ function snapshotFromEntry(entry: DesktopSessionEntry): DesktopSessionSnapshot {
     observations: clone([...entry.observations.values()]),
     actions: clone([...entry.actions.values()]),
     transitionGates: clone([...entry.transitionGates.values()]),
-    stopConditions: clone(entry.stopConditions)
+    stopConditions: clone(entry.stopConditions),
+    boundAppScope: entry.boundAppScope === undefined ? undefined : clone(entry.boundAppScope)
   };
 }
 
@@ -156,7 +161,8 @@ export class InMemoryDesktopSessionStore {
       observations: new Map(),
       actions: new Map(),
       transitionGates: new Map(),
-      stopConditions: []
+      stopConditions: [],
+      boundAppScope: undefined
     };
 
     if (options.initialAuditEvent !== undefined) {
@@ -250,6 +256,20 @@ export class InMemoryDesktopSessionStore {
 
   listObservations(sessionId: string): DesktopObservationPacket[] {
     return clone([...this.requireEntry(sessionId).observations.values()]);
+  }
+
+  bindAppScope(bindingInput: DesktopAppScopeBinding): DesktopAppScopeBinding {
+    const binding = desktopAppScopeBindingSchema.parse(bindingInput);
+    const entry = this.requireActiveEntry(binding.sessionId);
+
+    entry.boundAppScope = clone(binding);
+
+    return clone(binding);
+  }
+
+  getBoundAppScope(sessionId: string): DesktopAppScopeBinding | undefined {
+    const boundAppScope = this.requireEntry(sessionId).boundAppScope;
+    return boundAppScope === undefined ? undefined : clone(boundAppScope);
   }
 
   recordAction(actionInput: DesktopActionPacket): DesktopActionPacket {
@@ -409,6 +429,8 @@ export class InMemoryDesktopSessionStore {
       repairAttemptCount: entry.repairAttemptCount,
       auditEvents: clone(entry.auditEvents),
       observations: clone([...entry.observations.values()]),
+      boundAppScope:
+        entry.boundAppScope === undefined ? undefined : clone(entry.boundAppScope),
       now: options.now
     };
   }

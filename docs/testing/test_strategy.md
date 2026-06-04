@@ -109,7 +109,7 @@ For ADMCP-017, tests must cover the click-candidate witness gate. Protocol tests
 
 For ADMCP-018, tests must cover the licensed app-under-test scope model. Session-policy tests should reject `click`/`type_text` permissions when the user has not declared a reversible app scope, accept declared reversible app scopes, preserve forbidden boundary declarations, and keep click-candidate evidence as targeting quality rather than the main safety gate.
 
-For ADMCP-019, tests must cover scope binding runtime behavior. Unit and protocol tests should verify binding to observed window/process/title/local URL identity, rejection of unbound real action attempts, stale binding handling, active-window focus drift, and scope-exit stop conditions.
+For ADMCP-019, tests cover scope binding runtime behavior. Unit and protocol tests verify binding to observed window/process/title identity, unbound app-scope action blocks, stale binding handling, pre-action observation mismatch, active-window focus drift, and scope-exit stop conditions. Local URL/origin binding remains provider-dependent future coverage.
 
 For ADMCP-020, tests must cover app-scoped real click gating without allowing broad desktop clicks. Tests should verify provider gate disabled, in-scope allowed click, out-of-scope blocked click, missing app declaration blocked, stale pre-action observation blocked, audit event creation, and mandatory post-click observation.
 

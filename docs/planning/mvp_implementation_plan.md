@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
 
 ## Planning Document Roles
 
@@ -142,7 +142,7 @@ Extracted implementation slices:
 - ADMCP-016 Persistent Windows Observation Helper - implemented.
 - ADMCP-017 Click-Candidate Witness Gate - implemented.
 - ADMCP-018 Licensed App Scope Model - implemented.
-- ADMCP-019 Scope Binding Runtime - planned.
+- ADMCP-019 Scope Binding Runtime - implemented.
 - ADMCP-020 App-Scoped Real Click Gate - planned.
 - ADMCP-021 App-Scoped Type Text Gate - planned.
 - ADMCP-022 Post-Action Observation And Repair Loop - planned.
@@ -930,7 +930,7 @@ Goal: Bind the declared app-under-test scope to concrete observed provider ident
 
 Status:
 
-- Planned.
+- Implemented.
 
 Depends on:
 
@@ -944,10 +944,46 @@ Required behavior:
 - Stop or escalate when the active target leaves the licensed app, an unrelated window appears, or scope cannot be re-established.
 - Keep real click and real typing disabled in this slice.
 
+Delivered behavior:
+
+- Adds `DesktopAppScopeBinding` runtime state to session snapshots.
+- Adds `src/session/appScopeBinding.ts` to create and validate app-under-test bindings from recorded observations.
+- `desktop_observe` binds `licensedAppScope` on the first matching observation and refreshes the binding on later matching observations.
+- `active_window` app scopes bind to concrete observed window identity when provider metadata supplies one.
+- Real-provider `window_title` and `process_name` app scopes require the observed active window metadata to match before binding.
+- Observation drift from the bound app returns `status: "scope_exit"`, appends an `outside_allowed_scope` stop condition, appends an `escalation_required` audit event, and does not record or return the out-of-scope frame as a session observation.
+- Session action policy blocks app-scoped `click` and `type_text` when the app scope is unbound, stale, or mismatched with the referenced pre-action observation.
+- Session summaries expose `boundAppScope`.
+- Real click and real typing remain disabled.
+
+Implemented files:
+
+- `src/session/appScopeBinding.ts`
+- `src/session/sessionStore.ts`
+- `src/session/sessionTools.ts`
+- `src/session/observationTools.ts`
+- `src/policy/sessionLicensePolicy.ts`
+- `tests/sessionStore.test.ts`
+- `tests/sessionLicensePolicy.test.ts`
+- `tests/protocol/desktopObserveTool.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+
 Acceptance criteria:
 
 - Tests cover successful binding, stale binding, window-title/process mismatch, active-window focus drift, and scope-exit stop conditions.
 - The provider cannot execute real actions against an unbound or mismatched app scope.
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+
+Residual scope:
+
+- Local URL/origin binding is schema-ready but still needs a provider that can supply browser/app URL identity.
+- Real click and real typing remain unavailable until ADMCP-020 and ADMCP-021 add explicit provider gates.
+- Scope binding is a runtime guard and audit source; it does not perform semantic localization, OCR, accessibility inspection, or repair-loop classification.
 
 ### ADMCP-020 App-Scoped Real Click Gate
 

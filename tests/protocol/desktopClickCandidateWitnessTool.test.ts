@@ -191,7 +191,22 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       });
       expect(sessionStore.listActions("session-click-candidate-001")).toHaveLength(0);
       expect(sessionStore.listTransitionGates("session-click-candidate-001")).toHaveLength(0);
-      expect(sessionStore.listAuditEvents("session-click-candidate-001")).toHaveLength(3);
+      expect(sessionStore.listAuditEvents("session-click-candidate-001")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "session_started"
+          }),
+          expect.objectContaining({
+            eventType: "observation_recorded"
+          }),
+          expect.objectContaining({
+            eventType: "app_scope_bound"
+          }),
+          expect.objectContaining({
+            eventType: "click_candidate_evaluated"
+          })
+        ])
+      );
     } finally {
       await client.close();
       await server.close();
