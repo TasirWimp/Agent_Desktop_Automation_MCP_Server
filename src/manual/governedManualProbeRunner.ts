@@ -21,6 +21,17 @@ const defaultForbiddenActions = [
   "system_change"
 ] as const;
 
+const defaultForbiddenBoundaries = [
+  "credential_or_secret_prompt",
+  "payment_or_purchase",
+  "external_publish_or_deploy",
+  "destructive_operation",
+  "system_settings",
+  "unrelated_private_window",
+  "scope_exit",
+  "uninterpretable_state"
+] as const;
+
 export interface GovernedManualProbeConfig {
   sessionId?: string;
   userGoal: string;
@@ -156,6 +167,19 @@ export async function runGovernedManualProbe(
         ? ["observe", "move_mouse", "click"]
         : ["observe", "move_mouse"],
       forbiddenActions: [...defaultForbiddenActions],
+      ...(config.verifyClickBlocked === true
+        ? {
+            licensedAppScope: {
+              description:
+                "Manual probe target is treated as a reversible app-under-test for blocked-click verification.",
+              scope: config.targetScope,
+              userDeclaredReversible: true,
+              allowedActions: ["observe", "move_mouse", "click"],
+              forbiddenBoundaries: [...defaultForbiddenBoundaries],
+              scopeExitStopConditions: ["outside_allowed_scope"]
+            }
+          }
+        : {}),
       riskLimits: {
         maxDurationMs: 60_000,
         maxActionCount: Math.max((config.maxAttempts ?? 3) + 2, 5),

@@ -64,6 +64,25 @@ const startArguments = {
     "shell_command",
     "system_change"
   ],
+  licensedAppScope: {
+    description: "Generated Test App is a local reversible UI test fixture.",
+    scope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    userDeclaredReversible: true,
+    allowedActions: ["observe", "move_mouse", "click", "type_text"],
+    forbiddenBoundaries: [
+      "credential_or_secret_prompt",
+      "payment_or_purchase",
+      "external_publish_or_deploy",
+      "destructive_operation",
+      "system_settings",
+      "unrelated_private_window",
+      "scope_exit"
+    ],
+    scopeExitStopConditions: ["outside_allowed_scope"]
+  },
   riskLimits: {
     maxDurationMs: 60_000,
     maxActionCount: 20,
@@ -265,7 +284,9 @@ describe("desktop_observe MCP tool", () => {
             {
               kind: "active_window"
             }
-          ]
+          ],
+          allowedActions: ["observe"],
+          licensedAppScope: undefined
         }
       });
       const result = await client.callTool({
@@ -331,7 +352,8 @@ describe("desktop_observe MCP tool", () => {
         name: "desktop_start_interaction_session",
         arguments: {
           ...startArguments,
-          allowedActions: ["move_mouse"]
+          allowedActions: ["move_mouse"],
+          licensedAppScope: undefined
         }
       });
       const result = await client.callTool({

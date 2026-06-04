@@ -430,7 +430,26 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         name: "desktop_start_interaction_session",
         arguments: {
           ...startArguments,
-          allowedActions: ["observe", "click"]
+          allowedActions: ["observe", "click"],
+          licensedAppScope: {
+            description: "Generated Test App is a local reversible UI test fixture.",
+            scope: {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            userDeclaredReversible: true,
+            allowedActions: ["observe", "click"],
+            forbiddenBoundaries: [
+              "credential_or_secret_prompt",
+              "payment_or_purchase",
+              "external_publish_or_deploy",
+              "destructive_operation",
+              "system_settings",
+              "unrelated_private_window",
+              "scope_exit"
+            ],
+            scopeExitStopConditions: ["outside_allowed_scope"]
+          }
         }
       });
       await client.callTool({

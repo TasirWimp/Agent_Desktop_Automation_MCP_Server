@@ -68,6 +68,25 @@ const startArguments = {
     "shell_command",
     "system_change"
   ],
+  licensedAppScope: {
+    description: "Generated Test App is a local reversible UI test fixture.",
+    scope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    userDeclaredReversible: true,
+    allowedActions: ["observe", "move_mouse", "click", "type_text"],
+    forbiddenBoundaries: [
+      "credential_or_secret_prompt",
+      "payment_or_purchase",
+      "external_publish_or_deploy",
+      "destructive_operation",
+      "system_settings",
+      "unrelated_private_window",
+      "scope_exit"
+    ],
+    scopeExitStopConditions: ["outside_allowed_scope"]
+  },
   riskLimits: {
     maxDurationMs: 60_000,
     maxActionCount: 20,
@@ -436,7 +455,8 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
 
     try {
       await startAndObserve(client, {
-        allowedActions: ["observe", "move_mouse"]
+        allowedActions: ["observe", "move_mouse"],
+        licensedAppScope: undefined
       });
 
       const result = await client.callTool({

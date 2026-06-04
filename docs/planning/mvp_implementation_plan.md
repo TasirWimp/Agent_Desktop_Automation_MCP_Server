@@ -141,7 +141,7 @@ Extracted implementation slices:
 - ADMCP-015 Windows Provider Performance Instrumentation - implemented.
 - ADMCP-016 Persistent Windows Observation Helper - implemented.
 - ADMCP-017 Click-Candidate Witness Gate - implemented.
-- ADMCP-018 Licensed App Scope Model - planned.
+- ADMCP-018 Licensed App Scope Model - implemented.
 - ADMCP-019 Scope Binding Runtime - planned.
 - ADMCP-020 App-Scoped Real Click Gate - planned.
 - ADMCP-021 App-Scoped Type Text Gate - planned.
@@ -870,7 +870,7 @@ Goal: Re-center future real interaction around a user-declared app-under-test th
 
 Status:
 
-- Planned.
+- Implemented.
 
 Reason:
 
@@ -884,6 +884,17 @@ Required behavior:
 - Represent scope kinds for observed window identity, process name, window title, workspace path, and future local URL/domain binding.
 - Treat the current click-candidate witness concept as targeting-quality evidence inside the licensed app, not as the primary safety gate.
 - Keep real click and real typing disabled in this slice.
+
+Delivered behavior:
+
+- `desktopInteractionSessionLicense` now accepts optional `licensedAppScope`.
+- `licensedAppScope` carries app description, scope, user reversibility declaration, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions.
+- Scope kinds now include `observed_window_identity`, `local_url`, and `local_origin` in addition to existing window/process/workspace scopes.
+- Session start policy rejects `click` or `type_text` permissions unless a reversible app-under-test scope is declared.
+- Session start policy rejects missing reversibility declarations, missing forbidden-boundary declarations, app scopes outside session scopes, app-scope action grants outside session permissions, and app-scope action grants forbidden by the session.
+- Action policy scopes `click` and `type_text` to the declared app-under-test even if the broader session allowed scopes include other targets.
+- The start-session MCP tool accepts and returns the app scope object.
+- Governed manual probe blocked-click verification declares a reversible app scope before granting `click`.
 
 Expected files:
 
@@ -901,6 +912,17 @@ Acceptance criteria:
 - Real action permissions can be scoped to the declared app-under-test.
 - Session start validation rejects real click/type permissions unless a reversible app scope is declared.
 - Tests cover missing app scope, missing user reversibility declaration, and forbidden boundary declarations.
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+
+Residual scope:
+
+- This slice models and validates app-under-test license declarations only.
+- It does not bind the declared app scope to a concrete observed provider identity.
+- It does not enable real clicking or real typing.
 
 ### ADMCP-019 Scope Binding Runtime
 

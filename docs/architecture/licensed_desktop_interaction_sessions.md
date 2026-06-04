@@ -39,6 +39,17 @@ Starting a session requires explicit user confirmation. Within a confirmed sessi
 
 For UI development and testing, the preferred future real-control model is app-under-test scoped. The user declares the specific app, window, process, workspace, or local URL as safe and reversible for the task. The user is responsible for preparing that app/test fixture so permanent damage cannot occur. The server's primary responsibility is then to bind the session to the declared app and stop or escalate when an agent-triggered action would leave it.
 
+The current license schema includes `licensedAppScope` for this declaration. It records:
+
+- app-under-test description,
+- app scope,
+- `userDeclaredReversible`,
+- app-scoped allowed actions,
+- forbidden boundaries,
+- scope-exit stop conditions.
+
+Sessions that grant `click` or `type_text` must include a reversible `licensedAppScope` with forbidden boundaries. The current implementation enforces that declaration and scopes click/type policy checks to it, but it does not yet bind the declaration to a concrete observed provider identity.
+
 `active_window` is a provisional scope kind. Mock policy may use it as shorthand, but a real provider must bind it to a concrete observed window identity, such as title, process, window id, or a stable provider-specific handle, before allowing desktop mutation. An unbound active-window license must not silently follow focus into unrelated private windows.
 
 Examples of session-licensed low-risk actions:

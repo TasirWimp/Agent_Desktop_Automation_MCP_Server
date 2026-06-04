@@ -39,7 +39,7 @@ The server exposes capability reporting, policy classification, read-only UI int
 
 `desktop_move_mouse` is mock-only by default. When the Windows provider is selected with both `ADMCP_ENABLE_REAL_OBSERVATION=true` and `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true`, it may move the real cursor as a bounded active-window-scoped probe. The requested point is interpreted in active-window frame coordinates, must stay inside the observed active-window bounds, must pass session scope and freshness checks, is audited, and creates a transition gate requiring post-movement observation before any next non-observe action. This is allowed as a non-durable pointer probe; it does not license clicking, typing, app launching, shell execution, or persistent desktop changes.
 
-`desktop_click` and `desktop_type_text` remain mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not click the real desktop, type into the real desktop, or control the OS. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
+`desktop_click` and `desktop_type_text` remain mock-only. They simulate provider state in memory, record action packets, create transition gates, and require post-action observation before another non-observe action. They must not click the real desktop, type into the real desktop, or control the OS. Sessions that grant `click` or `type_text` must now declare a reversible `licensedAppScope` with app-scoped allowed actions and forbidden boundaries. `desktop_type_text` must block credential-like or secret-like text before provider calls and must not store text content in action packets or audit events.
 
 `desktop_observe` can use an opt-in Windows active-window observation provider when `ADMCP_DESKTOP_PROVIDER=windows-active-window` and `ADMCP_ENABLE_REAL_OBSERVATION=true` are set. The default remains mock-only. The real-observation spike captures bounded visible active-window frames only, reports active-window-relative cursor witness metadata when available, can render the visible cursor and a high-contrast cursor witness marker into active-window frames when provider cursor evidence is sufficient, validates active-window scope before capture, and does not enable real clicking, typing, or durable desktop mutation.
 
@@ -50,10 +50,11 @@ The planned session model is documented in `licensed_desktop_interaction_session
 Core boundary:
 
 - User confirmation is required before starting a bounded task session.
-- For future real click/type, the user must declare the app-under-test safe and reversible.
+- For future real click/type, the user must declare the app-under-test safe and reversible. This declaration is now represented by `licensedAppScope`.
 - Low-risk actions inside the bound app, window, process, workspace, or local URL scope can proceed without repeated user confirmation.
 - Boundary crossings require stop or escalation.
 - Credential entry, payment, external publishing, destructive operations outside scope, unrelated private windows, and system changes remain blocked or escalated.
 - `active_window` scope is provisional until a real provider binds it to a concrete observed window identity before mutation.
+- `observed_window_identity`, `local_url`, and `local_origin` scope kinds are modeled for future provider binding, but binding is not implemented yet.
 - Provider-backed tools must validate observation existence, freshness, session id, scope, and frame linkage before state-changing actions.
 - No background capture, hidden polling loop, OCR dependency, real click backend, real typing backend, shell backend, or durable OS mutation backend is part of the current implementation.

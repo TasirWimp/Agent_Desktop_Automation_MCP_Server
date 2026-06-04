@@ -49,6 +49,8 @@ Use the session tools to create a bounded task license, record mock observation 
 3. Set `userConfirmed: true` only when the user has actually granted the task-level license.
 4. Set `visibleContentAcknowledged: true` only when the user has acknowledged that future observation tools may capture visible desktop content.
 5. Provide allowed scopes, allowed actions, forbidden actions, risk limits, and observation cadence.
+   - If `allowedActions` includes `click` or `type_text`, also provide `licensedAppScope`.
+   - `licensedAppScope` must declare the reversible app-under-test scope, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions.
    - For real Windows observation or movement sessions, use `observationCadence.maxObservationGapMs: 60000` unless the task explicitly requires a tighter freshness bound.
    - A 5s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds before the next action call.
    - Keep the cadence bounded; widening this value is not permission for hidden polling, background capture, or stale action chains.
@@ -169,12 +171,19 @@ ADMCP-017 click-candidate witness gate is implemented as targeting-quality evide
 - A ready result does not execute a click and does not make real clicking available.
 - Failed results are repair input: observe again, move again as a reversible probe, refresh stale evidence, or correct scope.
 
-Next unimplemented target: Licensed App Scope Model.
+ADMCP-018 licensed app scope model is implemented at the session-policy layer.
 
-- Re-center future real click/type work around a user-declared reversible app-under-test.
-- The primary governance boundary becomes "all agent-triggered interaction stays inside the bound app/window/process/local URL."
+- Sessions that grant `click` or `type_text` must include `licensedAppScope`.
+- `licensedAppScope` must declare the app scope, user reversibility, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions.
+- App scope can use window title, process name, workspace path, observed window identity, local URL, local origin, or provisional active-window scope.
+- `click` and `type_text` actions are scoped to the declared app-under-test even before real click/type providers exist.
 - Click-candidate evidence remains useful as targeting-quality evidence, but it is not the main safety gate.
-- Real click/type remain disabled until app scope, scope binding, provider gates, and post-action observation/repair behavior are implemented and tested.
+- Real click/type remain disabled until scope binding, provider gates, and post-action observation/repair behavior are implemented and tested.
+
+Next unimplemented target: ADMCP-019 Scope Binding Runtime.
+
+- Bind the declared app-under-test scope to concrete observed provider identity.
+- Stop or escalate if active-window focus drifts, scope cannot be proven, or the target leaves the declared app.
 
 ## Real Observation Manual Check
 

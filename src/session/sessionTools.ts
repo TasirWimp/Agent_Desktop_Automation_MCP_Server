@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  desktopLicensedAppScopeSchema,
   desktopInteractionScopeSchema,
   desktopSessionActionTypes,
   desktopSessionObservationCadenceSchema,
@@ -29,6 +30,7 @@ const startInteractionSessionInputSchema = z.object({
   allowedScopes: z.array(desktopInteractionScopeSchema).min(1),
   allowedActions: z.array(z.enum(desktopSessionActionTypes)).min(1),
   forbiddenActions: z.array(z.enum(desktopSessionActionTypes)),
+  licensedAppScope: desktopLicensedAppScopeSchema.optional(),
   riskLimits: desktopSessionRiskLimitsSchema,
   observationCadence: desktopSessionObservationCadenceSchema,
   expiresAt: z.string().min(1).optional()
@@ -67,6 +69,7 @@ function summarizeSession(snapshot: DesktopSessionSnapshot) {
     allowedScopes: snapshot.license.allowedScopes,
     allowedActions: snapshot.license.allowedActions,
     forbiddenActions: snapshot.license.forbiddenActions,
+    licensedAppScope: snapshot.license.licensedAppScope,
     actionCount: snapshot.actionCount,
     repairAttemptCount: snapshot.repairAttemptCount,
     auditEventCount: snapshot.auditEvents.length,
@@ -126,6 +129,7 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
         allowedScopes: input.allowedScopes,
         allowedActions: input.allowedActions,
         forbiddenActions: input.forbiddenActions,
+        licensedAppScope: input.licensedAppScope,
         riskLimits: input.riskLimits,
         observationCadence: input.observationCadence,
         startedAt: now,

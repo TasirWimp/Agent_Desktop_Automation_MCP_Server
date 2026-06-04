@@ -54,6 +54,25 @@ const startArguments = {
     "shell_command",
     "system_change"
   ],
+  licensedAppScope: {
+    description: "Generated Test App is a local reversible UI test fixture.",
+    scope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    userDeclaredReversible: true,
+    allowedActions: ["observe", "move_mouse", "click", "type_text"],
+    forbiddenBoundaries: [
+      "credential_or_secret_prompt",
+      "payment_or_purchase",
+      "external_publish_or_deploy",
+      "destructive_operation",
+      "system_settings",
+      "unrelated_private_window",
+      "scope_exit"
+    ],
+    scopeExitStopConditions: ["outside_allowed_scope"]
+  },
   riskLimits: {
     maxDurationMs: 60_000,
     maxActionCount: 20,
@@ -112,6 +131,12 @@ describe("session MCP tools", () => {
         decision: "allow",
         requiresUserConfirmation: false
       });
+      expect(structured.session).toMatchObject({
+        licensedAppScope: {
+          description: "Generated Test App is a local reversible UI test fixture.",
+          userDeclaredReversible: true
+        }
+      });
       expect(sessionStore.listAuditEvents("session-protocol-001")).toHaveLength(1);
       expect(sessionStore.listAuditEvents("session-protocol-001")[0]).toMatchObject({
         eventType: "session_started",
@@ -165,6 +190,31 @@ describe("session MCP tools", () => {
       expect(structured.policy).toMatchObject({
         decision: "requires_session_confirmation",
         requiresUserConfirmation: true
+      });
+      expect(sessionStore.getSession("session-protocol-001")).toBeUndefined();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("rejects click permissions without a licensed app scope", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      const result = await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          licensedAppScope: undefined
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.policy).toMatchObject({
+        decision: "block",
+        auditTags: expect.arrayContaining(["licensed_app_scope_required"])
       });
       expect(sessionStore.getSession("session-protocol-001")).toBeUndefined();
     } finally {

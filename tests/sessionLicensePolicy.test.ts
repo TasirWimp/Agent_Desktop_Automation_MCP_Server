@@ -35,6 +35,25 @@ const baseLicense: DesktopInteractionSessionLicense = {
     "shell_command",
     "system_change"
   ],
+  licensedAppScope: {
+    description: "Generated Test App is a local reversible UI test fixture.",
+    scope: {
+      kind: "window_title",
+      value: "Generated Test App"
+    },
+    userDeclaredReversible: true,
+    allowedActions: ["observe", "move_mouse", "click", "type_text"],
+    forbiddenBoundaries: [
+      "credential_or_secret_prompt",
+      "payment_or_purchase",
+      "external_publish_or_deploy",
+      "destructive_operation",
+      "system_settings",
+      "unrelated_private_window",
+      "scope_exit"
+    ],
+    scopeExitStopConditions: ["outside_allowed_scope"]
+  },
   riskLimits: {
     maxDurationMs: 60_000,
     maxActionCount: 20,
@@ -181,6 +200,45 @@ describe("desktop interaction session schemas", () => {
       })
     ).not.toThrow();
   });
+
+  it("accepts app-scope kinds for future binding models", () => {
+    expect(() =>
+      desktopInteractionSessionLicenseSchema.parse({
+        ...baseLicense,
+        allowedScopes: [
+          {
+            kind: "observed_window_identity",
+            value: "hwnd:0x123"
+          }
+        ],
+        licensedAppScope: {
+          ...baseLicense.licensedAppScope!,
+          scope: {
+            kind: "observed_window_identity",
+            value: "hwnd:0x123"
+          }
+        }
+      })
+    ).not.toThrow();
+    expect(() =>
+      desktopInteractionSessionLicenseSchema.parse({
+        ...baseLicense,
+        allowedScopes: [
+          {
+            kind: "local_origin",
+            value: "http://localhost:5173"
+          }
+        ],
+        licensedAppScope: {
+          ...baseLicense.licensedAppScope!,
+          scope: {
+            kind: "local_origin",
+            value: "http://localhost:5173"
+          }
+        }
+      })
+    ).not.toThrow();
+  });
 });
 
 describe("evaluateSessionStartPolicy", () => {
@@ -193,6 +251,51 @@ describe("evaluateSessionStartPolicy", () => {
     expect(result.decision).toBe("requires_session_confirmation");
     expect(result.requiresUserConfirmation).toBe(true);
     expect(result.auditTags).toContain("session_confirmation_required");
+  });
+
+  it("requires a licensed app scope before click or type_text permissions are granted", () => {
+    const result = evaluateSessionStartPolicy({
+      ...baseLicense,
+      licensedAppScope: undefined
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("licensed_app_scope_required");
+    expect(result.stopConditions[0]?.condition).toBe("licensed_app_scope_required");
+  });
+
+  it("requires the user to declare the app-under-test reversible", () => {
+    const result = evaluateSessionStartPolicy({
+      ...baseLicense,
+      licensedAppScope: {
+        ...baseLicense.licensedAppScope!,
+        userDeclaredReversible: false
+      }
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("licensed_app_scope_invalid");
+    expect(result.stopConditions[0]?.condition).toBe("user_reversibility_declaration_required");
+  });
+
+  it("requires forbidden boundaries on the licensed app scope", () => {
+    const result = evaluateSessionStartPolicy({
+      ...baseLicense,
+      licensedAppScope: {
+        ...baseLicense.licensedAppScope!,
+        forbiddenBoundaries: []
+      }
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.stopConditions[0]?.condition).toBe("forbidden_boundary_declaration_required");
+  });
+
+  it("allows click and type_text permissions when a reversible app scope is declared", () => {
+    const result = evaluateSessionStartPolicy(baseLicense);
+
+    expect(result.decision).toBe("allow");
+    expect(result.auditTags).toContain("licensed_app_scope_declared");
   });
 });
 
@@ -350,7 +453,14 @@ describe("evaluateSessionActionPolicy", () => {
           kind: "active_window",
           value: "window-identity-generated-app"
         }
-      ]
+      ],
+      licensedAppScope: {
+        ...baseLicense.licensedAppScope!,
+        scope: {
+          kind: "active_window",
+          value: "window-identity-generated-app"
+        }
+      }
     };
     const action = actionFixture("click", {
       targetScope: {
@@ -362,6 +472,32 @@ describe("evaluateSessionActionPolicy", () => {
 
     expect(result.decision).toBe("escalate");
     expect(result.auditTags).toContain("outside_allowed_scope");
+  });
+
+  it("scopes click and type_text actions to the licensed app-under-test", () => {
+    const license: DesktopInteractionSessionLicense = {
+      ...baseLicense,
+      allowedScopes: [
+        {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        {
+          kind: "window_title",
+          value: "Second Allowed Window"
+        }
+      ]
+    };
+    const action = actionFixture("click", {
+      targetScope: {
+        kind: "window_title",
+        value: "Second Allowed Window"
+      }
+    });
+    const result = evaluateSessionActionPolicy(license, action, contextFor(action));
+
+    expect(result.decision).toBe("escalate");
+    expect(result.auditTags).toContain("outside_licensed_app_scope");
   });
 
   it("does not require repeated user confirmation for low-risk actions inside a confirmed session", () => {

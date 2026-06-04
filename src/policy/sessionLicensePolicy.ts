@@ -21,9 +21,12 @@ export type DesktopSessionActionType = (typeof desktopSessionActionTypes)[number
 
 export const desktopInteractionScopeKinds = [
   "active_window",
+  "observed_window_identity",
   "window_title",
   "process_name",
-  "workspace_path"
+  "workspace_path",
+  "local_url",
+  "local_origin"
 ] as const;
 
 export const desktopInteractionScopeSchema = z
@@ -65,6 +68,49 @@ export type DesktopSessionObservationCadence = z.infer<
   typeof desktopSessionObservationCadenceSchema
 >;
 
+export const desktopAppForbiddenBoundaryTypes = [
+  "credential_or_secret_prompt",
+  "payment_or_purchase",
+  "external_message_or_email",
+  "external_publish_or_deploy",
+  "destructive_operation",
+  "system_settings",
+  "unrelated_private_window",
+  "scope_exit",
+  "low_recoverability",
+  "uninterpretable_state"
+] as const;
+
+export const desktopLicensedAppActionTypes = [
+  "observe",
+  "move_mouse",
+  "click",
+  "type_text"
+] as const;
+
+export type DesktopLicensedAppActionType = (typeof desktopLicensedAppActionTypes)[number];
+
+export const desktopLicensedAppScopeExitStopConditions = [
+  "outside_allowed_scope",
+  "pre_action_observation_scope_mismatch",
+  "post_action_observation_scope_mismatch"
+] as const;
+
+export const desktopLicensedAppScopeSchema = z.object({
+  scopeId: z.string().min(1).optional(),
+  description: z.string().min(1).max(1000),
+  scope: desktopInteractionScopeSchema,
+  userDeclaredReversible: z.boolean(),
+  allowedActions: z.array(z.enum(desktopLicensedAppActionTypes)).min(1),
+  forbiddenBoundaries: z.array(z.enum(desktopAppForbiddenBoundaryTypes)),
+  scopeExitStopConditions: z
+    .array(z.enum(desktopLicensedAppScopeExitStopConditions))
+    .min(1)
+    .default(["outside_allowed_scope"])
+});
+
+export type DesktopLicensedAppScope = z.infer<typeof desktopLicensedAppScopeSchema>;
+
 export const desktopInteractionSessionLicenseSchema = z.object({
   sessionId: z.string().min(1),
   userGoal: z.string().min(1),
@@ -73,6 +119,7 @@ export const desktopInteractionSessionLicenseSchema = z.object({
   allowedScopes: z.array(desktopInteractionScopeSchema).min(1),
   allowedActions: z.array(z.enum(desktopSessionActionTypes)).min(1),
   forbiddenActions: z.array(z.enum(desktopSessionActionTypes)),
+  licensedAppScope: desktopLicensedAppScopeSchema.optional(),
   riskLimits: desktopSessionRiskLimitsSchema,
   observationCadence: desktopSessionObservationCadenceSchema,
   startedAt: z.string().min(1),
@@ -277,6 +324,9 @@ export const desktopSessionStopConditionTypes = [
   "missing_post_action_observation",
   "post_action_observation_scope_mismatch",
   "missing_audit_event",
+  "licensed_app_scope_required",
+  "user_reversibility_declaration_required",
+  "forbidden_boundary_declaration_required",
   "low_recoverability"
 ] as const;
 
@@ -334,6 +384,11 @@ const stateChangingActionTypes = new Set<DesktopSessionActionType>([
   "file_operation"
 ]);
 
+const appScopedActionTypes = new Set<DesktopLicensedAppActionType>([
+  "click",
+  "type_text"
+]);
+
 function stopCondition(
   condition: DesktopSessionStopCondition["condition"],
   sessionId: string,
@@ -371,6 +426,15 @@ function result(
 
 function normalize(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? "";
+}
+
+function appScopedActionsRequested(
+  license: DesktopInteractionSessionLicense
+): DesktopLicensedAppActionType[] {
+  return license.allowedActions.filter(
+    (actionType): actionType is DesktopLicensedAppActionType =>
+      appScopedActionTypes.has(actionType as DesktopLicensedAppActionType)
+  );
 }
 
 function scopeMatches(
@@ -536,10 +600,125 @@ export function evaluateSessionStartPolicy(
     );
   }
 
+  const requestedAppScopedActions = appScopedActionsRequested(license);
+
+  if (requestedAppScopedActions.length > 0 && license.licensedAppScope === undefined) {
+    const stop = stopCondition(
+      "licensed_app_scope_required",
+      license.sessionId,
+      "Click and type_text session permissions require a user-declared reversible app-under-test scope."
+    );
+
+    return result(
+      "block",
+      [stop.reason],
+      [...auditTags, "licensed_app_scope_required"],
+      [stop],
+      [
+        "Declare licensedAppScope before granting click or type_text permissions.",
+        "This does not enable real click or typing; it scopes future app-under-test authority."
+      ]
+    );
+  }
+
+  if (license.licensedAppScope !== undefined) {
+    const appScope = license.licensedAppScope;
+    const appScopeStops: DesktopSessionStopCondition[] = [];
+
+    if (!appScope.userDeclaredReversible) {
+      appScopeStops.push(
+        stopCondition(
+          "user_reversibility_declaration_required",
+          license.sessionId,
+          "The user must declare that the licensed app-under-test is reversible and safe for the requested UI testing task."
+        )
+      );
+    }
+
+    if (appScope.forbiddenBoundaries.length === 0) {
+      appScopeStops.push(
+        stopCondition(
+          "forbidden_boundary_declaration_required",
+          license.sessionId,
+          "The licensed app-under-test scope must declare forbidden boundaries."
+        )
+      );
+    }
+
+    if (!isDesktopInteractionScopeAllowed(license, appScope.scope)) {
+      appScopeStops.push(
+        stopCondition(
+          "invalid_session",
+          license.sessionId,
+          "The licensed app-under-test scope must be inside the session's allowed scopes."
+        )
+      );
+    }
+
+    const missingAppPermissions = requestedAppScopedActions.filter(
+      (actionType) => !appScope.allowedActions.includes(actionType)
+    );
+
+    if (missingAppPermissions.length > 0) {
+      appScopeStops.push(
+        stopCondition(
+          "invalid_session",
+          license.sessionId,
+          `The licensed app-under-test scope does not grant requested action(s): ${missingAppPermissions.join(", ")}.`
+        )
+      );
+    }
+
+    const unlicensedAppPermissions = appScope.allowedActions.filter(
+      (actionType) => !license.allowedActions.includes(actionType)
+    );
+
+    if (unlicensedAppPermissions.length > 0) {
+      appScopeStops.push(
+        stopCondition(
+          "invalid_session",
+          license.sessionId,
+          `The licensed app-under-test scope grants action(s) not allowed by the session: ${unlicensedAppPermissions.join(", ")}.`
+        )
+      );
+    }
+
+    const forbiddenAppPermissions = appScope.allowedActions.filter((actionType) =>
+      license.forbiddenActions.includes(actionType)
+    );
+
+    if (forbiddenAppPermissions.length > 0) {
+      appScopeStops.push(
+        stopCondition(
+          "forbidden_action",
+          license.sessionId,
+          `The licensed app-under-test scope grants action(s) forbidden by the session: ${forbiddenAppPermissions.join(", ")}.`
+        )
+      );
+    }
+
+    if (appScopeStops.length > 0) {
+      return result(
+        "block",
+        appScopeStops.map((condition) => condition.reason),
+        [...auditTags, "licensed_app_scope_invalid"],
+        appScopeStops,
+        [
+          "The session was not started.",
+          "No desktop observation, mouse movement, click, typing, or OS mutation occurred."
+        ]
+      );
+    }
+  }
+
   return result(
     "allow",
     ["The user granted a bounded desktop interaction session license."],
-    [...auditTags, "session_license_active"]
+    [
+      ...auditTags,
+      "session_license_active",
+      ...(license.licensedAppScope === undefined ? [] : ["licensed_app_scope_declared"])
+    ]
   );
 }
 
@@ -633,6 +812,53 @@ export function evaluateSessionActionPolicy(
     );
 
     return result("escalate", [stop.reason], [...auditTags, "action_not_allowed"], [stop]);
+  }
+
+  if (appScopedActionTypes.has(action.actionType as DesktopLicensedAppActionType)) {
+    const appScopedActionType = action.actionType as DesktopLicensedAppActionType;
+
+    if (license.licensedAppScope === undefined) {
+      const stop = stopCondition(
+        "licensed_app_scope_required",
+        license.sessionId,
+        `${action.actionType} requires a declared reversible app-under-test scope.`,
+        action.actionId
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "licensed_app_scope_required"],
+        [stop]
+      );
+    }
+
+    if (!license.licensedAppScope.allowedActions.includes(appScopedActionType)) {
+      const stop = stopCondition(
+        "action_not_allowed",
+        license.sessionId,
+        `${action.actionType} is not allowed by the licensed app-under-test scope.`,
+        action.actionId
+      );
+
+      return result("escalate", [stop.reason], [...auditTags, "app_scope_action_not_allowed"], [stop]);
+    }
+
+    if (!desktopInteractionScopesMatch(license.licensedAppScope.scope, action.targetScope)) {
+      const stop = stopCondition(
+        "outside_allowed_scope",
+        license.sessionId,
+        "The requested action target is outside the licensed app-under-test scope.",
+        action.actionId
+      );
+
+      return result(
+        "escalate",
+        [stop.reason],
+        [...auditTags, "outside_allowed_scope", "outside_licensed_app_scope"],
+        [stop]
+      );
+    }
   }
 
   if (!isDesktopInteractionScopeAllowed(license, action.targetScope)) {

@@ -19,7 +19,7 @@ The MVP provides:
 - a policy-check tool for proposed desktop automation actions,
 - a read-only UI intersection planning tool for future closed-loop click candidates,
 - policy contracts for future task-scoped licensed desktop interaction sessions,
-- a path toward user-declared reversible app-under-test sessions,
+- a user-declared reversible app-under-test scope model for click/type session permissions,
 - session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, a click-candidate witness gate, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe,
 - a governed manual probe runner for repeatable observation/movement path-finding checks,
 - documented scope-enforcement boundaries for future execution tools,
@@ -48,6 +48,7 @@ The MVP provides:
 - `automation_policy_check` blocks shell commands, credential access, and system changes.
 - `ui_intersection_plan` returns planning, residue, and policy reminder packets without moving the cursor or clicking.
 - Session-license policy contracts require user confirmation to start a bounded task session and keep low-risk in-session actions auditable.
+- Sessions that grant `click` or `type_text` must declare a reversible `licensedAppScope` with forbidden boundaries, and click/type policy checks are scoped to that declared app-under-test.
 - `desktop_observe` requires an active session, stays bounded, records observation packets, and captures real desktop frames only when the Windows active-window observation spike is explicitly enabled.
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and moves the real cursor only when the Windows real mouse-movement gate is explicitly enabled.
 - `desktop_evaluate_click_candidate` requires a current recorded observation, checks session scope, freshness, frame/cursor evidence, optional movement-transition evidence, and low-risk packet, records a witness audit event, and never clicks.

@@ -167,7 +167,9 @@ Required behavior:
 - reject missing user confirmation,
 - reject missing visible-content acknowledgement,
 - reject sessions without scope,
-- reject real click/type permissions unless a reversible app-under-test scope is declared,
+- reject click/type session permissions unless a reversible app-under-test scope is declared,
+- reject app scopes without forbidden-boundary declarations,
+- reject app-scoped action grants outside the session's allowed actions,
 - initialize session state and audit log only after policy allows.
 
 Annotations:
@@ -862,15 +864,14 @@ Manual tests:
 
 ## Next Recommended Implementation
 
-ADMCP-017 implemented the click-candidate witness gate as a non-executing targeting-quality step. The next implementation should define the licensed app-under-test scope model before adding any real click or typing backend.
+ADMCP-018 implemented the licensed app-under-test scope model. The next implementation should bind that declared scope to concrete observed provider identity before adding any real click or typing backend.
 
 Recommended sequence:
 
-1. ADMCP-018 Licensed App Scope Model.
-2. ADMCP-019 Scope Binding Runtime.
-3. ADMCP-020 App-Scoped Real Click Gate.
-4. ADMCP-021 App-Scoped Type Text Gate.
-5. ADMCP-022 Post-Action Observation And Repair Loop.
-6. ADMCP-023 UI Test Runner For Local Apps.
+1. ADMCP-019 Scope Binding Runtime.
+2. ADMCP-020 App-Scoped Real Click Gate.
+3. ADMCP-021 App-Scoped Type Text Gate.
+4. ADMCP-022 Post-Action Observation And Repair Loop.
+5. ADMCP-023 UI Test Runner For Local Apps.
 
 Click-candidate witness evidence should be consumed by app-scoped click work as targeting-quality evidence. It should help avoid wrong-target clicks and guide repair, but it should not be the main governance boundary. The main governance boundary is whether the action remains inside the user-declared reversible app-under-test.
