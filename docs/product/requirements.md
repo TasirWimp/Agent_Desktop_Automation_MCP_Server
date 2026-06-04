@@ -20,7 +20,7 @@ The MVP provides:
 - a read-only UI intersection planning tool for future closed-loop click candidates,
 - policy contracts for future task-scoped licensed desktop interaction sessions,
 - a user-declared reversible app-under-test scope model for click/type session permissions,
-- session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, a click-candidate witness gate, an opt-in Windows real-observation spike, and an opt-in Windows real mouse-movement probe,
+- session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, a click-candidate witness gate, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, and an opt-in app-scoped Windows generated-text typing gate,
 - a governed manual probe runner for repeatable observation/movement path-finding checks,
 - documented scope-enforcement boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
@@ -34,8 +34,8 @@ The MVP provides:
 - No system configuration changes.
 - No persistent background watcher or keylogger.
 - No unbounded autonomous desktop control outside a user-granted task license.
-- No real clicking by default and no real typing in the current provider slices.
-- No real clicking or future real typing outside a user-declared reversible app-under-test scope.
+- No real clicking or real typing by default.
+- No real clicking or real typing outside a user-declared reversible app-under-test scope.
 - No real desktop capture unless the Windows active-window observation spike is explicitly enabled.
 - No real cursor movement unless the Windows real-observation provider and the explicit real mouse-movement gate are both enabled.
 
@@ -53,11 +53,12 @@ The MVP provides:
 - `desktop_observe` requires an active session, stays bounded, records observation packets, and captures real desktop frames only when the Windows active-window observation spike is explicitly enabled.
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and moves the real cursor only when the Windows real mouse-movement gate is explicitly enabled.
 - `desktop_evaluate_click_candidate` requires a current recorded observation, checks session scope, freshness, frame/cursor evidence, optional movement-transition evidence, and low-risk packet, records a witness audit event, and never clicks.
-- `desktop_click` and `desktop_type_text` require fresh pre-action observation, record interaction transition gates, and require post-action observation. `desktop_click` can click the real desktop only when the explicit app-scoped Windows click gate is enabled; `desktop_type_text` does not type in the real desktop.
+- `desktop_click` and `desktop_type_text` require fresh pre-action observation, record interaction transition gates, and require post-action observation. `desktop_click` can click the real desktop only when the explicit app-scoped Windows click gate is enabled; `desktop_type_text` can type generated test input in the real desktop only when the explicit app-scoped Windows typing gate is enabled.
 - `desktop_type_text` blocks credential-like or secret-like text before provider calls and does not store text content in action packets or audit events.
-- The real click gate requires a user-declared reversible app-under-test, concrete scope binding, action audit, and post-action observation before success can be claimed. Future real typing must follow the same boundary.
+- The real click and typing gates require a user-declared reversible app-under-test, concrete scope binding, action audit, and post-action observation before success can be claimed.
 - The Windows real-observation spike is disabled by default, requires explicit environment configuration, captures bounded active-window frames only, reports active-window-relative cursor position when available, and does not enable real clicking, typing, or durable desktop mutation by itself.
 - The Windows real mouse-movement probe is disabled by default, requires explicit environment configuration, stays inside the scoped active-window capture frame, and does not enable real clicking, typing, or durable desktop mutation by itself.
-- The Windows real-click gate is disabled by default, requires explicit environment configuration, stays inside the bound app-under-test scope, requires post-click observation, and keeps real typing, shell, app launch, and broad desktop control disabled.
+- The Windows real-click gate is disabled by default, requires explicit environment configuration, stays inside the bound app-under-test scope, requires post-click observation, and keeps shell, app launch, and broad desktop control disabled.
+- The Windows real-typing gate is disabled by default, requires explicit environment configuration, types only generated test input inside the bound app-under-test scope, records only text length/classification, requires post-type observation, and keeps shell, app launch, and broad desktop control disabled.
 - The governed manual probe runner uses existing session tools, preserves audit output, and does not add click, typing, shell, or raw desktop control authority.
 - `npm run typecheck`, `npm run test`, and `npm run build` pass locally and in CI.

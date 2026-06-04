@@ -67,6 +67,7 @@ export interface WindowsObservationBackend {
     point: DesktopPoint,
     button: "left" | "middle" | "right"
   ): Promise<DesktopPoint>;
+  typeText?(text: string): Promise<number>;
   dispose?(): void;
 }
 
@@ -75,6 +76,7 @@ export interface WindowsDesktopObservationProviderOptions {
   platform?: NodeJS.Platform;
   enableRealMouseMovement?: boolean;
   enableRealClick?: boolean;
+  enableRealTyping?: boolean;
   maxFramesPerObservation?: number;
   maxObservationDurationMs?: number;
   frameDelay?: (milliseconds: number) => Promise<void>;
@@ -86,6 +88,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   private readonly platform: NodeJS.Platform;
   private readonly enableRealMouseMovement: boolean;
   private readonly enableRealClick: boolean;
+  private readonly enableRealTyping: boolean;
   private readonly maxFramesPerObservation: number;
   private readonly maxObservationDurationMs: number;
   private readonly frameDelay: (milliseconds: number) => Promise<void>;
@@ -99,6 +102,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     this.platform = options.platform ?? process.platform;
     this.enableRealMouseMovement = options.enableRealMouseMovement ?? false;
     this.enableRealClick = options.enableRealClick ?? false;
+    this.enableRealTyping = options.enableRealTyping ?? false;
     this.maxFramesPerObservation = options.maxFramesPerObservation ?? 6;
     this.maxObservationDurationMs = options.maxObservationDurationMs ?? 2_000;
     this.frameDelay = options.frameDelay ?? delay;
@@ -111,10 +115,10 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       supportsObservation: true,
       supportsMouse: this.enableRealMouseMovement,
       supportsClick: this.enableRealClick,
-      supportsTyping: false,
+      supportsTyping: this.enableRealTyping,
       realDesktopCapture: true,
       realDesktopMouseMovement: this.enableRealMouseMovement || this.enableRealClick,
-      realDesktopMutation: this.enableRealClick,
+      realDesktopMutation: this.enableRealClick || this.enableRealTyping,
       maxFramesPerObservation: this.maxFramesPerObservation,
       maxObservationDurationMs: this.maxObservationDurationMs,
       residue: [
@@ -128,7 +132,10 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
         this.enableRealClick
           ? "Provider may click the real desktop only through the explicit app-scoped real-click gate."
           : "Provider does not click unless the explicit app-scoped real-click gate is enabled.",
-        "Provider does not type, launch apps, or make durable desktop changes beyond gated clicks.",
+        this.enableRealTyping
+          ? "Provider may type generated test input only through the explicit app-scoped real-typing gate."
+          : "Provider does not type unless the explicit app-scoped real-typing gate is enabled.",
+        "Provider does not launch apps, run shell commands, or make durable desktop changes beyond gated click/type interactions.",
         "Provider performs no OCR, localization, hidden polling, or background capture."
       ]
     };
@@ -354,8 +361,75 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     };
   }
 
-  async typeText(_request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
-    return unsupportedActionResult("type_text");
+  async typeText(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult> {
+    const timing = new ProviderTimingCollector(
+      "windows_active_window_observation_provider",
+      "real"
+    );
+
+    if (!this.enableRealTyping) {
+      return unsupportedActionResult("type_text");
+    }
+
+    this.ensureAvailable();
+
+    if (request.text === undefined || request.text.length === 0) {
+      throw new DesktopProviderError(
+        "invalid_action_target",
+        "Typing requires non-empty generated test text.",
+        ["No real typing occurred."]
+      );
+    }
+
+    const activeWindow = await timing.measure("pre_type_active_window_metadata_lookup", () =>
+      this.safeGetActiveWindow()
+    );
+    this.assertTargetScopeMatchesActiveWindow(request.targetScope, activeWindow);
+    const typedTextLength = await timing.measure("type_text", () =>
+      this.safeTypeText(request.text as string)
+    );
+    const residue = [
+      "Real desktop typing occurred through the explicit app-scoped real-typing gate.",
+      `Typed text length: ${typedTextLength}.`,
+      request.sensitivityClassification === undefined
+        ? "Text sensitivity classification was not provided to the provider."
+        : `Text sensitivity classification: ${request.sensitivityClassification}.`,
+      "Typed text content is not returned by the provider.",
+      "A post-typing observation is required before the next non-observe action.",
+      ...(request.intendedSemanticTarget === undefined
+        ? []
+        : [`Intended semantic target: ${request.intendedSemanticTarget}.`])
+    ];
+
+    try {
+      const postTypeActiveWindow = await timing.measure(
+        "post_type_active_window_metadata_lookup",
+        () => this.safeGetActiveWindow()
+      );
+      this.assertTargetScopeMatchesActiveWindow(request.targetScope, postTypeActiveWindow);
+      residue.push("Post-typing active-window metadata still matches the requested scope.");
+    } catch (error: unknown) {
+      if (error instanceof DesktopProviderError) {
+        residue.push(
+          error.code === "scope_mismatch"
+            ? "Post-typing active-window metadata no longer matches the requested scope; follow-up observation must audit the transition."
+            : "Post-typing active-window metadata could not be verified; follow-up observation must audit the transition."
+        );
+        residue.push(...error.residue);
+      } else {
+        throw error;
+      }
+    }
+
+    return {
+      executed: true,
+      simulated: false,
+      typedTextLength,
+      providerTiming: timing.finish([
+        "Provider typing timing is diagnostic only and is not used as policy evidence."
+      ]),
+      residue
+    };
   }
 
   private ensureAvailable(): void {
@@ -461,6 +535,22 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     }
   }
 
+  private async safeTypeText(text: string): Promise<number> {
+    if (this.backend.typeText === undefined) {
+      throw new DesktopProviderError(
+        "real_control_disabled",
+        "The Windows observation backend does not support real typing.",
+        ["No real typing occurred."]
+      );
+    }
+
+    try {
+      return await this.backend.typeText(text);
+    } catch (error: unknown) {
+      throw providerControlError(error, "Failed to type generated test input.");
+    }
+  }
+
   private assertTargetScopeMatchesActiveWindow(
     targetScope: DesktopInteractionScope,
     activeWindow: WindowsActiveWindowSnapshot
@@ -487,6 +577,7 @@ type WindowsHelperCommand =
   | "capture_active_window_png"
   | "move_mouse"
   | "click_mouse"
+  | "type_text"
   | "shutdown";
 
 export interface WindowsObservationHelperClient {
@@ -538,6 +629,17 @@ export class PersistentPowerShellWindowsObservationBackend implements WindowsObs
       point,
       button
     });
+  }
+
+  async typeText(text: string): Promise<number> {
+    const result = await this.helperClient.request<{ typedTextLength: number }>(
+      "type_text",
+      {
+        text
+      }
+    );
+
+    return result.typedTextLength;
   }
 
   dispose(): void {
@@ -819,6 +921,12 @@ class PowerShellWindowsObservationBackend implements WindowsObservationBackend {
     button: "left" | "middle" | "right"
   ): Promise<DesktopPoint> {
     return runPowerShellJson<DesktopPoint>(clickMouseScript(point, button));
+  }
+
+  async typeText(text: string): Promise<number> {
+    const result = await runPowerShellJson<{ typedTextLength: number }>(typeTextScript(text));
+
+    return result.typedTextLength;
   }
 }
 
@@ -1401,6 +1509,67 @@ function Invoke-AdmcpMouseClick {
   Get-AdmcpCursorPosition
 }
 
+function ConvertTo-AdmcpSendKeysLiteral {
+  param(
+    [Parameter(Mandatory = $true)] [string] $Text
+  )
+
+  $builder = New-Object System.Text.StringBuilder
+
+  foreach ($char in $Text.ToCharArray()) {
+    $value = [string]$char
+    $code = [int][char]$char
+
+    if ($code -eq 13) {
+      continue
+    }
+
+    if ($code -eq 10) {
+      [void]$builder.Append("{ENTER}")
+      continue
+    }
+
+    if ($code -eq 9) {
+      [void]$builder.Append("{TAB}")
+      continue
+    }
+
+    switch ($value) {
+      "+" { [void]$builder.Append("{+}") }
+      "^" { [void]$builder.Append("{^}") }
+      "%" { [void]$builder.Append("{%}") }
+      "~" { [void]$builder.Append("{~}") }
+      "(" { [void]$builder.Append("{(}") }
+      ")" { [void]$builder.Append("{)}") }
+      "{" { [void]$builder.Append("{{}") }
+      "}" { [void]$builder.Append("{}}") }
+      "[" { [void]$builder.Append("{[}") }
+      "]" { [void]$builder.Append("{]}") }
+      default { [void]$builder.Append($value) }
+    }
+  }
+
+  $builder.ToString()
+}
+
+function Invoke-AdmcpTypeText {
+  param(
+    [Parameter(Mandatory = $true)] [string] $Text
+  )
+
+  if ([string]::IsNullOrEmpty($Text)) {
+    throw "Typing requires non-empty generated test text."
+  }
+
+  $keys = ConvertTo-AdmcpSendKeysLiteral -Text $Text
+  [System.Windows.Forms.SendKeys]::SendWait($keys)
+  Start-Sleep -Milliseconds 40
+
+  [pscustomobject]@{
+    typedTextLength = $Text.Length
+  }
+}
+
 function Add-AdmcpCursorOverlay {
   param(
     [Parameter(Mandatory = $true)] $Graphics,
@@ -1701,6 +1870,16 @@ Invoke-AdmcpMouseClick -X ${x} -Y ${y} -Button "${button}" | ConvertTo-Json -Com
 `;
 }
 
+function typeTextScript(text: string): string {
+  const textBase64 = Buffer.from(text, "utf8").toString("base64");
+
+  return String.raw`
+${activeWindowPreamble}
+$text = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${textBase64}"))
+Invoke-AdmcpTypeText -Text $text | ConvertTo-Json -Compress -Depth 6
+`;
+}
+
 const persistentWindowsObservationHelperScript = String.raw`
 ${activeWindowPreamble}
 
@@ -1822,6 +2001,11 @@ while (-not $shouldStop) {
         $button = [string]$request.button
 
         Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Invoke-AdmcpMouseClick -X $x -Y $y -Button $button)
+      }
+      "type_text" {
+        $text = [string]$request.text
+
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Invoke-AdmcpTypeText -Text $text)
       }
       "shutdown" {
         Write-AdmcpHelperResponse -Id $id -Ok $true -Result ([pscustomobject]@{

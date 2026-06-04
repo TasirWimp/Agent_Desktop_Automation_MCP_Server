@@ -31,6 +31,7 @@ class FakeWindowsBackend implements WindowsObservationBackend {
   public captureCount = 0;
   public movedPoints: DesktopPoint[] = [];
   public clickedPoints: Array<{ point: DesktopPoint; button: "left" | "middle" | "right" }> = [];
+  public typedTexts: string[] = [];
   public disposed = false;
   private cursorPosition: DesktopPoint;
 
@@ -82,6 +83,12 @@ class FakeWindowsBackend implements WindowsObservationBackend {
     return this.cursorPosition;
   }
 
+  async typeText(text: string): Promise<number> {
+    this.typedTexts.push(text);
+
+    return text.length;
+  }
+
   dispose(): void {
     this.disposed = true;
   }
@@ -131,7 +138,12 @@ class FakeWindowsHelperClient implements WindowsObservationHelperClient {
               ? payload?.point
               : command === "click_mouse"
                 ? payload?.point
-                : {};
+                : command === "type_text"
+                  ? {
+                      typedTextLength:
+                        typeof payload?.text === "string" ? payload.text.length : 0
+                    }
+                  : {};
 
     return result as T;
   }
@@ -216,6 +228,7 @@ describe("WindowsDesktopObservationProvider", () => {
       x: 35,
       y: 46
     });
+    await expect(backend.typeText("abc")).resolves.toBe(3);
     backend.dispose();
 
     expect(helperClient.commands).toEqual([
@@ -248,6 +261,12 @@ describe("WindowsDesktopObservationProvider", () => {
             y: 46
           },
           button: "left"
+        }
+      },
+      {
+        command: "type_text",
+        payload: {
+          text: "abc"
         }
       }
     ]);
@@ -315,6 +334,27 @@ describe("WindowsDesktopObservationProvider", () => {
       realDesktopMouseMovement: true,
       realDesktopMutation: true
     });
+  });
+
+  it("reports opt-in real typing capability behind a separate gate", () => {
+    const provider = new WindowsDesktopObservationProvider({
+      backend: new FakeWindowsBackend(),
+      platform: "win32",
+      enableRealTyping: true
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      supportsMouse: false,
+      supportsClick: false,
+      supportsTyping: true,
+      realDesktopCapture: true,
+      realDesktopMouseMovement: false,
+      realDesktopMutation: true
+    });
+    expect(provider.getCapabilities().residue).toContain(
+      "Provider may type generated test input only through the explicit app-scoped real-typing gate."
+    );
   });
 
   it("captures bounded active-window frame metadata without inline image data by default", async () => {
@@ -849,6 +889,80 @@ describe("WindowsDesktopObservationProvider", () => {
       simulated: false
     });
     expect(backend.clickedPoints).toEqual([]);
+  });
+
+  it("types through the backend only when explicitly enabled", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealTyping: true
+    });
+
+    await expect(
+      provider.typeText({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        text: "generated input",
+        textLength: 15,
+        sensitivityClassification: "test_input",
+        intendedSemanticTarget: "Name input"
+      })
+    ).resolves.toMatchObject({
+      executed: true,
+      simulated: false,
+      typedTextLength: 15,
+      providerTiming: {
+        providerName: "windows_active_window_observation_provider",
+        providerKind: "real",
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            operation: "pre_type_active_window_metadata_lookup"
+          }),
+          expect.objectContaining({
+            operation: "type_text"
+          }),
+          expect.objectContaining({
+            operation: "post_type_active_window_metadata_lookup"
+          })
+        ])
+      },
+      residue: expect.arrayContaining([
+        "Real desktop typing occurred through the explicit app-scoped real-typing gate.",
+        "Typed text content is not returned by the provider.",
+        "Post-typing active-window metadata still matches the requested scope."
+      ])
+    });
+    expect(backend.typedTexts).toEqual(["generated input"]);
+  });
+
+  it("keeps real typing disabled by default", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32"
+    });
+
+    await expect(
+      provider.typeText({
+        sessionId: "session-real-001",
+        targetScope: {
+          kind: "window_title",
+          value: "Generated Test App"
+        },
+        requestedAt: "2026-05-28T10:00:01.000Z",
+        text: "generated input",
+        textLength: 15
+      })
+    ).resolves.toMatchObject({
+      executed: false,
+      simulated: false
+    });
+    expect(backend.typedTexts).toEqual([]);
   });
 
   it("rejects out-of-window clicks before clicking", async () => {

@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, an opt-in app-scoped Windows generated-text typing gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
 
 ## Planning Document Roles
 
@@ -144,7 +144,7 @@ Extracted implementation slices:
 - ADMCP-018 Licensed App Scope Model - implemented.
 - ADMCP-019 Scope Binding Runtime - implemented.
 - ADMCP-020 App-Scoped Real Click Gate - implemented.
-- ADMCP-021 App-Scoped Type Text Gate - planned.
+- ADMCP-021 App-Scoped Type Text Gate - implemented.
 - ADMCP-022 Post-Action Observation And Repair Loop - planned.
 - ADMCP-023 UI Test Runner For Local Apps - planned.
 
@@ -982,7 +982,7 @@ Verification:
 Residual scope:
 
 - Local URL/origin binding is schema-ready but still needs a provider that can supply browser/app URL identity.
-- Real typing remains unavailable until ADMCP-021 adds an explicit provider gate.
+- Real typing is implemented by ADMCP-021 through a separate app-scoped provider gate.
 - Scope binding is a runtime guard and audit source; it does not perform semantic localization, OCR, accessibility inspection, or repair-loop classification.
 
 ### ADMCP-020 App-Scoped Real Click Gate
@@ -1049,7 +1049,7 @@ Verification:
 
 Residual scope:
 
-- Real typing remains unavailable until ADMCP-021.
+- Real typing is implemented by ADMCP-021 through a separate app-scoped provider gate.
 - Click-candidate witness output is still targeting-quality evidence; `desktop_click` does not yet require a stored candidate witness id.
 - Post-click repair classification remains deferred to ADMCP-022.
 - Local URL/origin app binding remains provider-dependent future work.
@@ -1060,7 +1060,7 @@ Goal: Enable opt-in real typing of generated test input inside the bound app-und
 
 Status:
 
-- Planned.
+- Implemented.
 
 Depends on:
 
@@ -1069,15 +1069,23 @@ Depends on:
 
 Required behavior:
 
-- Add a separate environment/provider gate for real typing.
-- Require active session, user-declared reversible app scope, bound app identity, fresh pre-action observation, allowed `type_text`, generated/synthetic test input classification, and audit logging.
-- Continue blocking credentials, secrets, private user data, and external publishing unless a later explicitly narrowed test fixture model exists.
-- Record text length and classification, not raw sensitive text.
-- Require post-type observation before any next non-observe action and before success can be claimed.
+- Adds `ADMCP_ENABLE_REAL_TYPING=true` as a separate Windows provider gate.
+- Requires active session, user-declared reversible app scope, bound app identity, fresh pre-action observation, allowed `type_text`, generated/synthetic test input classification, and audit logging through the existing action-tool path.
+- Continues blocking credentials, secrets, private user data, and external publishing before provider execution.
+- Records text length and classification, not raw text content, in action packets and audit events.
+- Requires post-type observation before any next non-observe action and before success can be claimed.
+- Reuses the Windows provider scope checks before typing and reports post-typing active-window residue for the required follow-up observation.
 
 Acceptance criteria:
 
-- Tests cover allowed generated test input, credential-like input block, out-of-scope block, gate-disabled block, and post-type observation requirement.
+- Tests cover allowed generated test input, credential-like input block, out-of-scope block, gate-disabled block, text-content non-persistence, and post-type observation requirement.
+
+Implementation notes:
+
+- `desktop_capabilities` reports `realDesktopTyping: true`, `supportsTyping: true`, `realDesktopMutation: true`, and `executeDesktopActions: true` only when the real Windows typing gate is active.
+- `desktop_type_text` still blocks credential-like text through policy before provider execution.
+- The Windows provider uses the persistent helper path for typed generated input and returns `typedTextLength` without returning raw text.
+- Real typing remains app-scoped; no raw keyboard primitive, shell tool, app launcher, external publishing tool, or broad desktop-control primitive was added.
 
 ### ADMCP-022 Post-Action Observation And Repair Loop
 

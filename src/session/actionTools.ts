@@ -638,9 +638,9 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
   server.registerTool(
     "desktop_type_text",
     {
-      title: "Mock Desktop Text Entry",
+      title: "Desktop Text Entry",
       description:
-        "Simulate bounded test-text entry inside an active desktop interaction session. The default provider does not type into the real desktop.",
+        "Run bounded app-scoped generated test-text entry inside an active desktop interaction session. Real typing is available only when the active provider explicitly supports it.",
       inputSchema: typeTextInputSchema,
       annotations: {
         readOnlyHint: false,
@@ -679,6 +679,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
             requestedAt,
             text: actionInput.text,
             textLength: actionInput.text.length,
+            sensitivityClassification: actionInput.sensitivityClassification,
             intendedSemanticTarget: actionInput.intendedSemanticTarget
           }),
         protectedObservables: [
@@ -695,14 +696,14 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
           "no credential, payment, publishing, destructive, or system boundary appears"
         ],
         allowedSummary:
-          "Mock text entry was licensed and simulated; post-typing observation is required.",
+          "Text entry was licensed through the active provider; post-typing observation is required.",
         policyBlockedResidue:
           "Policy blocked text entry before any provider call. Text content was not stored.",
         providerCallBlockedResidue:
-          "No provider call was made and no typing was simulated.",
+          "No provider call was made and no typing occurred.",
         recordedResidue: [
-          "Mock text entry was recorded.",
-          "No real typing, click, OS capture, or OS mutation occurred.",
+          "Text entry was recorded.",
+          "The active provider result states whether typing was real or simulated.",
           "Text content was not stored in the action packet or audit event.",
           "The next non-observe action is blocked until the transition gate is audited by observation."
         ]

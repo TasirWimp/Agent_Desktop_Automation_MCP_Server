@@ -32,6 +32,7 @@ class FakeWindowsBackend implements WindowsObservationBackend {
   public captureCount = 0;
   public movedPoints: DesktopPoint[] = [];
   public clickedPoints: Array<{ point: DesktopPoint; button: "left" | "middle" | "right" }> = [];
+  public typedTexts: string[] = [];
   private cursorPosition: DesktopPoint;
 
   constructor(
@@ -79,12 +80,19 @@ class FakeWindowsBackend implements WindowsObservationBackend {
 
     return this.cursorPosition;
   }
+
+  async typeText(text: string): Promise<number> {
+    this.typedTexts.push(text);
+
+    return text.length;
+  }
 }
 
 async function createConnectedClient(
   backend = new FakeWindowsBackend(),
   enableRealMouseMovement = false,
   enableRealClick = false,
+  enableRealTyping = false,
   initialNow = fixedNow
 ) {
   const sessionStore = new InMemoryDesktopSessionStore();
@@ -97,6 +105,7 @@ async function createConnectedClient(
       platform: "win32",
       enableRealMouseMovement,
       enableRealClick,
+      enableRealTyping,
       frameDelay: async () => undefined
     }),
     now: () => currentNow,
@@ -256,6 +265,42 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         realDesktopClick: true,
         realDesktopMutation: true,
         closedLoopClickExecution: false
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("reports app-scoped real typing capability only when the typing gate is enabled", async () => {
+    const { client, server } = await createConnectedClient(
+      new FakeWindowsBackend(),
+      false,
+      false,
+      true
+    );
+
+    try {
+      const result = await client.callTool({
+        name: "desktop_capabilities",
+        arguments: {}
+      });
+      const structured = parseJsonText(result);
+
+      expect(structured.provider).toMatchObject({
+        providerKind: "real",
+        realDesktopCapture: true,
+        realDesktopMouseMovement: false,
+        realDesktopMutation: true,
+        supportsMouse: false,
+        supportsClick: false,
+        supportsTyping: true
+      });
+      expect(structured.capabilities).toMatchObject({
+        executeDesktopActions: true,
+        realDesktopClick: false,
+        realDesktopTyping: true,
+        realDesktopMutation: true
       });
     } finally {
       await client.close();
@@ -901,6 +946,290 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       expect(blockedResult.isError).toBe(true);
       expect(blockedStructured.status).toBe("blocked");
       expect(backend.clickedPoints).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("executes real provider typing only inside the bound licensed app scope", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(
+      backend,
+      false,
+      false,
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "type_text"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "type_text"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_type_text",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          text: "generated input",
+          sensitivityClassification: "test_input",
+          intendedSemanticTarget: "Name input"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("requires_post_action_observation");
+      expect(structured.action).toMatchObject({
+        actionType: "type_text",
+        input: {
+          textLength: 15
+        }
+      });
+      expect(JSON.stringify(structured.action)).not.toContain("generated input");
+      expect(JSON.stringify(structured.auditEvents)).not.toContain("generated input");
+      expect(structured.providerCapabilities).toMatchObject({
+        supportsTyping: true,
+        realDesktopMutation: true
+      });
+      expect(structured.providerResult).toMatchObject({
+        executed: true,
+        simulated: false,
+        typedTextLength: 15
+      });
+      expect(structured.transitionGate).toMatchObject({
+        status: "pending_observation",
+        sourceObservationId: "observation-fixed-2"
+      });
+      expect(backend.typedTexts).toEqual(["generated input"]);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(1);
+      expect(sessionStore.findBlockingTransitionGate("session-real-observe-001")).toMatchObject({
+        status: "pending_observation"
+      });
+
+      const observeResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          transitionActionId: "action-fixed-4"
+        }
+      });
+      const observeStructured = parseStructuredContent(observeResult);
+
+      expect(observeResult.isError).not.toBe(true);
+      expect(observeStructured.transitionGate).toMatchObject({
+        actionId: "action-fixed-4",
+        status: "audited",
+        followUpObservationId: "observation-fixed-8"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks real provider typing when the typing gate is disabled", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(backend);
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "type_text"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "type_text"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_type_text",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          text: "generated input",
+          intendedSemanticTarget: "Name input"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.status).toBe("blocked");
+      expect(structured.providerCapabilities).toMatchObject({
+        supportsTyping: false,
+        realDesktopMutation: false
+      });
+      expect(backend.typedTexts).toEqual([]);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks credential-like real typing before provider calls and without storing text content", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(
+      backend,
+      false,
+      false,
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "type_text"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "type_text"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_type_text",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          text: "password=supersecret",
+          intendedSemanticTarget: "Password input"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.policy).toMatchObject({
+        decision: "block"
+      });
+      expect(JSON.stringify(structured.action)).not.toContain("supersecret");
+      expect(JSON.stringify(structured.auditEvents)).not.toContain("supersecret");
+      expect(backend.typedTexts).toEqual([]);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks real provider typing outside the bound licensed app scope", async () => {
+    const backend = new FakeWindowsBackend();
+    const { client, server, sessionStore } = await createConnectedClient(
+      backend,
+      false,
+      false,
+      true
+    );
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: {
+          ...startArguments,
+          allowedActions: ["observe", "type_text"],
+          licensedAppScope: licensedAppScopeFor(
+            {
+              kind: "window_title",
+              value: "Generated Test App"
+            },
+            ["observe", "type_text"]
+          )
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          }
+        }
+      });
+      const result = await client.callTool({
+        name: "desktop_type_text",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Private Browser Window"
+          },
+          preActionObservationId: "observation-fixed-2",
+          text: "generated input",
+          intendedSemanticTarget: "Private input"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.status).toBe("escalate");
+      expect(backend.typedTexts).toEqual([]);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(0);
     } finally {
       await client.close();
       await server.close();

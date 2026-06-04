@@ -51,6 +51,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     desktopProviderCapabilities.providerKind === "real" &&
     desktopProviderCapabilities.supportsClick &&
     desktopProviderCapabilities.realDesktopMutation;
+  const realDesktopTyping =
+    desktopProviderCapabilities.providerKind === "real" &&
+    desktopProviderCapabilities.supportsTyping &&
+    desktopProviderCapabilities.realDesktopMutation;
   const server = new McpServer({
     name: serverName,
     version: serverVersion
@@ -101,6 +105,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           realDesktopObservation: desktopProviderCapabilities.realDesktopCapture,
           realDesktopMouseMovement: desktopProviderCapabilities.realDesktopMouseMovement,
           realDesktopClick,
+          realDesktopTyping,
           realDesktopMutation: desktopProviderCapabilities.realDesktopMutation,
           desktopMouseKeyboardTools:
             desktopProviderCapabilities.providerKind === "real" &&
@@ -119,7 +124,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
               "ADMCP_DESKTOP_PROVIDER=windows-active-window",
               "ADMCP_ENABLE_REAL_OBSERVATION=true",
               "ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true for movement probes",
-              "ADMCP_ENABLE_REAL_CLICK=true for app-scoped real clicks"
+              "ADMCP_ENABLE_REAL_CLICK=true for app-scoped real clicks",
+              "ADMCP_ENABLE_REAL_TYPING=true for app-scoped generated test input"
             ],
             rule:
               "Use observationCadence.maxObservationGapMs=60000 for real-provider sessions unless the task explicitly needs a tighter bound; keep every observation/action bounded and audit every movement with a post-action observation."

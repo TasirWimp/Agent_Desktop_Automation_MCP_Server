@@ -83,6 +83,7 @@ export interface DesktopProviderActionRequest {
   button?: "left" | "middle" | "right";
   text?: string;
   textLength?: number;
+  sensitivityClassification?: string;
   intendedSemanticTarget?: string;
 }
 

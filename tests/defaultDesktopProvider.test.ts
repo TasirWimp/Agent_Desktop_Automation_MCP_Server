@@ -76,4 +76,22 @@ describe("createDefaultDesktopProvider", () => {
       supportsTyping: false
     });
   });
+
+  it("enables Windows real typing only behind the explicit typing gate", () => {
+    const provider = createDefaultDesktopProvider({
+      ADMCP_DESKTOP_PROVIDER: "windows-active-window",
+      ADMCP_ENABLE_REAL_OBSERVATION: "true",
+      ADMCP_ENABLE_REAL_TYPING: "true"
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      realDesktopCapture: true,
+      realDesktopMouseMovement: false,
+      realDesktopMutation: true,
+      supportsMouse: false,
+      supportsClick: false,
+      supportsTyping: true
+    });
+  });
 });
