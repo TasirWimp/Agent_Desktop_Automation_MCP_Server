@@ -246,17 +246,18 @@ The runner should use the existing MCP tools only and preserve this cycle shape:
 test goal -> active cut -> observe -> licensed probe/action -> observe transitionActionId -> classify delta -> carry residue -> continue/repair/ask/close
 ```
 
-Every action-bearing cycle should produce a `ui_test_cycle` packet with current pressure, active cut, before observation, action id, after observation, post-action classification, residue, next re-entry pressure, and cycle decision. The runner should end with a landfall/re-entry packet that states protected observables, satisfied observables, unsatisfied residue, audit count, stop conditions, closure status, and re-entry notes.
+Every runner cycle should produce a `ui_test_cycle` packet. Observation-only cycles may omit action and transition-classification fields. Probe-action cycles such as `desktop_evaluate_click_candidate` require current observation evidence but no transition gate. State-changing cycles must include before observation, action id, after observation through `transitionActionId`, and transition classification. The runner should end with a landfall/re-entry packet that states protected observables, satisfied observables, unsatisfied residue, audit count, stop conditions, closure status, and re-entry notes.
 
 Do not claim scenario success only because a click happened, text was typed, or frame hashes changed. `expected_delta` is evidence to compare against the protected test goal. `frame_hash_delta` is weak by default: it can support "something changed" but cannot satisfy a protected visual outcome unless the scenario contract explicitly declares that hash, visual region, or cue sufficient. `no_op`, `wrong_target`, and `repair_needed` must carry residue into the next cycle. `scope_exit`, `risk_prompt`, `uninterpretable_state`, or repair-limit exhaustion must stop or escalate.
 
 ADMCP-023 implementation must start with local runner artifacts:
 
-- `ui_test_scenario_contract`: scenario id, test goal, session-license fields (`user_confirmed`, `visible_content_acknowledged`, `reversible_app_under_test_declared`), reversible app-under-test scope, allowed probes (`observe`, `evaluate_click_candidate`), allowed actions (`move_mouse`, `click`, `type_text`), max cycles/actions/time, observation cadence, forbidden boundaries, protected outcome, allowed evidence, evidence strength, and closure policy.
+- `ui_test_scenario_contract`: scenario id, test goal, session-license fields (`user_confirmed`, `visible_content_acknowledged`, `reversible_app_under_test_declared`), reversible app-under-test scope, allowed probes (`observe`, `evaluate_click_candidate`), allowed actions (`move_mouse`, `click`, `type_text`), max cycles/actions/time, observation cadence, forbidden boundaries, structured protected outcomes with acceptable evidence, evidence strength, and closure policy.
 - `ui_test_cycle`: one packet per runner cycle with `cycle_kind: observation_only | probe_action | state_changing_action`, pressure, active cut, observations, probe/action data, transition classification when applicable, carrier update, residue, next re-entry pressure, and decision.
 - `ui_test_carrier`: run-level state with bound app scope, known controls/candidate targets, protected outcome status, cycle ids, action ids, residue classes, and closure status.
 - `closure_gate`: separates `passed_allowed_if` from `partial_landfall_allowed_if`. Passing requires protected outcome satisfied and no target-relevant residue. Partial landfall may residualize the protected outcome only when residue is visible and no same-license probe can reduce it.
 - `ui_test_landfall`: final artifact explaining whether the run passed, failed, stopped, asked, or landed partially.
+- `cycle_kind_matrix`: maps `desktop_observe` to `observation_only`, `desktop_evaluate_click_candidate` to `probe_action`, and `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` to transition-bearing `state_changing_action`.
 
 Recommended split:
 

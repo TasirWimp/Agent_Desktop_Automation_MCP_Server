@@ -1196,7 +1196,18 @@ ui_test_scenario_contract:
   observation_cadence:
     max_observation_gap_ms:
   protected_test_outcome:
-    - "declared observable required for this scenario"
+    - observable_id: gameplay_state_visible
+      description: "declared observable required for this scenario"
+      acceptable_evidence:
+        - human_supplied_expected_visual_cue
+        - screenshot_reference
+        - provider_delta_summary
+      sufficient_when:
+        - "scenario-declared cue is present"
+      insufficient_when:
+        - "only frame_hash_delta changed"
+      residue_if_missing:
+        - missing_declared_visual_witness
   allowed_evidence:
     - frame_hash_delta
     - screenshot_reference
@@ -1277,6 +1288,58 @@ ui_test_cycle:
     - "residue that controls the next cycle"
   cycle_decision: continue | repair | ask | partial_landfall | close | stop
 ```
+
+Tool-to-cycle-kind matrix:
+
+```yaml
+cycle_kind_matrix:
+  desktop_observe:
+    cycle_kind: observation_only
+    requires_current_observation: false
+    requires_before_observation: false
+    requires_action_id: false
+    requires_after_observation: false
+    requires_transition_classification: false
+    output_role: orientation_witness
+
+  desktop_evaluate_click_candidate:
+    cycle_kind: probe_action
+    requires_current_observation: true
+    requires_before_observation: false
+    requires_action_id: false
+    requires_after_observation: false
+    requires_transition_classification: false
+    output_role: targeting_quality_witness
+
+  desktop_move_mouse:
+    cycle_kind: state_changing_action
+    requires_current_observation: true
+    requires_before_observation: true
+    requires_action_id: true
+    requires_after_observation_with_transitionActionId: true
+    requires_transition_or_delta_classification: true
+    output_role: movement_probe_transition
+
+  desktop_click:
+    cycle_kind: state_changing_action
+    requires_current_observation: true
+    requires_before_observation: true
+    requires_action_id: true
+    requires_after_observation_with_transitionActionId: true
+    requires_transition_classification: true
+    output_role: click_transition
+
+  desktop_type_text:
+    cycle_kind: state_changing_action
+    requires_current_observation: true
+    requires_before_observation: true
+    requires_action_id: true
+    requires_after_observation_with_transitionActionId: true
+    requires_transition_classification: true
+    output_role: text_entry_transition
+```
+
+`desktop_move_mouse` is state-changing even when used as a probe. It must not be treated like `desktop_evaluate_click_candidate`: movement creates a transition gate and requires post-movement observation before the next non-observe action.
 
 Test-state carrier shape:
 
@@ -1375,7 +1438,7 @@ Recommended implementation split:
 
 - ADMCP-023A Scenario Contract And Artifact Schemas.
   - Add schema modules for scenario contract, cycle packet, carrier, closure gate, and landfall artifact.
-  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, protected outcome declaration, evidence-strength defaults, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, and artifact replay fields.
+  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, structured protected outcome declaration with acceptable evidence, evidence-strength defaults, tool-to-cycle-kind matrix, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, and artifact replay fields.
   - Execute no desktop action in this slice.
   - ADMCP-023A is the next implementation target; do not start runner orchestration in ADMCP-023A.
 - ADMCP-023B Mock Cycle Runner.
