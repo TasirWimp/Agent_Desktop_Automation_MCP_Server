@@ -5,7 +5,10 @@ import {
   desktopInteractionScopesMatch,
   desktopPointSchema,
   desktopRectangleSchema,
+  formatNullableStringForAudit,
   isDesktopInteractionScopeAllowed,
+  semanticTargetCanonicalForm,
+  semanticTargetsEquivalent,
   type DesktopActionRisk,
   type DesktopInteractionScope,
   type DesktopObservationPacket,
@@ -122,6 +125,9 @@ interface ClickCandidateEvaluation {
     fresh: boolean;
     scopeMatches: boolean;
     targetMatches: boolean;
+    requestedTargetCanonical: string;
+    digestTargetCanonical?: string;
+    readinessIssue?: string;
     targetVisibility?: DesktopPerceptionDigest["targetVisibility"];
     anchorVisibility?: DesktopPerceptionDigest["anchorVisibility"];
     continuityWithPriorClaim?: DesktopPerceptionDigest["continuityWithPriorClaim"];
@@ -401,6 +407,9 @@ function buildResidue(input: {
   cursorPoint?: DesktopPoint;
   candidateCursorDistancePx?: number;
   candidateContainsCursor?: boolean;
+  intendedSemanticTarget: string;
+  perceptionDigestTargetMatches?: boolean;
+  perceptionDigestReadyIssue?: string;
   movementGate?: InteractionTransitionGate;
   perceptionDigest?: DesktopPerceptionDigest;
 }): string[] {
@@ -432,6 +441,9 @@ function buildResidue(input: {
     residue.push("Perception digest is stale or not bound to the latest recorded observation.");
   } else if (input.status === "perception_digest_not_visible") {
     residue.push("Perception digest does not currently support visible, non-contradicted target readiness.");
+    if (input.perceptionDigestReadyIssue !== undefined) {
+      residue.push(input.perceptionDigestReadyIssue);
+    }
   }
 
   if (input.candidatePoint === undefined) {
@@ -482,11 +494,49 @@ function buildResidue(input: {
 
   if (input.perceptionDigest !== undefined) {
     residue.push(
-      `Perception digest targetVisibility=${input.perceptionDigest.targetVisibility}, continuity=${input.perceptionDigest.continuityWithPriorClaim}.`
+      `Perception digest targetVisibility=${input.perceptionDigest.targetVisibility}, continuity=${input.perceptionDigest.continuityWithPriorClaim}, contradictionToPriorClaim=${formatNullableStringForAudit(input.perceptionDigest.contradictionToPriorClaim)}.`
     );
+
+    if (input.perceptionDigestTargetMatches === false) {
+      residue.push(
+        `Candidate target canonical: ${semanticTargetCanonicalForm(input.intendedSemanticTarget)}.`
+      );
+      residue.push(
+        `Digest target canonical: ${semanticTargetCanonicalForm(input.perceptionDigest.intendedTarget)}.`
+      );
+    }
   }
 
   return residue;
+}
+
+function perceptionDigestReadyIssue(
+  perceptionDigest: DesktopPerceptionDigest | undefined
+): string | undefined {
+  if (perceptionDigest === undefined) {
+    return undefined;
+  }
+
+  if (perceptionDigest.targetVisibility !== "visible") {
+    return `Digest targetVisibility is ${perceptionDigest.targetVisibility}.`;
+  }
+
+  if (perceptionDigest.anchorVisibility === "not_visible") {
+    return "Digest anchorVisibility is not_visible.";
+  }
+
+  if (
+    perceptionDigest.continuityWithPriorClaim !== "consistent" &&
+    perceptionDigest.continuityWithPriorClaim !== "not_applicable"
+  ) {
+    return `Digest continuityWithPriorClaim is ${perceptionDigest.continuityWithPriorClaim}.`;
+  }
+
+  if (perceptionDigest.contradictionToPriorClaim !== null) {
+    return `Digest contradictionToPriorClaim is ${formatNullableStringForAudit(perceptionDigest.contradictionToPriorClaim)}.`;
+  }
+
+  return undefined;
 }
 
 function evaluateClickCandidate(
@@ -531,7 +581,8 @@ function evaluateClickCandidate(
     perceptionDigest !== undefined &&
     desktopInteractionScopesMatch(perceptionDigest.targetScope, input.targetScope);
   const perceptionDigestTargetMatches =
-    perceptionDigest?.intendedTarget === input.intendedSemanticTarget;
+    perceptionDigest !== undefined &&
+    semanticTargetsEquivalent(perceptionDigest.intendedTarget, input.intendedSemanticTarget);
   const perceptionDigestHashesMatch =
     perceptionDigest !== undefined &&
     digestFrameHashesMatch(perceptionDigest, observation);
@@ -596,6 +647,9 @@ function evaluateClickCandidate(
     cursorPoint,
     candidateCursorDistancePx,
     candidateContainsCursor,
+    intendedSemanticTarget: input.intendedSemanticTarget,
+    perceptionDigestTargetMatches,
+    perceptionDigestReadyIssue: perceptionDigestReadyIssue(perceptionDigest),
     movementGate,
     perceptionDigest
   });
@@ -675,6 +729,12 @@ function evaluateClickCandidate(
       fresh: perceptionDigestFresh,
       scopeMatches: perceptionDigestScopeMatches,
       targetMatches: perceptionDigestTargetMatches,
+      requestedTargetCanonical: semanticTargetCanonicalForm(input.intendedSemanticTarget),
+      digestTargetCanonical:
+        perceptionDigest === undefined
+          ? undefined
+          : semanticTargetCanonicalForm(perceptionDigest.intendedTarget),
+      readinessIssue: perceptionDigestReadyIssue(perceptionDigest),
       targetVisibility: perceptionDigest?.targetVisibility,
       anchorVisibility: perceptionDigest?.anchorVisibility,
       continuityWithPriorClaim: perceptionDigest?.continuityWithPriorClaim,

@@ -301,6 +301,54 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
     }
   });
 
+  it("accepts equivalent click target wording across digest and hover witness", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const witness = await prepareHoverWitness(client);
+      const result = await client.callTool({
+        name: "desktop_click",
+        arguments: {
+          sessionId: "session-click-type-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: witness.observationId,
+          point: {
+            x: 240,
+            y: 120
+          },
+          button: "left",
+          perceptionDigestId: witness.perceptionDigestId,
+          intendedSemanticTarget: "The Submit control",
+          hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          compactRelationalClaim: compactClaim(
+            witness.observationId,
+            "Submit control",
+            "hover_witness"
+          )
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("requires_post_action_observation");
+      expect(structured.action).toMatchObject({
+        intendedSemanticTarget: "The Submit control",
+        actionType: "click"
+      });
+      expect(structured.providerResult).toMatchObject({
+        executed: true,
+        simulated: true
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("audits post-click observation before allowing another non-observe action", async () => {
     const { client, server, sessionStore } = await createConnectedClient();
 

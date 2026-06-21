@@ -153,6 +153,60 @@ describe("desktop_submit_perception_digest MCP tool", () => {
     }
   });
 
+  it("stores exact no-contradiction sentinel strings as JSON null", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const result = await client.callTool({
+        name: "desktop_submit_perception_digest",
+        arguments: {
+          ...digestArguments("observation-fixed-2"),
+          contradictionToPriorClaim: "none"
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.perceptionDigest).toMatchObject({
+        contradictionToPriorClaim: null
+      });
+      expect(structured.residue).toEqual(
+        expect.arrayContaining([
+          'contradictionToPriorClaim sentinel "none" was normalized to JSON null.'
+        ])
+      );
+      expect(sessionStore.listPerceptionDigests("session-digest-001")[0]).toMatchObject({
+        contradictionToPriorClaim: null
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("keeps non-sentinel contradiction strings as blocking evidence", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      await client.callTool({
+        name: "desktop_submit_perception_digest",
+        arguments: {
+          ...digestArguments("observation-fixed-2"),
+          contradictionToPriorClaim: "none of the expected target is visible"
+        }
+      });
+
+      expect(sessionStore.listPerceptionDigests("session-digest-001")[0]).toMatchObject({
+        contradictionToPriorClaim: "none of the expected target is visible"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("rejects digest submission for a non-latest observation", async () => {
     const { client, server } = await createConnectedClient();
 

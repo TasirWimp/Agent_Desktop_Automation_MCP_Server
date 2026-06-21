@@ -76,6 +76,8 @@ The required click path is:
 observe -> perception digest -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest -> observe
 ```
 
+Compact API clients should still prefer JSON `null` for `contradictionToPriorClaim` when no contradiction is visible. For smaller agents, exact safe sentinel strings such as `"none"`, `"null"`, `"n/a"`, `"not applicable"`, and `"no contradiction observed"` are normalized to `null` at digest recording. Semantic target checks compare conservative canonical forms, so generic UI wording may vary, such as `Run button on the right` versus `Run control on right`; distinct targets such as `Run button` versus `Delete button` remain mismatches.
+
 Catalog app bootstrap uses `config/desktop_applications.json`. Add apps by ID and aliases there; `desktop_open_application` rejects unknown apps, path-like launch strings, and command-line argument fields.
 
 For real Windows observation or movement sessions, set `observationCadence.maxObservationGapMs` to `60000` unless the task explicitly needs a tighter freshness window. A 5s gap is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds. This value keeps sessions bounded; it does not permit hidden polling, background capture, or stale action chains.

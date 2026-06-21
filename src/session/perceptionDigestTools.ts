@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   desktopInteractionScopesMatch,
   desktopSubmitPerceptionDigestInputSchema,
+  normalizeNoContradiction,
   type DesktopObservationPacket,
   type DesktopPerceptionDigest,
   type DesktopSessionAuditEvent
@@ -191,8 +192,20 @@ export function registerPerceptionDigestTools(
           );
         }
 
+        const normalizedContradiction = normalizeNoContradiction(
+          input.contradictionToPriorClaim
+        );
+        const normalizedNoContradictionSentinel =
+          input.contradictionToPriorClaim !== null &&
+          normalizedContradiction === null;
+        const normalizationResidue = normalizedNoContradictionSentinel
+          ? [
+              `contradictionToPriorClaim sentinel ${JSON.stringify(input.contradictionToPriorClaim)} was normalized to JSON null.`
+            ]
+          : [];
         const digest: DesktopPerceptionDigest = {
           ...input,
+          contradictionToPriorClaim: normalizedContradiction,
           perceptionDigestId: digestIdFor(input.observationId, input.intendedTarget),
           createdAt: runtime.now(),
           sourceObservationFrameHashes: observation.frames.map((frame) => frame.sha256),
@@ -209,7 +222,8 @@ export function registerPerceptionDigestTools(
             `Recorded fresh perception digest for ${input.intendedTarget}.`,
           residue: [
             "Digest is client-authored; the server did not inspect or interpret pixels.",
-            "Digest is bound to the latest screenshot-bearing observation and frame hashes."
+            "Digest is bound to the latest screenshot-bearing observation and frame hashes.",
+            ...normalizationResidue
           ]
         };
 
@@ -225,7 +239,8 @@ export function registerPerceptionDigestTools(
           auditEvent,
           residue: [
             "Perception digest was recorded in session state and audit log.",
-            "Future actions must reference this digest before any newer observation is recorded."
+            "Future actions must reference this digest before any newer observation is recorded.",
+            ...normalizationResidue
           ]
         });
       } catch (error: unknown) {

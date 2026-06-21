@@ -8,6 +8,8 @@ import {
   desktopPreActionNavigationCheckSchema,
   desktopRelationalNavigationSchema,
   evaluateSessionActionPolicy,
+  semanticTargetCanonicalForm,
+  semanticTargetsEquivalent,
   type DesktopActionPacket,
   type DesktopActionRisk,
   type DesktopCompactRelationalClaim,
@@ -514,7 +516,10 @@ function validateClickHoverTargetWitness(
 
   if (
     action.intendedSemanticTarget !== undefined &&
-    hoverTargetWitness.intendedSemanticTarget !== action.intendedSemanticTarget
+    !semanticTargetsEquivalent(
+      hoverTargetWitness.intendedSemanticTarget,
+      action.intendedSemanticTarget
+    )
   ) {
     return {
       ok: false,
@@ -522,19 +527,28 @@ function validateClickHoverTargetWitness(
       reason: "Hover target witness semantic target does not match the click request.",
       residue: [
         `Click target: ${action.intendedSemanticTarget}.`,
-        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`
+        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`,
+        `Click target canonical: ${semanticTargetCanonicalForm(action.intendedSemanticTarget)}.`,
+        `Witness target canonical: ${semanticTargetCanonicalForm(hoverTargetWitness.intendedSemanticTarget)}.`
       ]
     };
   }
 
-  if (perceptionDigest.intendedTarget !== hoverTargetWitness.intendedSemanticTarget) {
+  if (
+    !semanticTargetsEquivalent(
+      perceptionDigest.intendedTarget,
+      hoverTargetWitness.intendedSemanticTarget
+    )
+  ) {
     return {
       ok: false,
       hoverTargetWitness,
       reason: "Current perception digest target does not match the hover target witness.",
       residue: [
         `Digest target: ${perceptionDigest.intendedTarget}.`,
-        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`
+        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`,
+        `Digest target canonical: ${semanticTargetCanonicalForm(perceptionDigest.intendedTarget)}.`,
+        `Witness target canonical: ${semanticTargetCanonicalForm(hoverTargetWitness.intendedSemanticTarget)}.`
       ]
     };
   }

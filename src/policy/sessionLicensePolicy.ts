@@ -147,6 +147,80 @@ export const desktopPointProvenances = [
 
 export type DesktopPointProvenance = (typeof desktopPointProvenances)[number];
 
+const noContradictionSentinels = new Set([
+  "none",
+  "null",
+  "n/a",
+  "na",
+  "not applicable",
+  "no contradiction",
+  "no contradiction seen",
+  "no contradiction observed",
+  "no contradiction to prior claim"
+]);
+
+const genericSemanticTargetTokens = new Set([
+  "the",
+  "a",
+  "an",
+  "button",
+  "control",
+  "element",
+  "target"
+]);
+
+function canonicalNoContradictionText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/gu, " ")
+    .replace(/\s+/gu, " ");
+}
+
+export function normalizeNoContradiction(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  return noContradictionSentinels.has(canonicalNoContradictionText(value))
+    ? null
+    : value;
+}
+
+export function semanticTargetCanonicalForm(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/u)
+    .filter((token) => token.length > 0 && !genericSemanticTargetTokens.has(token))
+    .join(" ");
+}
+
+export function semanticTargetsEquivalent(
+  first: string | undefined,
+  second: string | undefined
+): boolean {
+  if (first === undefined || second === undefined) {
+    return false;
+  }
+
+  const firstCanonical = semanticTargetCanonicalForm(first);
+  const secondCanonical = semanticTargetCanonicalForm(second);
+
+  return (
+    firstCanonical.length > 0 &&
+    secondCanonical.length > 0 &&
+    firstCanonical === secondCanonical
+  );
+}
+
+export function formatNullableStringForAudit(value: string | null | undefined): string {
+  return value === undefined ? "undefined" : JSON.stringify(value);
+}
+
 export const desktopCompactRelationalClaimSchema = z.object({
   sourceObservationId: z.string().min(1),
   intendedTarget: z.string().min(1).max(1000),
@@ -574,8 +648,10 @@ export const desktopActionPacketSchema = z
     if (
       action.relationalNavigation !== undefined &&
       action.intendedSemanticTarget !== undefined &&
-      action.relationalNavigation.actionJustification.intendedSemanticTarget !==
+      !semanticTargetsEquivalent(
+        action.relationalNavigation.actionJustification.intendedSemanticTarget,
         action.intendedSemanticTarget
+      )
     ) {
       context.addIssue({
         code: "custom",
@@ -615,7 +691,10 @@ export const desktopActionPacketSchema = z
     if (
       action.compactRelationalClaim !== undefined &&
       action.intendedSemanticTarget !== undefined &&
-      action.compactRelationalClaim.intendedTarget !== action.intendedSemanticTarget
+      !semanticTargetsEquivalent(
+        action.compactRelationalClaim.intendedTarget,
+        action.intendedSemanticTarget
+      )
     ) {
       context.addIssue({
         code: "custom",
@@ -1144,7 +1223,10 @@ function perceptionDigestStopConditionForAction(
 
   const intendedTarget = intendedTargetForAction(action);
 
-  if (intendedTarget !== undefined && digest.intendedTarget !== intendedTarget) {
+  if (
+    intendedTarget !== undefined &&
+    !semanticTargetsEquivalent(digest.intendedTarget, intendedTarget)
+  ) {
     return {
       stop: stopCondition(
         "perception_digest_target_mismatch",
@@ -1153,7 +1235,9 @@ function perceptionDigestStopConditionForAction(
         action.actionId,
         [
           `Action target: ${intendedTarget}.`,
-          `Digest target: ${digest.intendedTarget}.`
+          `Digest target: ${digest.intendedTarget}.`,
+          `Action target canonical: ${semanticTargetCanonicalForm(intendedTarget)}.`,
+          `Digest target canonical: ${semanticTargetCanonicalForm(digest.intendedTarget)}.`
         ]
       ),
       auditTag: "perception_digest_target_mismatch"
@@ -1224,7 +1308,7 @@ function perceptionDigestStopConditionForAction(
         action.actionId,
         [
           `continuityWithPriorClaim: ${digest.continuityWithPriorClaim}.`,
-          `contradictionToPriorClaim: ${digest.contradictionToPriorClaim ?? "none"}.`
+          `contradictionToPriorClaim: ${formatNullableStringForAudit(digest.contradictionToPriorClaim)}.`
         ]
       ),
       auditTag: "perception_digest_contradicted"
@@ -1870,7 +1954,10 @@ export function evaluateSessionActionPolicy(
     if (
       action.compactRelationalClaim !== undefined &&
       action.intendedSemanticTarget !== undefined &&
-      action.compactRelationalClaim.intendedTarget !== action.intendedSemanticTarget
+      !semanticTargetsEquivalent(
+        action.compactRelationalClaim.intendedTarget,
+        action.intendedSemanticTarget
+      )
     ) {
       const stop = stopCondition(
         "missing_relational_navigation",
@@ -1879,7 +1966,9 @@ export function evaluateSessionActionPolicy(
         action.actionId,
         [
           `Action intendedSemanticTarget: ${action.intendedSemanticTarget}.`,
-          `Compact claim intendedTarget: ${action.compactRelationalClaim.intendedTarget}.`
+          `Compact claim intendedTarget: ${action.compactRelationalClaim.intendedTarget}.`,
+          `Action target canonical: ${semanticTargetCanonicalForm(action.intendedSemanticTarget)}.`,
+          `Compact claim target canonical: ${semanticTargetCanonicalForm(action.compactRelationalClaim.intendedTarget)}.`
         ]
       );
 

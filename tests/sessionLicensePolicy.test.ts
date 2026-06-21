@@ -13,7 +13,10 @@ import {
   desktopSessionAuditEventSchema,
   desktopSessionStopConditionSchema,
   evaluateSessionActionPolicy,
-  evaluateSessionStartPolicy
+  evaluateSessionStartPolicy,
+  normalizeNoContradiction,
+  semanticTargetCanonicalForm,
+  semanticTargetsEquivalent
 } from "../src/policy/sessionLicensePolicy.js";
 
 const baseLicense: DesktopInteractionSessionLicense = {
@@ -357,6 +360,30 @@ describe("desktop interaction session schemas", () => {
   });
 });
 
+describe("compact API normalization helpers", () => {
+  it("normalizes only exact no-contradiction sentinels", () => {
+    expect(normalizeNoContradiction("none")).toBeNull();
+    expect(normalizeNoContradiction("No Contradiction Observed")).toBeNull();
+    expect(normalizeNoContradiction("not_applicable")).toBeNull();
+    expect(normalizeNoContradiction(null)).toBeNull();
+    expect(normalizeNoContradiction("none of the prior target is visible")).toBe(
+      "none of the prior target is visible"
+    );
+  });
+
+  it("compares semantic targets after conservative UI-word normalization", () => {
+    expect(semanticTargetCanonicalForm("The Run button on the right")).toBe(
+      "run on right"
+    );
+    expect(
+      semanticTargetsEquivalent("The Run button on the right", "run control on right")
+    ).toBe(true);
+    expect(semanticTargetsEquivalent("Run button", "Delete button")).toBe(false);
+    expect(semanticTargetsEquivalent("Run left", "Run right")).toBe(false);
+    expect(semanticTargetsEquivalent("BodySlide row", "Run button")).toBe(false);
+  });
+});
+
 describe("evaluateSessionStartPolicy", () => {
   it("requires user confirmation for session start", () => {
     const result = evaluateSessionStartPolicy({
@@ -639,6 +666,51 @@ describe("evaluateSessionActionPolicy", () => {
     expect(result.decision).toBe("block");
     expect(result.auditTags).toContain("perception_digest_not_latest");
     expect(result.stopConditions[0]?.condition).toBe("perception_digest_not_latest");
+  });
+
+  it("allows equivalent compact, action, and digest target wording", () => {
+    const action = actionFixture("move_mouse", {
+      intendedSemanticTarget: "The Submit control",
+      compactRelationalClaim: compactClaimFor("obs-before-001", "Submit button")
+    });
+    const beforeObservation = observationFixture("obs-before-001");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [beforeObservation],
+      perceptionDigests: [
+        perceptionDigestFixture(beforeObservation, "Submit button", {
+          perceptionDigestId: action.perceptionDigestId
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("allow");
+  });
+
+  it("blocks distinct compact target wording and reports canonical diagnostics", () => {
+    const action = actionFixture("move_mouse", {
+      intendedSemanticTarget: "Delete button",
+      compactRelationalClaim: compactClaimFor("obs-before-001", "Submit button")
+    });
+    const beforeObservation = observationFixture("obs-before-001");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [beforeObservation],
+      perceptionDigests: [
+        perceptionDigestFixture(beforeObservation, "Submit button", {
+          perceptionDigestId: action.perceptionDigestId
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("compact_relational_claim_target_mismatch");
+    expect(result.stopConditions[0]?.residue).toEqual(
+      expect.arrayContaining([
+        "Action target canonical: delete.",
+        "Compact claim target canonical: submit."
+      ])
+    );
   });
 
   it("blocks normal movement when the perception digest is uncertain", () => {

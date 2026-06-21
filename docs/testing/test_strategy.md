@@ -130,6 +130,8 @@ For compact relational navigation enforcement, tests must cover coordinate-only 
 
 For fresh perception digest enforcement, tests must cover successful digest recording for the latest screenshot-bearing observation, rejection without image payload, rejection for non-latest observations, state-changing action blocks without digest, stale digest blocks, target/scope/frame-hash mismatch blocks, uncertain/not-visible digest blocks for normal movement/click/type, `relative_probe` repair movement from uncertain/changed digest, supported transition assessment rejection when the follow-up digest is changed or not visible, click-candidate readiness requiring a visible current digest, and newer observations invalidating older digests.
 
+For compact API tolerance, tests must cover exact no-contradiction sentinels normalizing to JSON `null`, non-sentinel contradiction text remaining blocking, conservative semantic target equivalence for generic UI wording differences, distinct target mismatches remaining blocked, and canonical mismatch diagnostics in policy/protocol outputs.
+
 For catalog application bootstrap, tests must cover JSON-only app additions, duplicate ID validation, ambiguous alias validation, unknown app/query blocks, path-like query blocks, launch-argument/schema rejection, user confirmation, and provider capability blocks.
 
 For ADMCP-023, tests must cover the governed UI test cycle runner, not a generic ordered click/type script.

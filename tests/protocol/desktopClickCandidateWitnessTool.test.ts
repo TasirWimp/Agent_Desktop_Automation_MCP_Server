@@ -377,6 +377,81 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     }
   });
 
+  it("accepts equivalent digest and click-candidate target wording", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
+      await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialDigestId,
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: "action-fixed-4"
+        }
+      });
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8", {
+        intendedTarget: "The Submit control"
+      });
+      await submitSupportedAssessment(client, "action-fixed-4", followUpDigestId);
+
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: "observation-fixed-8",
+          perceptionDigestId: followUpDigestId,
+          movementActionId: "action-fixed-4",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 120,
+            y: 80
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("candidate_ready");
+      expect(structured.clickCandidateWitness).toMatchObject({
+        perceptionDigestEvidence: {
+          targetMatches: true,
+          requestedTargetCanonical: "submit",
+          digestTargetCanonical: "submit"
+        }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("does not treat an unaudited movement gate as click-ready evidence", async () => {
     const { client, server } = await createConnectedClient();
 

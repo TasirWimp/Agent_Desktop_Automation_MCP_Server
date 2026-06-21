@@ -498,6 +498,65 @@ describe("desktop_move_mouse MCP tool", () => {
     }
   });
 
+  it("accepts supported transition assessment after a no-contradiction sentinel digest", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
+      await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialDigestId,
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: "action-fixed-4"
+        }
+      });
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8", {
+        contradictionToPriorClaim: "none"
+      });
+
+      const result = await submitSupportedAssessment(
+        client,
+        "action-fixed-4",
+        followUpDigestId
+      );
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.transitionGate).toMatchObject({
+        status: "audited",
+        postActionClassification: {
+          kind: "expected_delta"
+        }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("blocks coordinate-only movement before provider execution", async () => {
     const { client, server, sessionStore } = await createConnectedClient();
 

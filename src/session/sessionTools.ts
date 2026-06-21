@@ -9,6 +9,9 @@ import {
   desktopSessionObservationCadenceSchema,
   desktopSessionRiskLimitsSchema,
   evaluateSessionStartPolicy,
+  formatNullableStringForAudit,
+  semanticTargetCanonicalForm,
+  semanticTargetsEquivalent,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
   type DesktopPerceptionDigest,
@@ -308,14 +311,19 @@ function validateTransitionAssessmentDigest(input: {
 
   const intendedTarget = intendedTargetForGate(input.transitionGate);
 
-  if (intendedTarget !== undefined && input.digest.intendedTarget !== intendedTarget) {
+  if (
+    intendedTarget !== undefined &&
+    !semanticTargetsEquivalent(input.digest.intendedTarget, intendedTarget)
+  ) {
     return {
       ok: false,
       code: "perception_digest_target_mismatch",
       message: "Transition assessment digest target does not match the transition target.",
       residue: [
         `Transition target: ${intendedTarget}.`,
-        `Digest target: ${input.digest.intendedTarget}.`
+        `Digest target: ${input.digest.intendedTarget}.`,
+        `Transition target canonical: ${semanticTargetCanonicalForm(intendedTarget)}.`,
+        `Digest target canonical: ${semanticTargetCanonicalForm(input.digest.intendedTarget)}.`
       ]
     };
   }
@@ -347,7 +355,7 @@ function validateTransitionAssessmentDigest(input: {
         `targetVisibility: ${input.digest.targetVisibility}.`,
         `anchorVisibility: ${input.digest.anchorVisibility}.`,
         `continuityWithPriorClaim: ${input.digest.continuityWithPriorClaim}.`,
-        `contradictionToPriorClaim: ${input.digest.contradictionToPriorClaim ?? "none"}.`
+        `contradictionToPriorClaim: ${formatNullableStringForAudit(input.digest.contradictionToPriorClaim)}.`
       ]
     };
   }
