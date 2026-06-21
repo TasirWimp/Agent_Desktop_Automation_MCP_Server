@@ -62,12 +62,48 @@ function compactClaim(sourceObservationId: string) {
   };
 }
 
-async function submitSupportedAssessment(client: Client, actionId: string) {
+async function submitDigest(
+  client: Client,
+  observationId: string,
+  overrides: Record<string, unknown> = {}
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_perception_digest",
+    arguments: {
+      sessionId: "session-click-candidate-001",
+      observationId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedTarget: "Submit button",
+      currentScene: "Generated Test App main view.",
+      currentAnchor: "Submit row",
+      targetVisibility: "visible",
+      anchorVisibility: "visible",
+      continuityWithPriorClaim: "consistent",
+      contradictionToPriorClaim: null,
+      staleCarryoverReviewed: true,
+      currentEvidence: "The current screenshot shows the target row/control.",
+      ...overrides
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.perceptionDigestId as string;
+}
+
+async function submitSupportedAssessment(
+  client: Client,
+  actionId: string,
+  perceptionDigestId: string
+) {
   await client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
       sessionId: "session-click-candidate-001",
       actionId,
+      perceptionDigestId,
       assessment: {
         outcome: "supported",
         relationHeld: true,
@@ -187,11 +223,13 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
@@ -253,6 +291,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -266,6 +305,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: initialDigestId,
           intendedSemanticTarget: "Submit button",
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
@@ -282,13 +322,15 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           transitionActionId: "action-fixed-4"
         }
       });
-      await submitSupportedAssessment(client, "action-fixed-4");
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8");
+      await submitSupportedAssessment(client, "action-fixed-4", followUpDigestId);
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-8",
+          perceptionDigestId: followUpDigestId,
           movementActionId: "action-fixed-4",
           targetScope: {
             kind: "window_title",
@@ -340,6 +382,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -353,6 +396,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: digestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -362,6 +406,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           movementActionId: "action-fixed-4",
           targetScope: {
             kind: "window_title",
@@ -396,6 +441,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
       setNow("2026-05-27T10:00:06.000Z");
 
       const result = await client.callTool({
@@ -403,6 +449,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
@@ -432,17 +479,65 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     }
   });
 
-  it("marks scope mismatches as not click-ready", async () => {
+  it("marks non-visible perception digests as not click-ready", async () => {
     const { client, server } = await createConnectedClient();
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2", {
+        targetVisibility: "not_visible",
+        continuityWithPriorClaim: "changed",
+        contradictionToPriorClaim: "The target is no longer visible in the live screenshot.",
+        currentEvidence: "The current screenshot no longer shows the target row/control."
+      });
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 320,
+            y: 180
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("perception_digest_not_visible");
+      expect(structured.clickCandidateWitness).toMatchObject({
+        readyForClickRequest: false,
+        perceptionDigestEvidence: {
+          targetVisibility: "not_visible",
+          continuityWithPriorClaim: "changed"
+        }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("marks scope mismatches as not click-ready", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
+
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           targetScope: {
             kind: "window_title",
             value: "Unrelated Private Window"
@@ -476,12 +571,14 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
@@ -522,12 +619,14 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         allowedActions: ["observe", "move_mouse"],
         licensedAppScope: undefined
       });
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"

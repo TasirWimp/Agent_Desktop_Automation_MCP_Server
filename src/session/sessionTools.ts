@@ -4,11 +4,14 @@ import {
   desktopLicensedAppScopeSchema,
   desktopCompactSemanticLandingAssessmentSchema,
   desktopInteractionScopeSchema,
+  desktopInteractionScopesMatch,
   desktopSessionActionTypes,
   desktopSessionObservationCadenceSchema,
   desktopSessionRiskLimitsSchema,
   evaluateSessionStartPolicy,
   type DesktopInteractionSessionLicense,
+  type DesktopObservationPacket,
+  type DesktopPerceptionDigest,
   type DesktopSessionStopCondition,
   type DesktopSessionAuditEvent
 } from "../policy/sessionLicensePolicy.js";
@@ -57,6 +60,7 @@ const sessionAuditLogInputSchema = z.object({
 const submitTransitionAssessmentInputSchema = z.object({
   sessionId: z.string().min(1),
   actionId: z.string().min(1),
+  perceptionDigestId: z.string().min(1),
   assessment: desktopCompactSemanticLandingAssessmentSchema
 });
 
@@ -172,6 +176,183 @@ function stopConditionForAssessment(
   }
 
   return undefined;
+}
+
+function observationHasImagePayload(observation: DesktopObservationPacket): boolean {
+  return observation.frames.some(
+    (frame) => frame.dataBase64 !== undefined && frame.dataBase64.length > 0
+  );
+}
+
+function latestObservationId(observations: DesktopObservationPacket[]): string | undefined {
+  return observations.at(-1)?.observationId;
+}
+
+function digestFresh(
+  digest: DesktopPerceptionDigest,
+  now: string,
+  maxObservationGapMs: number
+): boolean {
+  const createdMs = Date.parse(digest.createdAt);
+  const nowMs = Date.parse(now);
+
+  if (Number.isNaN(createdMs) || Number.isNaN(nowMs)) {
+    return true;
+  }
+
+  return nowMs - createdMs <= maxObservationGapMs;
+}
+
+function digestFrameHashesMatch(
+  digest: DesktopPerceptionDigest,
+  observation: DesktopObservationPacket
+): boolean {
+  const hashes = observation.frames.map((frame) => frame.sha256);
+
+  return (
+    digest.sourceObservationFrameHashes.length === hashes.length &&
+    digest.sourceObservationFrameHashes.every((hash, index) => hash === hashes[index])
+  );
+}
+
+function intendedTargetForGate(gate: InteractionTransitionGate): string | undefined {
+  return (
+    gate.compactRelationalClaim?.intendedTarget ??
+    gate.relationalNavigation?.actionJustification.intendedSemanticTarget ??
+    gate.intendedSemanticTarget
+  );
+}
+
+function digestSupportsSupportedAssessment(digest: DesktopPerceptionDigest): boolean {
+  return (
+    digest.targetVisibility === "visible" &&
+    digest.anchorVisibility !== "not_visible" &&
+    (digest.continuityWithPriorClaim === "consistent" ||
+      digest.continuityWithPriorClaim === "not_applicable") &&
+    digest.contradictionToPriorClaim === null
+  );
+}
+
+function validateTransitionAssessmentDigest(input: {
+  digest: DesktopPerceptionDigest | undefined;
+  transitionGate: InteractionTransitionGate;
+  followUpObservation: DesktopObservationPacket | undefined;
+  latestObservationId?: string;
+  now: string;
+  maxObservationGapMs: number;
+  assessmentOutcome: "supported" | "contradicted" | "inconclusive";
+}):
+  | { ok: true; perceptionDigest: DesktopPerceptionDigest }
+  | { ok: false; code: string; message: string; residue: string[] } {
+  if (input.digest === undefined) {
+    return {
+      ok: false,
+      code: "perception_digest_not_found",
+      message: "The referenced perception digest does not exist in the session.",
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  if (input.followUpObservation === undefined) {
+    return {
+      ok: false,
+      code: "transition_follow_up_missing",
+      message: "The transition follow-up observation does not exist in the session.",
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  if (input.digest.observationId !== input.followUpObservation.observationId) {
+    return {
+      ok: false,
+      code: "perception_digest_observation_mismatch",
+      message:
+        "Transition assessment digest must be bound to the transition follow-up observation.",
+      residue: [
+        `Digest observationId: ${input.digest.observationId}.`,
+        `Transition followUpObservationId: ${input.followUpObservation.observationId}.`
+      ]
+    };
+  }
+
+  if (input.latestObservationId !== input.digest.observationId) {
+    return {
+      ok: false,
+      code: "perception_digest_not_latest",
+      message:
+        "Transition assessment digest must be bound to the latest recorded observation.",
+      residue: [
+        `Latest observationId: ${input.latestObservationId ?? "none"}.`,
+        `Digest observationId: ${input.digest.observationId}.`
+      ]
+    };
+  }
+
+  if (!digestFresh(input.digest, input.now, input.maxObservationGapMs)) {
+    return {
+      ok: false,
+      code: "stale_perception_digest",
+      message: "Transition assessment digest is older than the session cadence allows.",
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  if (!desktopInteractionScopesMatch(input.digest.targetScope, input.transitionGate.targetScope)) {
+    return {
+      ok: false,
+      code: "perception_digest_scope_mismatch",
+      message: "Transition assessment digest scope does not match the transition scope.",
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  const intendedTarget = intendedTargetForGate(input.transitionGate);
+
+  if (intendedTarget !== undefined && input.digest.intendedTarget !== intendedTarget) {
+    return {
+      ok: false,
+      code: "perception_digest_target_mismatch",
+      message: "Transition assessment digest target does not match the transition target.",
+      residue: [
+        `Transition target: ${intendedTarget}.`,
+        `Digest target: ${input.digest.intendedTarget}.`
+      ]
+    };
+  }
+
+  if (
+    input.followUpObservation.frames.length === 0 ||
+    !observationHasImagePayload(input.followUpObservation) ||
+    !digestFrameHashesMatch(input.digest, input.followUpObservation)
+  ) {
+    return {
+      ok: false,
+      code: "perception_digest_observation_mismatch",
+      message:
+        "Transition assessment digest must be bound to the screenshot-bearing follow-up frame hashes.",
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  if (
+    input.assessmentOutcome === "supported" &&
+    !digestSupportsSupportedAssessment(input.digest)
+  ) {
+    return {
+      ok: false,
+      code: "perception_digest_does_not_support_transition",
+      message:
+        "A supported transition assessment requires a visible, current, non-contradicted perception digest.",
+      residue: [
+        `targetVisibility: ${input.digest.targetVisibility}.`,
+        `anchorVisibility: ${input.digest.anchorVisibility}.`,
+        `continuityWithPriorClaim: ${input.digest.continuityWithPriorClaim}.`,
+        `contradictionToPriorClaim: ${input.digest.contradictionToPriorClaim ?? "none"}.`
+      ]
+    };
+  }
+
+  return { ok: true, perceptionDigest: input.digest };
 }
 
 function classifyAndAccountForAssessment(
@@ -420,6 +601,42 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
           );
         }
 
+        const session = runtime.sessionStore.requireActiveSession(input.sessionId);
+        const followUpObservation = runtime.sessionStore.getObservation(
+          input.sessionId,
+          transitionGate.followUpObservationId
+        );
+        const perceptionDigest = runtime.sessionStore.getPerceptionDigest(
+          input.sessionId,
+          input.perceptionDigestId
+        );
+        const digestValidation = validateTransitionAssessmentDigest({
+          digest: perceptionDigest,
+          transitionGate,
+          followUpObservation,
+          latestObservationId: latestObservationId(
+            runtime.sessionStore.listObservations(input.sessionId)
+          ),
+          now: runtime.now(),
+          maxObservationGapMs: session.license.observationCadence.maxObservationGapMs,
+          assessmentOutcome: input.assessment.outcome
+        });
+
+        if (!digestValidation.ok) {
+          return structuredResult(
+            {
+              error: {
+                code: digestValidation.code,
+                message: digestValidation.message
+              },
+              transitionGate,
+              perceptionDigest,
+              residue: digestValidation.residue
+            },
+            true
+          );
+        }
+
         const assessedGate = applyCompactSemanticLandingAssessment(
           transitionGate,
           input.assessment,
@@ -457,6 +674,7 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
           sessionId: input.sessionId,
           status: updatedTransitionGate.status,
           transitionGate: updatedTransitionGate,
+          perceptionDigest: digestValidation.perceptionDigest,
           postActionStopCondition,
           auditEvent,
           residue: [

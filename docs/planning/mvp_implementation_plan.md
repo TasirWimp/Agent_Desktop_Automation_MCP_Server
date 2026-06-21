@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, compact relational navigation enforcement, semantic landing assessments, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, catalog-only app bootstrap, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, an opt-in app-scoped Windows generated-text typing gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, compact relational navigation enforcement, fresh perception digests, semantic landing assessments, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, catalog-only app bootstrap, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, an opt-in app-scoped Windows generated-text typing gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
 
 ## Planning Document Roles
 
@@ -147,6 +147,7 @@ Extracted implementation slices:
 - ADMCP-021 App-Scoped Type Text Gate - implemented.
 - ADMCP-022 Post-Action Observation And Repair Loop - implemented.
 - ADMCP-024 Compact Relational Navigation Enforcement And App Catalog Bootstrap - implemented.
+- ADMCP-025 Fresh Perception Digest Enforcement - implemented.
 - ADMCP-023 Governed UI Test Cycle Runner For Local Apps - planned.
 
 Acceptance gate before app-scoped real click, typing, or durable OS mutation:
@@ -1163,7 +1164,7 @@ Delivered behavior:
 - `desktop_observe({ transitionActionId })` records cursor movement telemetry for relational movement probes but leaves the transition gate in `observed` status until semantic assessment.
 - `desktop_submit_transition_assessment` updates transition gates to expected-delta, wrong-target, or repair-needed dispositions and updates repair accounting.
 - `desktop_evaluate_click_candidate` treats proximity as insufficient by itself and records a hover target witness only after supported semantic landing evidence.
-- `desktop_click` validates the hover target witness id, semantic target, scope, observation id, and click-point match before provider execution.
+- `desktop_click` validates the hover target witness id, semantic target, scope, current perception digest, and click-point match before provider execution.
 - `desktop_open_application` resolves only IDs and aliases from `config/desktop_applications.json`, requires user confirmation, rejects unknown/path-like queries, and rejects launch-argument fields.
 - Mock provider launch remains simulated. Real application launch is behind `ADMCP_ENABLE_REAL_APP_LAUNCH` and provider support; real movement/click/type gates remain unchanged.
 - Governed manual and navigation probe runners now emit compact relational movement claims and submit semantic landing assessments.
@@ -1202,7 +1203,7 @@ Implemented files:
 Required operational loop:
 
 ```text
-observe -> compact relational move -> observe transition -> semantic landing assessment -> evaluate click candidate -> click -> observe
+observe -> perception digest -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest -> observe
 ```
 
 Verification:
@@ -1216,6 +1217,30 @@ Residual scope:
 - The Windows provider exposes the application-launch capability gate, but real application launch still needs a concrete backend launcher implementation before live catalog launch can execute.
 - Semantic landing assessment is submitted by the agent/user-facing workflow; the server verifies the assessment structure and gates downstream actions, but does not independently perform OCR or visual reasoning.
 - Catalog matching is exact after normalization; fuzzy app search is intentionally not implemented.
+
+### ADMCP-025 Fresh Perception Digest Enforcement
+
+Goal: Prevent stale visual-memory carryover by requiring the agent to submit a compact current-state digest for every screenshot-bearing observation used for action, transition assessment, or click-candidate readiness.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Adds `desktop_submit_perception_digest`.
+- Stores digests in session state and audit logs without server-side image analysis.
+- Requires `perceptionDigestId` for `desktop_move_mouse`, `desktop_click`, `desktop_type_text`, `desktop_submit_transition_assessment`, and `desktop_evaluate_click_candidate`.
+- Enforces latest-observation binding, screenshot payload presence, frame-hash binding, scope/target match, freshness, visibility, carryover review, and contradiction checks.
+- Allows `relative_probe` movement from uncertain/changed digest state as bounded repair, while click/type and normal movement require visible, non-contradicted current target evidence.
+- Lets older hover witnesses support a click only when the latest digest revalidates the same target and the current cursor/candidate evidence still matches.
+- Updates governed manual/navigation probe runners to submit perception digests before movement and transition assessment.
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
 
 ### ADMCP-023 Governed UI Test Cycle Runner For Local Apps
 

@@ -338,6 +338,16 @@ async function runStep(args: {
     args.stepConfig.areaOfInterest,
     fraction
   );
+  const preObservationDigestId = await submitPerceptionDigestTimed({
+    client: args.client,
+    sessionId: args.sessionId,
+    observation: args.preObservation,
+    intendedTarget: args.stepConfig.intendedSemanticTarget,
+    witnessNotes: [],
+    requestTimeoutMs: args.requestTimeoutMs,
+    timings: args.timings,
+    operation: `desktop_submit_perception_digest:step-${args.stepIndex}:pre`
+  });
   const moveResult = await callToolResultTimed(
     args.client,
     `desktop_move_mouse:step-${args.stepIndex}`,
@@ -346,6 +356,7 @@ async function runStep(args: {
       sessionId: args.sessionId,
       targetScope: args.targetScope,
       preActionObservationId: args.preObservation.observationId,
+      perceptionDigestId: preObservationDigestId,
       point: plannedPoint,
       intendedSemanticTarget: args.stepConfig.intendedSemanticTarget,
       compactRelationalClaim: buildCompactRelationalClaim(
@@ -416,6 +427,16 @@ async function runStep(args: {
   );
 
   summary.postObservation = postObservation;
+  const postObservationDigestId = await submitPerceptionDigestTimed({
+    client: args.client,
+    sessionId: args.sessionId,
+    observation: postObservation,
+    intendedTarget: args.stepConfig.intendedSemanticTarget,
+    witnessNotes: args.stepConfig.witnessNotes ?? [],
+    requestTimeoutMs: args.requestTimeoutMs,
+    timings: args.timings,
+    operation: `desktop_submit_perception_digest:step-${args.stepIndex}:post`
+  });
   const assessmentResult = await callToolJsonTimed(
     args.client,
     `desktop_submit_transition_assessment:step-${args.stepIndex}`,
@@ -423,6 +444,7 @@ async function runStep(args: {
     {
       sessionId: args.sessionId,
       actionId: move.actionId,
+      perceptionDigestId: postObservationDigestId,
       assessment: buildSemanticLandingAssessment(args.stepConfig.witnessNotes ?? [])
     },
     args.requestTimeoutMs,
@@ -641,6 +663,50 @@ function planRelativePoint(
     x: Math.round(current.x + (areaOfInterest.x - current.x) * fraction),
     y: Math.round(current.y + (areaOfInterest.y - current.y) * fraction)
   };
+}
+
+async function submitPerceptionDigestTimed(args: {
+  client: Client;
+  sessionId: string;
+  observation: NavigationObservationSummary;
+  intendedTarget: string;
+  witnessNotes: string[];
+  requestTimeoutMs: number;
+  timings: NavigationProbeTiming[];
+  operation: string;
+}): Promise<string> {
+  const joinedNotes = args.witnessNotes.join("; ");
+  const lowerNotes = joinedNotes.toLowerCase();
+  const result = await callToolJsonTimed(
+    args.client,
+    args.operation,
+    "desktop_submit_perception_digest",
+    {
+      sessionId: args.sessionId,
+      observationId: args.observation.observationId,
+      targetScope: args.observation.targetScope,
+      intendedTarget: args.intendedTarget,
+      currentScene: "Governed navigation probe active-window scene.",
+      currentAnchor: "navigation probe cursor origin and area of interest",
+      targetVisibility: lowerNotes.includes("not visible") ? "not_visible" : "visible",
+      anchorVisibility: "visible",
+      continuityWithPriorClaim:
+        lowerNotes.includes("wrong") || lowerNotes.includes("contradict")
+          ? "changed"
+          : "consistent",
+      contradictionToPriorClaim:
+        lowerNotes.includes("wrong") || lowerNotes.includes("contradict")
+          ? joinedNotes || "Navigation witness notes contradicted the prior target claim."
+          : null,
+      staleCarryoverReviewed: true,
+      currentEvidence:
+        joinedNotes || "Navigation probe runner re-grounded against the current screenshot."
+    },
+    args.requestTimeoutMs,
+    args.timings
+  );
+
+  return stringField(result, "perceptionDigestId");
 }
 
 async function callToolJsonTimed(

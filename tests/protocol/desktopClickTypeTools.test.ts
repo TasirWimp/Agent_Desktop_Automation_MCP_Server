@@ -55,7 +55,41 @@ function compactClaim(
   };
 }
 
+async function submitDigest(
+  client: Client,
+  observationId: string,
+  intendedTarget = "Submit button",
+  overrides: Record<string, unknown> = {}
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_perception_digest",
+    arguments: {
+      sessionId: "session-click-type-001",
+      observationId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedTarget,
+      currentScene: "Generated Test App main view.",
+      currentAnchor: `${intendedTarget} row`,
+      targetVisibility: "visible",
+      anchorVisibility: "visible",
+      continuityWithPriorClaim: "consistent",
+      contradictionToPriorClaim: null,
+      staleCarryoverReviewed: true,
+      currentEvidence: `The current screenshot shows ${intendedTarget}.`,
+      ...overrides
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.perceptionDigestId as string;
+}
+
 async function prepareHoverWitness(client: Client) {
+  const initialDigestId = await submitDigest(client, "observation-fixed-2");
+
   await client.callTool({
     name: "desktop_move_mouse",
     arguments: {
@@ -69,6 +103,7 @@ async function prepareHoverWitness(client: Client) {
         x: 240,
         y: 120
       },
+      perceptionDigestId: initialDigestId,
       intendedSemanticTarget: "Submit button",
       compactRelationalClaim: compactClaim("observation-fixed-2")
     }
@@ -85,11 +120,13 @@ async function prepareHoverWitness(client: Client) {
       transitionActionId: "action-fixed-4"
     }
   });
+  const followUpDigestId = await submitDigest(client, "observation-fixed-8");
   await client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
       sessionId: "session-click-type-001",
       actionId: "action-fixed-4",
+      perceptionDigestId: followUpDigestId,
       assessment: {
         outcome: "supported",
         relationHeld: true,
@@ -106,6 +143,7 @@ async function prepareHoverWitness(client: Client) {
     arguments: {
       sessionId: "session-click-type-001",
       observationId: "observation-fixed-8",
+      perceptionDigestId: followUpDigestId,
       movementActionId: "action-fixed-4",
       targetScope: {
         kind: "window_title",
@@ -123,6 +161,7 @@ async function prepareHoverWitness(client: Client) {
 
   return {
     observationId: "observation-fixed-8",
+    perceptionDigestId: followUpDigestId,
     hoverTargetWitnessId: hoverTargetWitness.witnessId as string
   };
 }
@@ -223,6 +262,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             y: 120
           },
           button: "left",
+          perceptionDigestId: witness.perceptionDigestId,
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
@@ -280,6 +320,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             x: 240,
             y: 120
           },
+          perceptionDigestId: witness.perceptionDigestId,
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
@@ -308,6 +349,11 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
       });
       expect(sessionStore.findBlockingTransitionGate("session-click-type-001")).toBeUndefined();
       const postObservation = observeStructured.observation as Record<string, unknown>;
+      const postObservationDigestId = await submitDigest(
+        client,
+        postObservation.observationId as string,
+        "Name input"
+      );
 
       const typeResult = await client.callTool({
         name: "desktop_type_text",
@@ -318,6 +364,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: postObservation.observationId,
+          perceptionDigestId: postObservationDigestId,
           text: "generated input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim(postObservation.observationId as string, "Name input")
@@ -344,6 +391,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -353,6 +401,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "generated input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
@@ -389,6 +438,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2", "Password input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -398,6 +448,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "password=supersecret",
           intendedSemanticTarget: "Password input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Password input")
@@ -423,6 +474,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
       const result = await client.callTool({
         name: "desktop_click",
         arguments: {
@@ -436,6 +488,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             x: 240,
             y: 120
           },
+          perceptionDigestId: digestId,
           compactRelationalClaim: compactClaim("observation-fixed-2", "Submit button", "hover_witness"),
           risk: {
             recoverability: "low"
@@ -461,6 +514,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
       await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -470,6 +524,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "first input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
@@ -485,6 +540,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "generated input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
         }

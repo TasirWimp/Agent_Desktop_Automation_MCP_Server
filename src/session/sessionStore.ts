@@ -3,6 +3,7 @@ import {
   type DesktopAppScopeBinding,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
+  type DesktopPerceptionDigest,
   type DesktopSessionActionPolicyContext,
   type DesktopSessionAuditEvent,
   type DesktopSessionStopCondition,
@@ -10,6 +11,7 @@ import {
   desktopAppScopeBindingSchema,
   desktopInteractionSessionLicenseSchema,
   desktopObservationPacketSchema,
+  desktopPerceptionDigestSchema,
   desktopSessionAuditEventSchema,
   desktopSessionStopConditionSchema,
   evaluateSessionStartPolicy
@@ -34,6 +36,7 @@ export type SessionStoreErrorCode =
   | "session_id_mismatch"
   | "audit_event_already_exists"
   | "observation_already_exists"
+  | "perception_digest_already_exists"
   | "action_already_exists"
   | "transition_gate_already_exists"
   | "transition_gate_not_found"
@@ -61,6 +64,7 @@ export interface DesktopSessionSnapshot {
   repairAttemptCount: number;
   auditEvents: DesktopSessionAuditEvent[];
   observations: DesktopObservationPacket[];
+  perceptionDigests: DesktopPerceptionDigest[];
   actions: DesktopActionPacket[];
   transitionGates: InteractionTransitionGate[];
   hoverTargetWitnesses: HoverTargetWitness[];
@@ -88,6 +92,7 @@ interface DesktopSessionEntry {
   repairAttemptCount: number;
   auditEvents: DesktopSessionAuditEvent[];
   observations: Map<string, DesktopObservationPacket>;
+  perceptionDigests: Map<string, DesktopPerceptionDigest>;
   actions: Map<string, DesktopActionPacket>;
   transitionGates: Map<string, InteractionTransitionGate>;
   hoverTargetWitnesses: Map<string, HoverTargetWitness>;
@@ -124,6 +129,7 @@ function snapshotFromEntry(entry: DesktopSessionEntry): DesktopSessionSnapshot {
     repairAttemptCount: entry.repairAttemptCount,
     auditEvents: clone(entry.auditEvents),
     observations: clone([...entry.observations.values()]),
+    perceptionDigests: clone([...entry.perceptionDigests.values()]),
     actions: clone([...entry.actions.values()]),
     transitionGates: clone([...entry.transitionGates.values()]),
     hoverTargetWitnesses: clone([...entry.hoverTargetWitnesses.values()]),
@@ -166,6 +172,7 @@ export class InMemoryDesktopSessionStore {
       repairAttemptCount: 0,
       auditEvents: [],
       observations: new Map(),
+      perceptionDigests: new Map(),
       actions: new Map(),
       transitionGates: new Map(),
       hoverTargetWitnesses: new Map(),
@@ -264,6 +271,36 @@ export class InMemoryDesktopSessionStore {
 
   listObservations(sessionId: string): DesktopObservationPacket[] {
     return clone([...this.requireEntry(sessionId).observations.values()]);
+  }
+
+  recordPerceptionDigest(
+    digestInput: DesktopPerceptionDigest
+  ): DesktopPerceptionDigest {
+    const digest = desktopPerceptionDigestSchema.parse(digestInput);
+    const entry = this.requireActiveEntry(digest.sessionId);
+
+    if (entry.perceptionDigests.has(digest.perceptionDigestId)) {
+      throw new SessionStoreError(
+        "perception_digest_already_exists",
+        `Perception digest ${digest.perceptionDigestId} already exists.`
+      );
+    }
+
+    entry.perceptionDigests.set(digest.perceptionDigestId, clone(digest));
+
+    return clone(digest);
+  }
+
+  getPerceptionDigest(
+    sessionId: string,
+    perceptionDigestId: string
+  ): DesktopPerceptionDigest | undefined {
+    const digest = this.requireEntry(sessionId).perceptionDigests.get(perceptionDigestId);
+    return digest === undefined ? undefined : clone(digest);
+  }
+
+  listPerceptionDigests(sessionId: string): DesktopPerceptionDigest[] {
+    return clone([...this.requireEntry(sessionId).perceptionDigests.values()]);
   }
 
   bindAppScope(bindingInput: DesktopAppScopeBinding): DesktopAppScopeBinding {
@@ -467,6 +504,7 @@ export class InMemoryDesktopSessionStore {
       repairAttemptCount: entry.repairAttemptCount,
       auditEvents: clone(entry.auditEvents),
       observations: clone([...entry.observations.values()]),
+      perceptionDigests: clone([...entry.perceptionDigests.values()]),
       boundAppScope:
         entry.boundAppScope === undefined ? undefined : clone(entry.boundAppScope),
       now: options.now

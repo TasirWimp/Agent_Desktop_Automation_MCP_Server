@@ -68,6 +68,7 @@ const baseActionInputSchema = z.object({
   sessionId: z.string().min(1),
   targetScope: desktopInteractionScopeSchema,
   preActionObservationId: z.string().min(1),
+  perceptionDigestId: z.string().min(1),
   intendedSemanticTarget: z.string().min(1).max(1000).optional(),
   compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
   relationalNavigation: desktopRelationalNavigationSchema.optional(),
@@ -276,6 +277,7 @@ function expandCompactRelationalClaim(
   const regionId = `region-${actionId}`;
   const traceId = `trace-${actionId}`;
   const hypothesisId = `hypothesis-${actionId}`;
+  const sourceObservationId = sourceObservation.observationId;
   const exploratoryAction =
     actionType === "move_mouse" && claim.pointProvenance !== "hover_witness";
   const frameEvidence = sourceObservation.frames
@@ -302,7 +304,7 @@ function expandCompactRelationalClaim(
     frameEvidence,
     orientation: {
       orientationId,
-      sourceObservationId: claim.sourceObservationId,
+      sourceObservationId,
       userImpliedTask: claim.intendedTarget,
       sceneSummary: claim.scene,
       landmarks: [
@@ -384,7 +386,7 @@ function expandCompactRelationalClaim(
   });
   const preActionNavigationCheck = desktopPreActionNavigationCheckSchema.parse({
     checkId: `pre-action-check-${actionId}`,
-    sourceObservationId: claim.sourceObservationId,
+    sourceObservationId,
     navigationId,
     hypothesisId,
     reviewedLiveObservation: true,
@@ -490,14 +492,22 @@ function validateClickHoverTargetWitness(
     };
   }
 
-  if (hoverTargetWitness.followUpObservationId !== action.preActionObservationId) {
+  const perceptionDigest =
+    action.perceptionDigestId === undefined
+      ? undefined
+      : runtime.sessionStore.getPerceptionDigest(
+          action.sessionId,
+          action.perceptionDigestId
+        );
+
+  if (perceptionDigest === undefined) {
     return {
       ok: false,
       hoverTargetWitness,
-      reason: "Click pre-action observation must be the hover witness follow-up observation.",
+      reason: "Click request must include a current perception digest.",
       residue: [
-        `Click preActionObservationId: ${action.preActionObservationId ?? "missing"}.`,
-        `Witness followUpObservationId: ${hoverTargetWitness.followUpObservationId}.`
+        `perceptionDigestId: ${action.perceptionDigestId ?? "missing"}.`,
+        "The digest revalidates an older hover witness against the latest screenshot-bearing observation."
       ]
     };
   }
@@ -517,6 +527,18 @@ function validateClickHoverTargetWitness(
     };
   }
 
+  if (perceptionDigest.intendedTarget !== hoverTargetWitness.intendedSemanticTarget) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Current perception digest target does not match the hover target witness.",
+      residue: [
+        `Digest target: ${perceptionDigest.intendedTarget}.`,
+        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`
+      ]
+    };
+  }
+
   const witnessedPoint =
     hoverTargetWitness.candidatePoint ??
     hoverTargetWitness.observedCursorPoint ??
@@ -528,6 +550,41 @@ function validateClickHoverTargetWitness(
       hoverTargetWitness,
       reason: "Click point and witnessed hover/candidate point are both required.",
       residue: hoverTargetWitness.residue
+    };
+  }
+
+  const currentObservation =
+    action.preActionObservationId === undefined
+      ? undefined
+      : runtime.sessionStore.getObservation(
+          action.sessionId,
+          action.preActionObservationId
+        );
+  const currentCursorPoint =
+    currentObservation?.cursorWitness?.position ?? currentObservation?.cursorPosition;
+
+  if (currentCursorPoint === undefined) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Current click observation does not include cursor/candidate proximity evidence.",
+      residue: [
+        "Click readiness must be re-grounded in the latest observation, not only in an older hover witness."
+      ]
+    };
+  }
+
+  const currentCursorDistance = pointDistance(action.input.point, currentCursorPoint);
+
+  if (currentCursorDistance > 8) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Current cursor witness is not close enough to the click point.",
+      residue: [
+        `Current cursor is ${Math.round(currentCursorDistance * 100) / 100} px from the click point.`,
+        "The stored hover witness must be revalidated by current cursor/candidate proximity."
+      ]
     };
   }
 
@@ -550,6 +607,8 @@ function validateClickHoverTargetWitness(
     hoverTargetWitness,
     residue: [
       "Click point matched the supported hover/candidate witness.",
+      "Current perception digest revalidated the target before clicking.",
+      "Current cursor/candidate proximity was present in the click pre-action observation.",
       "Semantic confirmation came from the stored landing assessment, not coordinate proximity alone."
     ]
   };
@@ -885,6 +944,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
             requestedAt,
             targetScope: actionInput.targetScope,
             preActionObservationId: actionInput.preActionObservationId,
+            perceptionDigestId: actionInput.perceptionDigestId,
             intendedSemanticTarget:
               actionInput.intendedSemanticTarget ??
               actionInput.compactRelationalClaim?.intendedTarget,
@@ -976,6 +1036,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
             requestedAt,
             targetScope: actionInput.targetScope,
             preActionObservationId: actionInput.preActionObservationId,
+            perceptionDigestId: actionInput.perceptionDigestId,
             intendedSemanticTarget:
               actionInput.intendedSemanticTarget ??
               actionInput.compactRelationalClaim?.intendedTarget,
@@ -1068,6 +1129,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
             requestedAt,
             targetScope: actionInput.targetScope,
             preActionObservationId: actionInput.preActionObservationId,
+            perceptionDigestId: actionInput.perceptionDigestId,
             intendedSemanticTarget:
               actionInput.intendedSemanticTarget ??
               actionInput.compactRelationalClaim?.intendedTarget,

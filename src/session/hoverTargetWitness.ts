@@ -16,6 +16,7 @@ export const hoverTargetWitnessSchema = z.object({
   sourceMoveActionId: z.string().min(1),
   sourceObservationId: z.string().min(1),
   followUpObservationId: z.string().min(1),
+  perceptionDigestId: z.string().min(1).optional(),
   targetScope: desktopInteractionScopeSchema,
   intendedSemanticTarget: z.string().min(1).max(1000),
   plannedHoverPoint: desktopPointSchema.optional(),
@@ -45,6 +46,7 @@ export interface HoverTargetWitnessInput {
   sourceMoveActionId: string;
   sourceObservationId: string;
   followUpObservationId: string;
+  perceptionDigestId?: string;
   targetScope: DesktopInteractionScope;
   intendedSemanticTarget: string;
   plannedHoverPoint?: DesktopPoint;

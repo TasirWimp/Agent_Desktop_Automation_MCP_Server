@@ -270,6 +270,12 @@ async function runAttempts(args: {
       "pre"
     );
     targetScope = preObservation.targetScope;
+    const preObservationDigestId = await submitPerceptionDigest(
+      args.client,
+      args.sessionId,
+      preObservation,
+      args.config.intendedSemanticTarget ?? "manual movement probe target"
+    );
     const plannedPoint = planRelativePoint(
       preObservation.cursorPosition,
       args.config.areaOfInterest,
@@ -279,6 +285,7 @@ async function runAttempts(args: {
       sessionId: args.sessionId,
       targetScope,
       preActionObservationId: preObservation.observationId,
+      perceptionDigestId: preObservationDigestId,
       point: plannedPoint,
       intendedSemanticTarget: args.config.intendedSemanticTarget,
       compactRelationalClaim: buildCompactRelationalClaim(
@@ -333,9 +340,17 @@ async function runAttempts(args: {
     );
 
     attempt.postObservation = postObservation;
+    const postObservationDigestId = await submitPerceptionDigest(
+      args.client,
+      args.sessionId,
+      postObservation,
+      args.config.intendedSemanticTarget ?? "manual movement probe target",
+      attempt.visibleWitnessNotes
+    );
     const assessment = await callToolJson(args.client, "desktop_submit_transition_assessment", {
       sessionId: args.sessionId,
       actionId: move.actionId,
+      perceptionDigestId: postObservationDigestId,
       assessment: buildSemanticLandingAssessment(attempt.visibleWitnessNotes)
     });
 
@@ -468,13 +483,28 @@ async function verifyClickBlocked(
     };
   }
 
+  const perceptionDigestId = await submitPerceptionDigest(
+    client,
+    sessionId,
+    finalObservation,
+    "blocked click verification"
+  );
   const clickResult = await callToolResult(client, "desktop_click", {
     sessionId,
     targetScope: finalObservation.targetScope,
     preActionObservationId: finalObservation.observationId,
+    perceptionDigestId,
     point: clickPoint,
     button: "left",
     intendedSemanticTarget: "blocked click verification",
+    compactRelationalClaim: {
+      ...buildCompactRelationalClaim(
+        finalObservation.observationId,
+        "blocked click verification",
+        attempts.length
+      ),
+      pointProvenance: "hover_witness"
+    },
     risk: {
       credentialExposure: false,
       destructive: false,
@@ -495,6 +525,40 @@ async function verifyClickBlocked(
       ? payload.residue.filter((item): item is string => typeof item === "string")
       : []
   };
+}
+
+async function submitPerceptionDigest(
+  client: Client,
+  sessionId: string,
+  observation: ProbeObservationSummary,
+  intendedTarget: string,
+  witnessNotes: string[] = []
+): Promise<string> {
+  const joinedNotes = witnessNotes.join("; ");
+  const lowerNotes = joinedNotes.toLowerCase();
+  const result = await callToolJson(client, "desktop_submit_perception_digest", {
+    sessionId,
+    observationId: observation.observationId,
+    targetScope: observation.targetScope,
+    intendedTarget,
+    currentScene: "Manual probe active-window scene.",
+    currentAnchor: "manual probe cursor origin and area of interest",
+    targetVisibility: lowerNotes.includes("not visible") ? "not_visible" : "visible",
+    anchorVisibility: "visible",
+    continuityWithPriorClaim:
+      lowerNotes.includes("wrong") || lowerNotes.includes("contradict")
+        ? "changed"
+        : "consistent",
+    contradictionToPriorClaim:
+      lowerNotes.includes("wrong") || lowerNotes.includes("contradict")
+        ? joinedNotes || "Manual witness notes contradicted the prior target claim."
+        : null,
+    staleCarryoverReviewed: true,
+    currentEvidence:
+      joinedNotes || "Manual probe runner re-grounded against the current screenshot."
+  });
+
+  return stringField(result, "perceptionDigestId");
 }
 
 function summarizeObservation(

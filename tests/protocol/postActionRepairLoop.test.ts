@@ -109,6 +109,36 @@ function compactClaim(sourceObservationId: string, intendedTarget = "Name input"
   };
 }
 
+async function submitDigest(
+  client: Client,
+  observationId: string,
+  intendedTarget = "Name input"
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_perception_digest",
+    arguments: {
+      sessionId: "session-repair-001",
+      observationId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedTarget,
+      currentScene: "Generated Test App form view.",
+      currentAnchor: `${intendedTarget} row`,
+      targetVisibility: "visible",
+      anchorVisibility: "visible",
+      continuityWithPriorClaim: "consistent",
+      contradictionToPriorClaim: null,
+      staleCarryoverReviewed: true,
+      currentEvidence: `The current screenshot shows ${intendedTarget}.`
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.perceptionDigestId as string;
+}
+
 const startArguments = {
   sessionId: "session-repair-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -185,6 +215,10 @@ async function startObserveClickAndPostObserve(client: Client) {
   });
   const before = parseStructuredContent(beforeResult);
   const beforeObservation = nestedRecord(before.observation);
+  const beforeDigestId = await submitDigest(
+    client,
+    beforeObservation.observationId as string
+  );
   const clickResult = await client.callTool({
     name: "desktop_type_text",
     arguments: {
@@ -194,6 +228,7 @@ async function startObserveClickAndPostObserve(client: Client) {
         value: "Generated Test App"
       },
       preActionObservationId: beforeObservation.observationId,
+      perceptionDigestId: beforeDigestId,
       text: "generated input",
       intendedSemanticTarget: "Name input",
       compactRelationalClaim: compactClaim(beforeObservation.observationId as string)
@@ -331,6 +366,10 @@ describe("post-action observation and repair-loop classification", () => {
         }
       });
       const firstObservation = nestedRecord(parseStructuredContent(firstObserveResult).observation);
+      const firstDigestId = await submitDigest(
+        client,
+        firstObservation.observationId as string
+      );
       const firstClickResult = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -340,6 +379,7 @@ describe("post-action observation and repair-loop classification", () => {
             value: "Generated Test App"
           },
           preActionObservationId: firstObservation.observationId,
+          perceptionDigestId: firstDigestId,
           text: "first input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim(firstObservation.observationId as string)
@@ -361,6 +401,10 @@ describe("post-action observation and repair-loop classification", () => {
       const firstPostObservation = nestedRecord(
         parseStructuredContent(firstPostResult).observation
       );
+      const firstPostDigestId = await submitDigest(
+        client,
+        firstPostObservation.observationId as string
+      );
 
       expect(sessionStore.requireActiveSession("session-repair-001").repairAttemptCount).toBe(1);
 
@@ -373,6 +417,7 @@ describe("post-action observation and repair-loop classification", () => {
             value: "Generated Test App"
           },
           preActionObservationId: firstPostObservation.observationId,
+          perceptionDigestId: firstPostDigestId,
           text: "second input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim(firstPostObservation.observationId as string)

@@ -10,6 +10,7 @@ The current server exposes:
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
 - `desktop_open_application` - opens only a catalog allowlisted application ID or alias; no arbitrary executable paths or arguments.
 - `desktop_observe` - records a bounded observation frame session for an active interaction session.
+- `desktop_submit_perception_digest` - records an agent-authored digest for the latest screenshot-bearing observation; the server validates freshness/provenance, not pixels.
 - `desktop_move_mouse` - runs a bounded relational movement probe inside an active interaction session and requires follow-up observation plus semantic landing assessment.
 - `desktop_submit_transition_assessment` - records whether a follow-up screenshot supports, contradicts, or cannot conclude the stored relational movement claim.
 - `desktop_evaluate_click_candidate` - evaluates current observation, cursor, semantic landing, scope, and risk evidence for a future app-scoped click request without clicking.
@@ -20,7 +21,7 @@ The current server exposes:
 
 Real desktop capture and pointer movement are disabled by default. The default provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch real apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
-The codebase also defines policy contracts for licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require relational evidence and follow-up observation. Coordinates are endpoints only; they are not proof that the semantic target was correct.
+The codebase also defines policy contracts for licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require a fresh perception digest, relational evidence, and follow-up observation. Coordinates are endpoints only; they are not proof that the semantic target was correct.
 
 Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. Real clicking and real typing additionally require their explicit Windows provider gates.
 
@@ -45,7 +46,7 @@ $env:ADMCP_ENABLE_REAL_MOUSE_MOVEMENT = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a screenshot-bearing fresh pre-action observation, compact or full relational navigation evidence, scope validation, audit logging, a post-movement observation, and `desktop_submit_transition_assessment` before click readiness. Cursor landing is telemetry only. After a supported semantic landing assessment, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
+With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a screenshot-bearing fresh pre-action observation, `desktop_submit_perception_digest` for that observation, compact or full relational navigation evidence, scope validation, audit logging, a post-movement observation, a fresh digest for the follow-up observation, and `desktop_submit_transition_assessment` before click readiness. Cursor landing is telemetry only. After a supported semantic landing assessment, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
 
 Real clicking is a separate app-scoped gate:
 
@@ -56,7 +57,7 @@ $env:ADMCP_ENABLE_REAL_CLICK = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
 Real typing is a separate app-scoped generated-input gate:
 
@@ -67,12 +68,12 @@ $env:ADMCP_ENABLE_REAL_TYPING = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
 The required click path is:
 
 ```text
-observe -> compact relational move -> observe transition -> semantic landing assessment -> evaluate click candidate -> click -> observe
+observe -> perception digest -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest -> observe
 ```
 
 Catalog app bootstrap uses `config/desktop_applications.json`. Add apps by ID and aliases there; `desktop_open_application` rejects unknown apps, path-like launch strings, and command-line argument fields.
@@ -121,7 +122,9 @@ Use this runner when testing a path such as `hover parent landmark -> observe re
 
 ## Codex MCP Configuration
 
-After `npm run build`, add the server to an MCP client with a command like:
+Use the stale-build-safe launcher for local Codex MCP wiring. It rebuilds `dist`
+when `src`, `config`, or package metadata are newer than `dist/index.js`, then
+hands stdio to the compiled MCP server:
 
 ```json
 {
@@ -129,12 +132,15 @@ After `npm run build`, add the server to an MCP client with a command like:
     "agent-desktop-automation": {
       "command": "node",
       "args": [
-        "C:\\Users\\jensb\\Desktop\\Projects\\Agent_Desktop _Automation_MCP_Server\\dist\\index.js"
+        "C:\\Users\\jensb\\Desktop\\Projects\\Agent_Desktop _Automation_MCP_Server\\scripts\\start-mcp.mjs"
       ]
     }
   }
 }
 ```
+
+For production or packaged use, `npm run build` followed by `npm run start`
+still runs the compiled `dist/index.js` directly.
 
 ## Codex Subagents
 

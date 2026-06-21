@@ -475,6 +475,50 @@ export const desktopObservationPacketSchema = z.object({
 
 export type DesktopObservationPacket = z.infer<typeof desktopObservationPacketSchema>;
 
+export const desktopPerceptionVisibilityStates = [
+  "visible",
+  "not_visible",
+  "uncertain"
+] as const;
+
+export const desktopPerceptionContinuityStates = [
+  "consistent",
+  "changed",
+  "uncertain",
+  "not_applicable"
+] as const;
+
+export const desktopSubmitPerceptionDigestInputSchema = z.object({
+  sessionId: z.string().min(1),
+  observationId: z.string().min(1),
+  targetScope: desktopInteractionScopeSchema,
+  intendedTarget: z.string().min(1).max(1000),
+  currentScene: z.string().min(1).max(2000),
+  currentAnchor: z.string().min(1).max(1000),
+  targetVisibility: z.enum(desktopPerceptionVisibilityStates),
+  anchorVisibility: z.enum(desktopPerceptionVisibilityStates),
+  continuityWithPriorClaim: z.enum(desktopPerceptionContinuityStates),
+  contradictionToPriorClaim: z.string().min(1).max(2000).nullable(),
+  staleCarryoverReviewed: z.literal(true),
+  currentEvidence: z.string().min(1).max(2000)
+});
+
+export type DesktopSubmitPerceptionDigestInput = z.infer<
+  typeof desktopSubmitPerceptionDigestInputSchema
+>;
+
+export const desktopPerceptionDigestSchema =
+  desktopSubmitPerceptionDigestInputSchema.extend({
+    perceptionDigestId: z.string().min(1),
+    createdAt: z.string().min(1),
+    sourceObservationFrameHashes: z.array(z.string().min(1)).min(1),
+    status: z.literal("accepted")
+  });
+
+export type DesktopPerceptionDigest = z.infer<
+  typeof desktopPerceptionDigestSchema
+>;
+
 export const desktopAppScopeBindingSchema = z.object({
   bindingId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -518,6 +562,7 @@ export const desktopActionPacketSchema = z
     preActionObservationId: z.string().min(1).optional(),
     postActionObservationId: z.string().min(1).optional(),
     intendedSemanticTarget: z.string().min(1).optional(),
+    perceptionDigestId: z.string().min(1).optional(),
     input: desktopActionInputSchema,
     compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
     relationalNavigation: desktopRelationalNavigationSchema.optional(),
@@ -614,6 +659,7 @@ export type DesktopActionPacket = z.infer<typeof desktopActionPacketSchema>;
 export const desktopSessionAuditEventTypes = [
   "session_started",
   "observation_recorded",
+  "perception_digest_recorded",
   "action_requested",
   "action_allowed",
   "action_blocked",
@@ -654,6 +700,15 @@ export const desktopSessionStopConditionTypes = [
   "stale_pre_action_observation",
   "pre_action_observation_scope_mismatch",
   "missing_frame_evidence",
+  "missing_perception_digest",
+  "stale_perception_digest",
+  "perception_digest_observation_mismatch",
+  "perception_digest_scope_mismatch",
+  "perception_digest_target_mismatch",
+  "perception_digest_not_latest",
+  "perception_digest_target_not_visible",
+  "perception_digest_anchor_not_visible",
+  "perception_digest_contradicted",
   "missing_relational_navigation",
   "invalid_point_provenance",
   "missing_pre_action_navigation_check",
@@ -706,6 +761,7 @@ export interface DesktopSessionActionPolicyContext {
   repairAttemptCount: number;
   auditEvents: DesktopSessionAuditEvent[];
   observations: DesktopObservationPacket[];
+  perceptionDigests: DesktopPerceptionDigest[];
   boundAppScope?: DesktopAppScopeBinding;
   now: string;
 }
@@ -911,10 +967,271 @@ function findObservation(
   return observations.find((observation) => observation.observationId === observationId);
 }
 
+function findPerceptionDigest(
+  perceptionDigests: DesktopPerceptionDigest[],
+  perceptionDigestId: string | undefined
+): DesktopPerceptionDigest | undefined {
+  return perceptionDigests.find(
+    (digest) => digest.perceptionDigestId === perceptionDigestId
+  );
+}
+
+function latestObservationId(
+  observations: DesktopObservationPacket[]
+): string | undefined {
+  return observations.at(-1)?.observationId;
+}
+
 function observationHasImagePayload(observation: DesktopObservationPacket): boolean {
   return observation.frames.some(
     (frame) => frame.dataBase64 !== undefined && frame.dataBase64.length > 0
   );
+}
+
+function perceptionDigestFresh(
+  license: DesktopInteractionSessionLicense,
+  digest: DesktopPerceptionDigest,
+  action: DesktopActionPacket
+): boolean {
+  const createdMs = Date.parse(digest.createdAt);
+  const requestedMs = Date.parse(action.requestedAt);
+
+  if (Number.isNaN(createdMs) || Number.isNaN(requestedMs)) {
+    return true;
+  }
+
+  return requestedMs - createdMs <= license.observationCadence.maxObservationGapMs;
+}
+
+function perceptionDigestFrameHashesMatch(
+  digest: DesktopPerceptionDigest,
+  observation: DesktopObservationPacket
+): boolean {
+  const observationHashes = observation.frames.map((frame) => frame.sha256);
+
+  return (
+    digest.sourceObservationFrameHashes.length === observationHashes.length &&
+    digest.sourceObservationFrameHashes.every(
+      (hash, index) => hash === observationHashes[index]
+    )
+  );
+}
+
+function intendedTargetForAction(action: DesktopActionPacket): string | undefined {
+  return (
+    action.compactRelationalClaim?.intendedTarget ??
+    action.relationalNavigation?.actionJustification.intendedSemanticTarget ??
+    action.intendedSemanticTarget
+  );
+}
+
+function isRepairMovement(action: DesktopActionPacket, digest: DesktopPerceptionDigest): boolean {
+  return (
+    action.actionType === "move_mouse" &&
+    action.compactRelationalClaim?.pointProvenance === "relative_probe" &&
+    (digest.continuityWithPriorClaim === "changed" ||
+      digest.continuityWithPriorClaim === "uncertain")
+  );
+}
+
+function perceptionDigestStopConditionForAction(
+  license: DesktopInteractionSessionLicense,
+  action: DesktopActionPacket,
+  preActionObservation: DesktopObservationPacket,
+  context: DesktopSessionActionPolicyContext
+): { stop: DesktopSessionStopCondition; auditTag: string } | undefined {
+  if (action.perceptionDigestId === undefined) {
+    return {
+      stop: stopCondition(
+        "missing_perception_digest",
+        license.sessionId,
+        "Every state-changing action must reference a fresh perception digest for the latest screenshot-bearing observation.",
+        action.actionId,
+        [
+          "Call desktop_submit_perception_digest after desktop_observe and pass perceptionDigestId to the action.",
+          "The digest is agent-authored; the server validates freshness and provenance, not pixels."
+        ]
+      ),
+      auditTag: "missing_perception_digest"
+    };
+  }
+
+  const digest = findPerceptionDigest(context.perceptionDigests, action.perceptionDigestId);
+
+  if (digest === undefined) {
+    return {
+      stop: stopCondition(
+        "missing_perception_digest",
+        license.sessionId,
+        "The referenced perception digest does not exist in the session context.",
+        action.actionId,
+        [`perceptionDigestId: ${action.perceptionDigestId}.`]
+      ),
+      auditTag: "missing_perception_digest"
+    };
+  }
+
+  if (digest.sessionId !== license.sessionId) {
+    return {
+      stop: stopCondition(
+        "invalid_session",
+        license.sessionId,
+        "The referenced perception digest belongs to a different session.",
+        action.actionId
+      ),
+      auditTag: "perception_digest_session_mismatch"
+    };
+  }
+
+  if (digest.observationId !== preActionObservation.observationId) {
+    return {
+      stop: stopCondition(
+        "perception_digest_observation_mismatch",
+        license.sessionId,
+        "The perception digest must be bound to the same observation as the action pre-action observation.",
+        action.actionId,
+        [
+          `Action preActionObservationId: ${preActionObservation.observationId}.`,
+          `Digest observationId: ${digest.observationId}.`
+        ]
+      ),
+      auditTag: "perception_digest_observation_mismatch"
+    };
+  }
+
+  const latest = latestObservationId(context.observations);
+
+  if (latest !== digest.observationId) {
+    return {
+      stop: stopCondition(
+        "perception_digest_not_latest",
+        license.sessionId,
+        "The perception digest is not bound to the latest recorded observation.",
+        action.actionId,
+        [
+          `Latest observationId: ${latest ?? "none"}.`,
+          `Digest observationId: ${digest.observationId}.`,
+          "A newer desktop_observe invalidates previous digests for future state-changing actions."
+        ]
+      ),
+      auditTag: "perception_digest_not_latest"
+    };
+  }
+
+  if (!perceptionDigestFresh(license, digest, action)) {
+    return {
+      stop: stopCondition(
+        "stale_perception_digest",
+        license.sessionId,
+        "The perception digest is older than the session observation cadence allows.",
+        action.actionId
+      ),
+      auditTag: "stale_perception_digest"
+    };
+  }
+
+  if (!desktopInteractionScopesMatch(digest.targetScope, action.targetScope)) {
+    return {
+      stop: stopCondition(
+        "perception_digest_scope_mismatch",
+        license.sessionId,
+        "The perception digest target scope does not match the action target scope.",
+        action.actionId
+      ),
+      auditTag: "perception_digest_scope_mismatch"
+    };
+  }
+
+  const intendedTarget = intendedTargetForAction(action);
+
+  if (intendedTarget !== undefined && digest.intendedTarget !== intendedTarget) {
+    return {
+      stop: stopCondition(
+        "perception_digest_target_mismatch",
+        license.sessionId,
+        "The perception digest intended target does not match the action target.",
+        action.actionId,
+        [
+          `Action target: ${intendedTarget}.`,
+          `Digest target: ${digest.intendedTarget}.`
+        ]
+      ),
+      auditTag: "perception_digest_target_mismatch"
+    };
+  }
+
+  if (!perceptionDigestFrameHashesMatch(digest, preActionObservation)) {
+    return {
+      stop: stopCondition(
+        "perception_digest_observation_mismatch",
+        license.sessionId,
+        "The perception digest frame hashes do not match the referenced observation.",
+        action.actionId
+      ),
+      auditTag: "perception_digest_frame_hash_mismatch"
+    };
+  }
+
+  if (digest.anchorVisibility === "not_visible") {
+    return {
+      stop: stopCondition(
+        "perception_digest_anchor_not_visible",
+        license.sessionId,
+        "The perception digest says the relational anchor is not visible in the current observation.",
+        action.actionId
+      ),
+      auditTag: "perception_digest_anchor_not_visible"
+    };
+  }
+
+  if (digest.targetVisibility === "not_visible") {
+    return {
+      stop: stopCondition(
+        "perception_digest_target_not_visible",
+        license.sessionId,
+        "The perception digest says the intended target is not visible in the current observation.",
+        action.actionId
+      ),
+      auditTag: "perception_digest_target_not_visible"
+    };
+  }
+
+  const repairMovement = isRepairMovement(action, digest);
+
+  if (digest.targetVisibility === "uncertain" && !repairMovement) {
+    return {
+      stop: stopCondition(
+        "perception_digest_target_not_visible",
+        license.sessionId,
+        "The perception digest is uncertain about target visibility; only relative-probe repair movement may proceed from uncertainty.",
+        action.actionId
+      ),
+      auditTag: "perception_digest_target_uncertain"
+    };
+  }
+
+  if (
+    !repairMovement &&
+    (digest.continuityWithPriorClaim === "changed" ||
+      digest.continuityWithPriorClaim === "uncertain" ||
+      digest.contradictionToPriorClaim !== null)
+  ) {
+    return {
+      stop: stopCondition(
+        "perception_digest_contradicted",
+        license.sessionId,
+        "The perception digest does not support carrying the prior visual claim into this action.",
+        action.actionId,
+        [
+          `continuityWithPriorClaim: ${digest.continuityWithPriorClaim}.`,
+          `contradictionToPriorClaim: ${digest.contradictionToPriorClaim ?? "none"}.`
+        ]
+      ),
+      auditTag: "perception_digest_contradicted"
+    };
+  }
+
+  return undefined;
 }
 
 function relationalFrameEvidenceIssues(
@@ -1482,6 +1799,25 @@ export function evaluateSessionActionPolicy(
         [stop.reason],
         [...auditTags, "missing_screenshot_image_payload"],
         [stop]
+      );
+    }
+
+    const perceptionDigestIssue =
+      context.phase === "preflight"
+        ? perceptionDigestStopConditionForAction(
+            license,
+            action,
+            preActionObservation,
+            context
+          )
+        : undefined;
+
+    if (perceptionDigestIssue !== undefined) {
+      return result(
+        "block",
+        [perceptionDigestIssue.stop.reason],
+        [...auditTags, perceptionDigestIssue.auditTag],
+        [perceptionDigestIssue.stop]
       );
     }
 

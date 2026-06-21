@@ -56,12 +56,48 @@ function compactClaim(
   };
 }
 
-async function submitSupportedAssessment(client: Client, actionId: string) {
+async function submitDigest(
+  client: Client,
+  observationId: string,
+  overrides: Record<string, unknown> = {}
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_perception_digest",
+    arguments: {
+      sessionId: "session-move-001",
+      observationId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedTarget: "Submit button",
+      currentScene: "Generated Test App main view.",
+      currentAnchor: "Submit row",
+      targetVisibility: "visible",
+      anchorVisibility: "visible",
+      continuityWithPriorClaim: "consistent",
+      contradictionToPriorClaim: null,
+      staleCarryoverReviewed: true,
+      currentEvidence: "The current screenshot shows the target row/control.",
+      ...overrides
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.perceptionDigestId as string;
+}
+
+async function submitSupportedAssessment(
+  client: Client,
+  actionId: string,
+  perceptionDigestId: string
+) {
   return client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
       sessionId: "session-move-001",
       actionId,
+      perceptionDigestId,
       assessment: {
         outcome: "supported",
         relationHeld: true,
@@ -168,6 +204,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: "missing-digest",
           compactRelationalClaim: compactClaim("missing-observation")
         }
       });
@@ -203,7 +240,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          perceptionDigestId: "missing-digest"
         }
       });
       const structured = parseStructuredContent(result);
@@ -226,6 +264,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       const result = await client.callTool({
         name: "desktop_move_mouse",
@@ -240,6 +279,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: digestId,
           intendedSemanticTarget: "Submit button",
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
@@ -283,6 +323,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -296,6 +337,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: digestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -313,6 +355,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 160,
             y: 100
           },
+          perceptionDigestId: digestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -339,6 +382,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -352,6 +396,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: initialDigestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -403,7 +448,12 @@ describe("desktop_move_mouse MCP tool", () => {
         status: "observed"
       });
 
-      const assessmentResult = await submitSupportedAssessment(client, "action-fixed-4");
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8");
+      const assessmentResult = await submitSupportedAssessment(
+        client,
+        "action-fixed-4",
+        followUpDigestId
+      );
       const assessmentStructured = parseStructuredContent(assessmentResult);
 
       expect(assessmentResult.isError).not.toBe(true);
@@ -429,6 +479,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 160,
             y: 100
           },
+          perceptionDigestId: followUpDigestId,
           compactRelationalClaim: compactClaim("observation-fixed-8", "relative_probe")
         }
       });
@@ -452,6 +503,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       const result = await client.callTool({
         name: "desktop_move_mouse",
@@ -465,7 +517,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          perceptionDigestId: digestId
         }
       });
       const structured = parseStructuredContent(result);
@@ -491,6 +544,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       const result = await client.callTool({
         name: "desktop_move_mouse",
@@ -505,6 +559,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: digestId,
           compactRelationalClaim: compactClaim("observation-fixed-2", "external_coordinate")
         }
       });
@@ -531,6 +586,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -544,6 +600,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: initialDigestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -573,6 +630,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 160,
             y: 100
           },
+          perceptionDigestId: await submitDigest(client, "observation-fixed-8"),
           compactRelationalClaim: compactClaim("observation-fixed-8")
         }
       });
@@ -595,6 +653,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -608,6 +667,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: initialDigestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -623,12 +683,14 @@ describe("desktop_move_mouse MCP tool", () => {
           transitionActionId: "action-fixed-4"
         }
       });
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8");
 
       const result = await client.callTool({
         name: "desktop_submit_transition_assessment",
         arguments: {
           sessionId: "session-move-001",
           actionId: "action-fixed-4",
+          perceptionDigestId: followUpDigestId,
           assessment: {
             outcome: "contradicted",
             relationHeld: false,
@@ -658,11 +720,12 @@ describe("desktop_move_mouse MCP tool", () => {
     }
   });
 
-  it("inconclusive semantic landing assessment records repair needed", async () => {
-    const { client, server, sessionStore } = await createConnectedClient();
+  it("rejects supported semantic landing assessment when the digest says the target is not visible", async () => {
+    const { client, server } = await createConnectedClient();
 
     try {
       await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
       await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -676,6 +739,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: initialDigestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
@@ -691,12 +755,77 @@ describe("desktop_move_mouse MCP tool", () => {
           transitionActionId: "action-fixed-4"
         }
       });
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8", {
+        targetVisibility: "not_visible",
+        continuityWithPriorClaim: "changed",
+        contradictionToPriorClaim: "The target row/control is no longer visible.",
+        currentEvidence: "The follow-up screenshot no longer shows the target."
+      });
+
+      const result = await submitSupportedAssessment(
+        client,
+        "action-fixed-4",
+        followUpDigestId
+      );
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.error).toMatchObject({
+        code: "perception_digest_does_not_support_transition"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("inconclusive semantic landing assessment records repair needed", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
+      await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialDigestId,
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: "action-fixed-4"
+        }
+      });
+      const followUpDigestId = await submitDigest(client, "observation-fixed-8", {
+        targetVisibility: "uncertain",
+        continuityWithPriorClaim: "uncertain",
+        currentEvidence: "No clear hover or row change is visible."
+      });
 
       const result = await client.callTool({
         name: "desktop_submit_transition_assessment",
         arguments: {
           sessionId: "session-move-001",
           actionId: "action-fixed-4",
+          perceptionDigestId: followUpDigestId,
           assessment: {
             outcome: "inconclusive",
             relationHeld: false,
@@ -731,6 +860,7 @@ describe("desktop_move_mouse MCP tool", () => {
 
     try {
       await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       const result = await client.callTool({
         name: "desktop_move_mouse",
@@ -745,6 +875,7 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: digestId,
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });

@@ -10,6 +10,7 @@ Available MCP tools:
 - `desktop_start_interaction_session`
 - `desktop_open_application`
 - `desktop_observe`
+- `desktop_submit_perception_digest`
 - `desktop_move_mouse`
 - `desktop_submit_transition_assessment`
 - `desktop_evaluate_click_candidate`
@@ -39,7 +40,7 @@ Real mouse movement probe:
 
 - Additional opt-in only with `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_move_mouse`; no separate raw pointer tool exists.
-- Requires an active session, `move_mouse` in the session license, fresh pre-action observation, matching active-window scope, and a point inside the active-window capture frame.
+- Requires an active session, `move_mouse` in the session license, fresh pre-action observation, fresh perception digest, matching active-window scope, and a point inside the active-window capture frame.
 - Requires compact or full relational navigation evidence. `relational_estimate` and `relative_probe` are allowed as movement endpoints; `external_coordinate` and `unknown` are blocked.
 - Treats the point as active-window frame coordinates and converts it to screen coordinates inside the provider.
 - Creates the same transition gate as mock movement and requires `desktop_observe` with `transitionActionId`, followed by `desktop_submit_transition_assessment`, before any next non-observe action.
@@ -50,7 +51,7 @@ Real click gate:
 
 - Additional opt-in only with `ADMCP_ENABLE_REAL_CLICK=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_click`; no separate raw click tool exists.
-- Requires an active session, `click` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, matching app scope, `hover_witness` point provenance, a stored hover target witness, and a point inside the active-window capture frame.
+- Requires an active session, `click` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, fresh perception digest, matching app scope, `hover_witness` point provenance, a stored hover target witness, and a point inside the active-window capture frame.
 - Treats the point as active-window frame coordinates and converts it to screen coordinates inside the provider.
 - Creates the same transition gate as mock clicking and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 - Does not enable real typing, shell, app launch, system changes, external publishing, or broad desktop control.
@@ -59,7 +60,7 @@ Real typing gate:
 
 - Additional opt-in only with `ADMCP_ENABLE_REAL_TYPING=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_type_text`; no separate raw keyboard tool exists.
-- Requires an active session, `type_text` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, matching app scope, generated test input, and non-sensitive/test-input classification.
+- Requires an active session, `type_text` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, fresh perception digest, matching app scope, generated test input, and non-sensitive/test-input classification.
 - Records text length and sensitivity classification, not raw text content, in action and audit packets.
 - Blocks credential-like, secret-like, private, or non-test input before provider execution.
 - Creates the same transition gate as mock typing and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
@@ -86,22 +87,26 @@ Use the session tools to create a bounded task license, record mock observation 
 7. Keep `mode: "frame_session"` unless a single-frame witness is explicitly enough for the test.
 8. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
 9. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
-10. Call `desktop_move_mouse` only after a screenshot-bearing fresh observation and pass that observation id as `preActionObservationId`.
-11. Include `compactRelationalClaim` unless using the full `relationalNavigation` debug packet. The compact claim must name the source observation, intended target, scene, anchor, relation, candidate, rejected alternative, expected evidence, contradiction, and point provenance.
-12. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state. If real mouse movement is enabled, the move can affect cursor position and hover state but still must not click or type.
-13. After movement, call `desktop_observe` with `transitionActionId`. This records cursor/backend telemetry and leaves semantic movement status awaiting assessment.
-14. Call `desktop_submit_transition_assessment` against that action id. Use `supported` only when the follow-up screenshot supports the stored relation, candidate, rejected alternative, and expected-evidence claim with no contradiction.
-15. After a supported movement assessment, call `desktop_evaluate_click_candidate` when a future click is being considered.
-16. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, frame evidence, scope match, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packet. It records a `click_candidate_evaluated` audit event, returns a hover target witness when ready, and never clicks.
-17. Call `desktop_click` only after a fresh observation, current `boundAppScope`, app-scoped `click` permission, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, and no prior transition gate is pending. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
-18. Call `desktop_type_text` only after a fresh observation, current `boundAppScope`, app-scoped `type_text` permission, relational evidence, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
-19. For `desktop_type_text`, use generated test input only. The tool records text length and classification but not text content.
-20. After every click or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
-21. Do not call another non-observe action until the transition gate is complete or a supported semantic landing assessment has made the next probe/click path ready.
-22. Use `desktop_session_audit_log` to inspect the session trace.
-23. Use `desktop_end_interaction_session` when the task license should stop.
+10. After any screenshot-bearing observation that will support an action or assessment, call `desktop_submit_perception_digest`.
+    - The digest is agent-authored; the server does not analyze the screenshot.
+    - The digest must be for the latest observation. A newer `desktop_observe` invalidates previous digests for future actions.
+    - Use `targetVisibility: "visible"` and no contradiction only when the current screenshot actually supports that claim.
+11. Call `desktop_move_mouse` only after a screenshot-bearing fresh observation and fresh `perceptionDigestId`, and pass the observation id as `preActionObservationId`.
+12. Include `compactRelationalClaim` unless using the full `relationalNavigation` debug packet. The compact claim must name the source observation, intended target, scene, anchor, relation, candidate, rejected alternative, expected evidence, contradiction, and point provenance.
+13. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state. If real mouse movement is enabled, the move can affect cursor position and hover state but still must not click or type.
+14. After movement, call `desktop_observe` with `transitionActionId`. This records cursor/backend telemetry and leaves semantic movement status awaiting assessment.
+15. Submit a new perception digest for the follow-up observation, then call `desktop_submit_transition_assessment` against the action id. Use `supported` only when the follow-up digest and screenshot support the stored relation, candidate, rejected alternative, and expected-evidence claim with no contradiction.
+16. After a supported movement assessment, call `desktop_evaluate_click_candidate` with the current observation id and current `perceptionDigestId` when a future click is being considered.
+17. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, fresh perception digest, frame evidence, scope match, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packet. It records a `click_candidate_evaluated` audit event, returns a hover target witness when ready, and never clicks.
+18. Call `desktop_click` only after a fresh observation, current perception digest, current `boundAppScope`, app-scoped `click` permission, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, and no prior transition gate is pending. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
+19. Call `desktop_type_text` only after a fresh observation, current perception digest, current `boundAppScope`, app-scoped `type_text` permission, relational evidence, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
+20. For `desktop_type_text`, use generated test input only. The tool records text length and classification but not text content.
+21. After every click or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
+22. Do not call another non-observe action until the transition gate is complete or a supported semantic landing assessment has made the next probe/click path ready.
+23. Use `desktop_session_audit_log` to inspect the session trace.
+24. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, and click-candidate witness evaluations. It can exercise `observe -> compact relational move -> observe transitionActionId -> semantic landing assessment -> evaluate_click_candidate -> click/type -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
+The current implementation records session lifecycle, mock observation, perception digests, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, and click-candidate witness evaluations. It can exercise `observe -> perception digest -> compact relational move -> observe transitionActionId -> perception digest -> semantic landing assessment -> evaluate_click_candidate -> click/type with current digest -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
 
 ## Stop Or Escalate
 
@@ -256,6 +261,8 @@ ADMCP-022 post-action observation and repair-loop classification is implemented.
 ADMCP-024 compact relational navigation enforcement and app catalog bootstrap is implemented.
 
 - `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` require compact or full relational navigation evidence before provider execution.
+- `desktop_submit_perception_digest` is required before state-changing actions, transition assessment, and click-candidate readiness.
+- Perception digests are client-authored current-claim packets; the server validates observation freshness, latest-observation binding, target/scope match, frame hashes, and contradiction state, not screenshot pixels.
 - Compact claims are server-expanded and bound to screenshot-bearing live observations and frame hashes.
 - Raw coordinates are endpoints only; cursor landing is backend telemetry and cannot prove semantic target correctness.
 - `desktop_submit_transition_assessment` records supported, contradicted, or inconclusive semantic landing outcomes.

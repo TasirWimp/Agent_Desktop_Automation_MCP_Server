@@ -4,6 +4,7 @@ import {
   type DesktopAppScopeBinding,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
+  type DesktopPerceptionDigest,
   type DesktopSessionActionType,
   type DesktopSessionAuditEvent,
   desktopActionPacketSchema,
@@ -145,6 +146,36 @@ function compactClaimFor(
   };
 }
 
+function digestIdFor(observationId: string, intendedTarget: string): string {
+  return `digest-${observationId}-${intendedTarget.toLowerCase().replace(/[^a-z0-9]+/gu, "-")}`;
+}
+
+function perceptionDigestFixture(
+  observation: DesktopObservationPacket,
+  intendedTarget = "Submit button",
+  overrides: Partial<DesktopPerceptionDigest> = {}
+): DesktopPerceptionDigest {
+  return {
+    perceptionDigestId: digestIdFor(observation.observationId, intendedTarget),
+    sessionId: observation.sessionId,
+    observationId: observation.observationId,
+    targetScope: observation.targetScope,
+    intendedTarget,
+    currentScene: "Generated Test App main view with controls.",
+    currentAnchor: "Submit button row",
+    targetVisibility: "visible",
+    anchorVisibility: "visible",
+    continuityWithPriorClaim: "consistent",
+    contradictionToPriorClaim: null,
+    staleCarryoverReviewed: true,
+    currentEvidence: "The current screenshot shows the target row/control.",
+    createdAt: "2026-05-27T10:00:01.800Z",
+    sourceObservationFrameHashes: observation.frames.map((frame) => frame.sha256),
+    status: "accepted",
+    ...overrides
+  };
+}
+
 function boundAppScopeFixture(
   overrides: Partial<DesktopAppScopeBinding> = {}
 ): DesktopAppScopeBinding {
@@ -176,6 +207,10 @@ function actionFixture(
   overrides: Partial<DesktopActionPacket> = {}
 ): DesktopActionPacket {
   const actionId = overrides.actionId ?? `action-${actionType}`;
+  const preActionObservationId =
+    overrides.preActionObservationId ??
+    (actionType === "observe" ? undefined : "obs-before-001");
+  const intendedSemanticTarget = overrides.intendedSemanticTarget ?? "Submit button";
 
   return {
     actionId,
@@ -186,8 +221,12 @@ function actionFixture(
       kind: "window_title",
       value: "Generated Test App"
     },
-    preActionObservationId: actionType === "observe" ? undefined : "obs-before-001",
-    intendedSemanticTarget: "Submit button",
+    preActionObservationId,
+    intendedSemanticTarget,
+    perceptionDigestId:
+      preActionObservationId === undefined
+        ? undefined
+        : digestIdFor(preActionObservationId, intendedSemanticTarget),
     input: {
       point: {
         x: 320,
@@ -218,18 +257,38 @@ function actionFixture(
 }
 
 function contextFor(action: DesktopActionPacket, phase: "preflight" | "completion" = "preflight") {
+  const observations =
+    phase === "completion"
+      ? [
+          observationFixture("obs-before-001"),
+          observationFixture("obs-after-001", {
+            observedAt: "2026-05-27T10:00:02.500Z",
+            lastActionDeltaSummary: "The visible control highlighted after the action."
+          })
+        ]
+      : [observationFixture("obs-before-001")];
+  const preActionObservation = observations.find(
+    (observation) => observation.observationId === action.preActionObservationId
+  );
+
   return {
     phase,
     actionCountSoFar: 1,
     repairAttemptCount: 0,
     auditEvents: [auditEventFor(action.actionId)],
-    observations: [
-      observationFixture("obs-before-001"),
-      observationFixture("obs-after-001", {
-        observedAt: "2026-05-27T10:00:02.500Z",
-        lastActionDeltaSummary: "The visible control highlighted after the action."
-      })
-    ],
+    observations,
+    perceptionDigests:
+      preActionObservation === undefined || action.perceptionDigestId === undefined
+        ? []
+        : [
+            perceptionDigestFixture(
+              preActionObservation,
+              action.intendedSemanticTarget ?? "Submit button",
+              {
+                perceptionDigestId: action.perceptionDigestId
+              }
+            )
+          ],
     boundAppScope: boundAppScopeFixture(),
     now: "2026-05-27T10:00:03.000Z"
   };
@@ -545,6 +604,85 @@ describe("evaluateSessionActionPolicy", () => {
 
     expect(result.decision).toBe("block");
     expect(result.auditTags).toContain("missing_frame_evidence");
+  });
+
+  it("blocks state-changing actions without a perception digest", () => {
+    const action = actionFixture("move_mouse", {
+      perceptionDigestId: undefined
+    });
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      perceptionDigests: []
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("missing_perception_digest");
+    expect(result.stopConditions[0]?.condition).toBe("missing_perception_digest");
+  });
+
+  it("blocks state-changing actions when the perception digest is not latest", () => {
+    const action = actionFixture("move_mouse");
+    const beforeObservation = observationFixture("obs-before-001");
+    const afterObservation = observationFixture("obs-after-001", {
+      observedAt: "2026-05-27T10:00:02.500Z"
+    });
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [beforeObservation, afterObservation],
+      perceptionDigests: [
+        perceptionDigestFixture(beforeObservation, "Submit button", {
+          perceptionDigestId: action.perceptionDigestId
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("perception_digest_not_latest");
+    expect(result.stopConditions[0]?.condition).toBe("perception_digest_not_latest");
+  });
+
+  it("blocks normal movement when the perception digest is uncertain", () => {
+    const action = actionFixture("move_mouse");
+    const beforeObservation = observationFixture("obs-before-001");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [beforeObservation],
+      perceptionDigests: [
+        perceptionDigestFixture(beforeObservation, "Submit button", {
+          perceptionDigestId: action.perceptionDigestId,
+          targetVisibility: "uncertain",
+          continuityWithPriorClaim: "uncertain"
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("perception_digest_target_uncertain");
+  });
+
+  it("allows relative-probe repair movement from an uncertain perception digest", () => {
+    const action = actionFixture("move_mouse", {
+      compactRelationalClaim: compactClaimFor(
+        "obs-before-001",
+        "Submit button",
+        "relative_probe"
+      )
+    });
+    const beforeObservation = observationFixture("obs-before-001");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      observations: [beforeObservation],
+      perceptionDigests: [
+        perceptionDigestFixture(beforeObservation, "Submit button", {
+          perceptionDigestId: action.perceptionDigestId,
+          targetVisibility: "uncertain",
+          continuityWithPriorClaim: "uncertain",
+          contradictionToPriorClaim: "Prior target claim changed; probe is repair."
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("allow");
   });
 
   it("keeps bound active-window scope from following focus into another window identity", () => {

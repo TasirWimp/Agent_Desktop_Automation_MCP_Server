@@ -9,6 +9,7 @@ import {
   type DesktopActionRisk,
   type DesktopInteractionScope,
   type DesktopObservationPacket,
+  type DesktopPerceptionDigest,
   type DesktopPoint,
   type DesktopRectangle,
   type DesktopSessionAuditEvent
@@ -40,6 +41,9 @@ export const clickCandidateWitnessStatuses = [
   "stale_observation",
   "action_not_allowed",
   "risk_blocked",
+  "perception_digest_invalid",
+  "perception_digest_not_current",
+  "perception_digest_not_visible",
   "transition_not_audited"
 ] as const;
 
@@ -68,6 +72,7 @@ const clickCandidateRiskInputSchema = z
 const clickCandidateWitnessInputSchema = z.object({
   sessionId: z.string().min(1),
   observationId: z.string().min(1),
+  perceptionDigestId: z.string().min(1),
   targetScope: desktopInteractionScopeSchema,
   intendedSemanticTarget: z.string().min(1).max(1000),
   candidatePoint: desktopPointSchema.optional(),
@@ -109,6 +114,20 @@ interface ClickCandidateEvaluation {
     cursorConfidence?: "low" | "medium" | "high";
     hoverEvaluated: boolean;
     hoverConfidence?: "low" | "medium" | "high";
+  };
+  perceptionDigestEvidence: {
+    perceptionDigestId: string;
+    observationMatches: boolean;
+    latestObservationMatches: boolean;
+    fresh: boolean;
+    scopeMatches: boolean;
+    targetMatches: boolean;
+    targetVisibility?: DesktopPerceptionDigest["targetVisibility"];
+    anchorVisibility?: DesktopPerceptionDigest["anchorVisibility"];
+    continuityWithPriorClaim?: DesktopPerceptionDigest["continuityWithPriorClaim"];
+    contradictionToPriorClaim?: string | null;
+    staleCarryoverReviewed?: boolean;
+    currentEvidence?: string;
   };
   movementEvidence?: {
     actionType: string;
@@ -238,6 +257,29 @@ function isRiskBlocked(risk: DesktopActionRisk): boolean {
   );
 }
 
+function perceptionDigestAgeMs(createdAt: string, now: string): number | undefined {
+  const createdMs = Date.parse(createdAt);
+  const nowMs = Date.parse(now);
+
+  if (Number.isNaN(createdMs) || Number.isNaN(nowMs)) {
+    return undefined;
+  }
+
+  return Math.max(0, nowMs - createdMs);
+}
+
+function digestFrameHashesMatch(
+  digest: DesktopPerceptionDigest,
+  observation: DesktopObservationPacket
+): boolean {
+  const hashes = observation.frames.map((frame) => frame.sha256);
+
+  return (
+    digest.sourceObservationFrameHashes.length === hashes.length &&
+    digest.sourceObservationFrameHashes.every((hash, index) => hash === hashes[index])
+  );
+}
+
 function movementEvidenceFor(
   movementGate: InteractionTransitionGate | undefined,
   observationId: string
@@ -280,6 +322,14 @@ function chooseStatus(input: {
   hasCandidatePoint: boolean;
   cursorObserved: boolean;
   candidateAlignedWithCursor: boolean;
+  perceptionDigestFound: boolean;
+  perceptionDigestObservationMatches: boolean;
+  perceptionDigestLatest: boolean;
+  perceptionDigestFresh: boolean;
+  perceptionDigestScopeMatches: boolean;
+  perceptionDigestTargetMatches: boolean;
+  perceptionDigestFrameHashesMatch: boolean;
+  perceptionDigestReady: boolean;
 }): ClickCandidateWitnessStatus {
   if (!input.clickAllowed) {
     return "action_not_allowed";
@@ -299,6 +349,24 @@ function chooseStatus(input: {
 
   if (!input.fresh) {
     return "stale_observation";
+  }
+
+  if (
+    !input.perceptionDigestFound ||
+    !input.perceptionDigestObservationMatches ||
+    !input.perceptionDigestScopeMatches ||
+    !input.perceptionDigestTargetMatches ||
+    !input.perceptionDigestFrameHashesMatch
+  ) {
+    return "perception_digest_invalid";
+  }
+
+  if (!input.perceptionDigestLatest || !input.perceptionDigestFresh) {
+    return "perception_digest_not_current";
+  }
+
+  if (!input.perceptionDigestReady) {
+    return "perception_digest_not_visible";
   }
 
   if (
@@ -334,6 +402,7 @@ function buildResidue(input: {
   candidateCursorDistancePx?: number;
   candidateContainsCursor?: boolean;
   movementGate?: InteractionTransitionGate;
+  perceptionDigest?: DesktopPerceptionDigest;
 }): string[] {
   const residue = [
     "Click-candidate witness gate evaluated targeting readiness only; no click was executed.",
@@ -357,6 +426,12 @@ function buildResidue(input: {
     residue.push("The active session license does not allow click requests.");
   } else if (input.status === "risk_blocked") {
     residue.push("Candidate risk requires stop or escalation before any click can be requested.");
+  } else if (input.status === "perception_digest_invalid") {
+    residue.push("Perception digest does not match the current observation, target, scope, or frame hashes.");
+  } else if (input.status === "perception_digest_not_current") {
+    residue.push("Perception digest is stale or not bound to the latest recorded observation.");
+  } else if (input.status === "perception_digest_not_visible") {
+    residue.push("Perception digest does not currently support visible, non-contradicted target readiness.");
   }
 
   if (input.candidatePoint === undefined) {
@@ -405,6 +480,12 @@ function buildResidue(input: {
     }
   }
 
+  if (input.perceptionDigest !== undefined) {
+    residue.push(
+      `Perception digest targetVisibility=${input.perceptionDigest.targetVisibility}, continuity=${input.perceptionDigest.continuityWithPriorClaim}.`
+    );
+  }
+
   return residue;
 }
 
@@ -412,6 +493,7 @@ function evaluateClickCandidate(
   session: DesktopSessionSnapshot,
   observation: DesktopObservationPacket,
   movementGate: InteractionTransitionGate | undefined,
+  perceptionDigest: DesktopPerceptionDigest | undefined,
   input: ClickCandidateWitnessInput,
   now: string
 ): ClickCandidateEvaluation {
@@ -434,6 +516,32 @@ function evaluateClickCandidate(
   const ageMs = observationAgeMs(observation.observedAt, now);
   const fresh =
     ageMs === undefined || ageMs <= session.license.observationCadence.maxObservationGapMs;
+  const digestAgeMs =
+    perceptionDigest === undefined
+      ? undefined
+      : perceptionDigestAgeMs(perceptionDigest.createdAt, now);
+  const perceptionDigestFresh =
+    digestAgeMs === undefined ||
+    digestAgeMs <= session.license.observationCadence.maxObservationGapMs;
+  const latestObservationMatches =
+    session.observations.at(-1)?.observationId === perceptionDigest?.observationId;
+  const perceptionDigestObservationMatches =
+    perceptionDigest?.observationId === observation.observationId;
+  const perceptionDigestScopeMatches =
+    perceptionDigest !== undefined &&
+    desktopInteractionScopesMatch(perceptionDigest.targetScope, input.targetScope);
+  const perceptionDigestTargetMatches =
+    perceptionDigest?.intendedTarget === input.intendedSemanticTarget;
+  const perceptionDigestHashesMatch =
+    perceptionDigest !== undefined &&
+    digestFrameHashesMatch(perceptionDigest, observation);
+  const perceptionDigestReady =
+    perceptionDigest !== undefined &&
+    perceptionDigest.targetVisibility === "visible" &&
+    perceptionDigest.anchorVisibility !== "not_visible" &&
+    (perceptionDigest.continuityWithPriorClaim === "consistent" ||
+      perceptionDigest.continuityWithPriorClaim === "not_applicable") &&
+    perceptionDigest.contradictionToPriorClaim === null;
   const activeWindowIdentity = observedWindowIdentity(observation.activeWindow);
   const activeWindowBound =
     isActiveWindowBound(input.targetScope) && isActiveWindowBound(observation.targetScope);
@@ -470,7 +578,15 @@ function evaluateClickCandidate(
     hasFrameEvidence,
     hasCandidatePoint: candidatePoint !== undefined,
     cursorObserved,
-    candidateAlignedWithCursor
+    candidateAlignedWithCursor,
+    perceptionDigestFound: perceptionDigest !== undefined,
+    perceptionDigestObservationMatches,
+    perceptionDigestLatest: latestObservationMatches,
+    perceptionDigestFresh,
+    perceptionDigestScopeMatches,
+    perceptionDigestTargetMatches,
+    perceptionDigestFrameHashesMatch: perceptionDigestHashesMatch,
+    perceptionDigestReady
   });
   const residue = buildResidue({
     status,
@@ -480,7 +596,8 @@ function evaluateClickCandidate(
     cursorPoint,
     candidateCursorDistancePx,
     candidateContainsCursor,
-    movementGate
+    movementGate,
+    perceptionDigest
   });
   const hoverTargetWitness =
     status === "candidate_ready" && movementGate !== undefined
@@ -490,6 +607,7 @@ function evaluateClickCandidate(
           sourceMoveActionId: movementGate.actionId,
           sourceObservationId: movementGate.sourceObservationId,
           followUpObservationId: observation.observationId,
+          perceptionDigestId: input.perceptionDigestId,
           targetScope: input.targetScope,
           intendedSemanticTarget: input.intendedSemanticTarget,
           plannedHoverPoint: movementGate.actionPoint,
@@ -550,6 +668,20 @@ function evaluateClickCandidate(
       hoverEvaluated: observation.hoverWitness?.evaluated ?? false,
       hoverConfidence: observation.hoverWitness?.confidence
     },
+    perceptionDigestEvidence: {
+      perceptionDigestId: input.perceptionDigestId,
+      observationMatches: perceptionDigestObservationMatches,
+      latestObservationMatches,
+      fresh: perceptionDigestFresh,
+      scopeMatches: perceptionDigestScopeMatches,
+      targetMatches: perceptionDigestTargetMatches,
+      targetVisibility: perceptionDigest?.targetVisibility,
+      anchorVisibility: perceptionDigest?.anchorVisibility,
+      continuityWithPriorClaim: perceptionDigest?.continuityWithPriorClaim,
+      contradictionToPriorClaim: perceptionDigest?.contradictionToPriorClaim,
+      staleCarryoverReviewed: perceptionDigest?.staleCarryoverReviewed,
+      currentEvidence: perceptionDigest?.currentEvidence
+    },
     movementEvidence,
     hoverTargetWitness,
     riskEvidence: input.risk,
@@ -606,11 +738,16 @@ export function registerClickCandidateWitnessTools(
                 input.sessionId,
                 input.movementActionId
               );
+        const perceptionDigest = runtime.sessionStore.getPerceptionDigest(
+          input.sessionId,
+          input.perceptionDigestId
+        );
         const providerCapabilities = runtime.desktopProvider.getCapabilities();
         const evaluation = evaluateClickCandidate(
           session,
           observation,
           movementGate,
+          perceptionDigest,
           input,
           runtime.now()
         );

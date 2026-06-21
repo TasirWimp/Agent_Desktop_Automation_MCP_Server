@@ -41,6 +41,8 @@ Session policy tests must cover:
 - every in-session action has an audit event,
 - every state-changing action has a fresh pre-action observation,
 - every state-changing action has compact relational or full relational navigation evidence linked to a screenshot-bearing live observation,
+- every state-changing action has a fresh perception digest linked to the latest screenshot-bearing live observation,
+- stale, non-latest, wrong-target, wrong-scope, uncertain, not-visible, and contradicted perception digests block normal state-changing actions before provider execution,
 - raw coordinate-only movement, click, and typing requests are blocked before provider execution,
 - external or unknown point provenance is blocked for real state-changing actions,
 - every state-changing action has post-action observation before completion,
@@ -59,6 +61,7 @@ Use for:
 - session lifecycle tool calls and audit-log behavior,
 - mock observation tool calls, bounded frame metadata, optional image content blocks, and audit events,
 - mock movement tool calls, pre-action observation validation, transition gate creation, blocked blind action chains, and post-movement observation audit,
+- perception digest submission, latest-observation binding, screenshot-payload requirement, and action/candidate/assessment digest enforcement,
 - compact semantic landing assessment through `desktop_submit_transition_assessment`, including supported, contradicted, and inconclusive outcomes,
 - mock click and typing tool calls, credential-like text blocking, low-recoverability escalation, absence of typed text persistence, transition gate creation, and post-action observation audit,
 - click-candidate readiness requiring supported semantic landing assessment and hover target witness evidence, not cursor proximity alone,
@@ -124,6 +127,8 @@ For ADMCP-021, tests must cover app-scoped real typing of generated test input. 
 For ADMCP-022, tests must cover post-action observation and repair-loop classification: expected delta, no-op, wrong target, scope exit, risk prompt, uninterpretable state, repair attempt counting, and transition-gate audit completeness.
 
 For compact relational navigation enforcement, tests must cover coordinate-only action blocks, compact claim expansion from live screenshot-bearing observations, stale or mismatched observation blocks, blocked `external_coordinate` and `unknown` provenance, movement cursor landing as telemetry only, supported landing assessment unlocking candidate readiness, contradicted landing mapping to wrong target, inconclusive landing consuming repair budget, click proximity being insufficient without semantic confirmation, hover-witness click requirements, and full `relationalNavigation` compatibility for strict/debug clients.
+
+For fresh perception digest enforcement, tests must cover successful digest recording for the latest screenshot-bearing observation, rejection without image payload, rejection for non-latest observations, state-changing action blocks without digest, stale digest blocks, target/scope/frame-hash mismatch blocks, uncertain/not-visible digest blocks for normal movement/click/type, `relative_probe` repair movement from uncertain/changed digest, supported transition assessment rejection when the follow-up digest is changed or not visible, click-candidate readiness requiring a visible current digest, and newer observations invalidating older digests.
 
 For catalog application bootstrap, tests must cover JSON-only app additions, duplicate ID validation, ambiguous alias validation, unknown app/query blocks, path-like query blocks, launch-argument/schema rejection, user confirmation, and provider capability blocks.
 

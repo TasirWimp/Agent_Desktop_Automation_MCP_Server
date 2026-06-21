@@ -19,6 +19,7 @@ import { registerActionTools } from "./session/actionTools.js";
 import { registerApplicationBootstrapTools } from "./session/applicationBootstrapTools.js";
 import { registerClickCandidateWitnessTools } from "./session/clickCandidateWitnessTools.js";
 import { registerObservationTools } from "./session/observationTools.js";
+import { registerPerceptionDigestTools } from "./session/perceptionDigestTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
 import { registerSessionTools } from "./session/sessionTools.js";
 
@@ -92,6 +93,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           sessionLifecycleTools: true,
           sessionAuditLog: true,
           clickCandidateWitnessGate: true,
+          freshPerceptionDigest: true,
           compactRelationalClaims: true,
           semanticLandingAssessment: true,
           desktopOpenApplicationTool: true,
@@ -141,7 +143,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
               "ADMCP_ENABLE_REAL_TYPING=true for app-scoped generated test input"
             ],
             rule:
-              "Use observationCadence.maxObservationGapMs=60000 for real-provider sessions unless the task explicitly needs a tighter bound; keep every observation/action bounded and audit every movement with a post-action observation."
+              "Use observationCadence.maxObservationGapMs=60000 for real-provider sessions unless the task explicitly needs a tighter bound; keep every observation/action bounded, submit a perception digest for each action-bearing observation, and audit every movement with a post-action observation."
           }
         },
         policy: {
@@ -175,6 +177,11 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     desktopProvider,
     now,
     generateId
+  });
+
+  registerPerceptionDigestTools(server, {
+    sessionStore,
+    now
   });
 
   registerActionTools(server, {

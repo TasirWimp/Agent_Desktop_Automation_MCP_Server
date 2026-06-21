@@ -118,6 +118,7 @@ When a session has `licensedAppScope`, `desktop_observe` is also the app-scope b
 - check that the action is inside the allowed scope,
 - check that the action type is allowed by the session,
 - log the pre-action observation id,
+- require a fresh perception digest for the current screenshot-bearing observation,
 - log the intended semantic target when known,
 - execute only if the session license permits it,
 - require post-action observation for every state-changing action,
@@ -146,7 +147,7 @@ Clicking is licensed by:
 - audit logging,
 - post-action verification.
 
-`desktop_evaluate_click_candidate` is the current non-executing witness gate for click targeting. It can run after a fresh observation, and should usually run after `observe -> move_mouse -> observe transitionActionId -> desktop_submit_transition_assessment` when movement was used as a probe. It evaluates whether the current session has enough scope, frame, cursor, supported semantic landing, no-contradiction, and risk evidence to request a future app-scoped click. It records audit residue and a hover target witness when ready, and never executes a click. A ready candidate is evidence for targeting quality, not permission to click outside the licensed app-under-test model.
+`desktop_evaluate_click_candidate` is the current non-executing witness gate for click targeting. It can run after a fresh observation and fresh perception digest, and should usually run after `observe -> perception digest -> move_mouse -> observe transitionActionId -> perception digest -> desktop_submit_transition_assessment` when movement was used as a probe. It evaluates whether the current session has enough scope, frame, cursor, supported semantic landing, no-contradiction, digest, and risk evidence to request a future app-scoped click. It records audit residue and a hover target witness when ready, and never executes a click. A ready candidate is evidence for targeting quality, not permission to click outside the licensed app-under-test model.
 
 The current policy slice validates observation references when observation packets are supplied to the evaluator. Provider-backed tools must make those packets trustworthy by validating observation existence, freshness, session id, target scope, and frame linkage against real captured state before executing any desktop action.
 

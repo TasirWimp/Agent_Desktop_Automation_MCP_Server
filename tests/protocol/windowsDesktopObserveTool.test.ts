@@ -166,7 +166,40 @@ function compactClaim(
   };
 }
 
+async function submitDigest(
+  client: Client,
+  observationId: string,
+  intendedTarget = "Submit button",
+  targetScope: Record<string, string> = {
+    kind: "window_title",
+    value: "Generated Test App"
+  }
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_perception_digest",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      observationId,
+      targetScope,
+      intendedTarget,
+      currentScene: "Generated Test App active window.",
+      currentAnchor: `${intendedTarget} row`,
+      targetVisibility: "visible",
+      anchorVisibility: "visible",
+      continuityWithPriorClaim: "consistent",
+      contradictionToPriorClaim: null,
+      staleCarryoverReviewed: true,
+      currentEvidence: `The current screenshot shows ${intendedTarget}.`
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.perceptionDigestId as string;
+}
+
 async function prepareHoverWitness(client: Client) {
+  const initialDigestId = await submitDigest(client, "observation-fixed-2");
+
   await client.callTool({
     name: "desktop_move_mouse",
     arguments: {
@@ -180,6 +213,7 @@ async function prepareHoverWitness(client: Client) {
         x: 120,
         y: 80
       },
+      perceptionDigestId: initialDigestId,
       intendedSemanticTarget: "Submit button",
       compactRelationalClaim: compactClaim("observation-fixed-2")
     }
@@ -196,11 +230,13 @@ async function prepareHoverWitness(client: Client) {
       transitionActionId: "action-fixed-4"
     }
   });
+  const followUpDigestId = await submitDigest(client, "observation-fixed-8");
   await client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
       sessionId: "session-real-observe-001",
       actionId: "action-fixed-4",
+      perceptionDigestId: followUpDigestId,
       assessment: {
         outcome: "supported",
         relationHeld: true,
@@ -217,6 +253,7 @@ async function prepareHoverWitness(client: Client) {
     arguments: {
       sessionId: "session-real-observe-001",
       observationId: "observation-fixed-8",
+      perceptionDigestId: followUpDigestId,
       movementActionId: "action-fixed-4",
       targetScope: {
         kind: "window_title",
@@ -234,6 +271,7 @@ async function prepareHoverWitness(client: Client) {
 
   return {
     observationId: "observation-fixed-8",
+    perceptionDigestId: followUpDigestId,
     hoverTargetWitnessId: hoverTargetWitness.witnessId as string
   };
 }
@@ -769,6 +807,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2", "File menu");
       const result = await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
@@ -782,6 +821,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             x: 120,
             y: 80
           },
+          perceptionDigestId: digestId,
           intendedSemanticTarget: "File menu",
           compactRelationalClaim: compactClaim("observation-fixed-2", "File menu")
         }
@@ -921,6 +961,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           },
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          perceptionDigestId: witness.perceptionDigestId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
@@ -992,6 +1033,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           button: "left",
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          perceptionDigestId: witness.perceptionDigestId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
@@ -1046,6 +1088,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           button: "left",
           intendedSemanticTarget: "Second click before post-click observation",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          perceptionDigestId: witness.perceptionDigestId,
           compactRelationalClaim: compactClaim(witness.observationId, "Second click before post-click observation", "hover_witness")
         }
       });
@@ -1095,6 +1138,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -1104,6 +1148,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "generated input",
           sensitivityClassification: "test_input",
           intendedSemanticTarget: "Name input",
@@ -1197,6 +1242,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -1206,6 +1252,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "generated input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
@@ -1258,9 +1305,11 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2", "Password input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -1270,8 +1319,10 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "password=supersecret",
-          intendedSemanticTarget: "Password input"
+          intendedSemanticTarget: "Password input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Password input")
         }
       });
       const structured = parseStructuredContent(result);
@@ -1321,9 +1372,11 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2", "Private input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -1333,8 +1386,10 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Private Browser Window"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           text: "generated input",
-          intendedSemanticTarget: "Private input"
+          intendedSemanticTarget: "Private input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Private input")
         }
       });
       const structured = parseStructuredContent(result);
@@ -1379,9 +1434,11 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2");
 
       setNow("2026-05-28T10:00:06.000Z");
 
@@ -1394,6 +1451,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           point: {
             x: 120,
             y: 80
@@ -1460,9 +1518,11 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
+      const digestId = await submitDigest(client, "observation-fixed-2", "Outside licensed app target");
       const result = await client.callTool({
         name: "desktop_click",
         arguments: {
@@ -1472,6 +1532,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "node"
           },
           preActionObservationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
           point: {
             x: 120,
             y: 80
