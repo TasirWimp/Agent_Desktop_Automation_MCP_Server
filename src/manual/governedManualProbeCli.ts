@@ -31,6 +31,7 @@ const exampleConfig: GovernedManualProbeCliConfig = {
   },
   movementFractions: [0.6, 0.75, 1],
   maxAttempts: 3,
+  maxDurationMs: 600_000,
   observationCadenceMaxGapMs: 60_000,
   includeImages: true,
   artifactDirectory: "tmp/manual-probes/file-menu",

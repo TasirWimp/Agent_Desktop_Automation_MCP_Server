@@ -32,6 +32,9 @@ const defaultForbiddenBoundaries = [
   "uninterpretable_state"
 ] as const;
 
+const defaultMaxDurationMs = 600_000;
+const maxAllowedDurationMs = 60 * 60 * 1000;
+
 export interface GovernedManualProbeConfig {
   sessionId?: string;
   userGoal: string;
@@ -43,6 +46,7 @@ export interface GovernedManualProbeConfig {
   areaOfInterest: DesktopPoint;
   movementFractions?: number[];
   maxAttempts?: number;
+  maxDurationMs?: number;
   observationCadenceMaxGapMs?: number;
   includeImages?: boolean;
   artifactDirectory?: string;
@@ -181,7 +185,7 @@ export async function runGovernedManualProbe(
           }
         : {}),
       riskLimits: {
-        maxDurationMs: 60_000,
+        maxDurationMs: config.maxDurationMs ?? defaultMaxDurationMs,
         maxActionCount: Math.max((config.maxAttempts ?? 3) + 2, 5),
         maxConsecutiveRepairAttempts: 3,
         allowCredentialEntry: false,
@@ -711,6 +715,15 @@ function validateConfig(config: GovernedManualProbeConfig): void {
 
   if (config.maxAttempts !== undefined && config.maxAttempts <= 0) {
     throw new Error("maxAttempts must be positive when provided.");
+  }
+
+  if (
+    config.maxDurationMs !== undefined &&
+    (!Number.isInteger(config.maxDurationMs) ||
+      config.maxDurationMs <= 0 ||
+      config.maxDurationMs > maxAllowedDurationMs)
+  ) {
+    throw new Error("maxDurationMs must be a positive integer no greater than 3600000.");
   }
 
   for (const fraction of config.movementFractions ?? []) {

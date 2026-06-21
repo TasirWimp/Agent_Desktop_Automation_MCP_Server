@@ -152,11 +152,12 @@ npm run manual:probe -- .\tmp\manual-probes\file-menu.json
 ```
 
 1. Confirm the runner starts a bounded session with explicit visible-content acknowledgement.
-2. Confirm it records every observation id, movement action id, transition-gate status, cursor point, and movement vector.
-3. Confirm it preserves policy blocks, especially stale pre-action observation blocks, instead of hiding them.
-4. Confirm it records wrong-target hover evidence as residue.
-5. Confirm it can verify `desktop_click` blocking without producing a real click.
-6. Confirm it writes only bounded local artifacts needed for review, such as screenshot paths, frame hashes, compact JSON summaries, and audit ids.
+2. Confirm the runner uses a `maxDurationMs` session budget of `600000` by default unless the config intentionally overrides it.
+3. Confirm it records every observation id, movement action id, transition-gate status, cursor point, and movement vector.
+4. Confirm it preserves policy blocks, especially stale pre-action observation blocks, instead of hiding them.
+5. Confirm it records wrong-target hover evidence as residue.
+6. Confirm it can verify `desktop_click` blocking without producing a real click.
+7. Confirm it writes only bounded local artifacts needed for review, such as screenshot paths, frame hashes, compact JSON summaries, and audit ids.
 
 ## Navigation Probe Runner Checks
 
@@ -168,13 +169,14 @@ npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
 ```
 
 1. Confirm the runner starts one bounded session for the full navigation path.
-2. Confirm the initial observation is reused as the first pre-action witness.
-3. Confirm each post-movement observation is recorded with `transitionActionId`.
-4. Confirm each post-movement observation is carried forward as the next pre-action witness instead of recording a redundant pre-observation.
-5. Confirm the result records timing diagnostics for capabilities, session start, each observation, each movement, audit-log read, and session end.
-6. Confirm the output includes enough frame hashes or screenshot paths to compare before/after states.
-7. Confirm the runner still requires `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true` before using a real mouse-movement provider.
-8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, arbitrary app launch, command-line launch arguments, system change, and broad desktop control must remain unavailable.
+2. Confirm the runner uses a `maxDurationMs` session budget of `600000` by default unless the config intentionally overrides it.
+3. Confirm the initial observation is reused as the first pre-action witness.
+4. Confirm each post-movement observation is recorded with `transitionActionId`.
+5. Confirm each post-movement observation is carried forward as the next pre-action witness instead of recording a redundant pre-observation.
+6. Confirm the result records timing diagnostics for capabilities, session start, each observation, each movement, audit-log read, and session end.
+7. Confirm the output includes enough frame hashes or screenshot paths to compare before/after states.
+8. Confirm the runner still requires `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true` before using a real mouse-movement provider.
+9. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, arbitrary app launch, command-line launch arguments, system change, and broad desktop control must remain unavailable.
 
 ## Pass Criteria
 

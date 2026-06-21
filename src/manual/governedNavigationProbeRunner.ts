@@ -22,6 +22,9 @@ const defaultForbiddenActions = [
   "system_change"
 ] as const;
 
+const defaultMaxDurationMs = 600_000;
+const maxAllowedDurationMs = 60 * 60 * 1000;
+
 export interface GovernedNavigationProbeStepConfig {
   stepId?: string;
   intendedSemanticTarget: string;
@@ -39,6 +42,7 @@ export interface GovernedNavigationProbeConfig {
   allowRealMouseMovement?: boolean;
   targetScope: DesktopInteractionScope;
   steps: GovernedNavigationProbeStepConfig[];
+  maxDurationMs?: number;
   observationCadenceMaxGapMs?: number;
   includeImages?: boolean;
   artifactDirectory?: string;
@@ -182,7 +186,7 @@ export async function runGovernedNavigationProbe(
         allowedActions: ["observe", "move_mouse"],
         forbiddenActions: [...defaultForbiddenActions],
         riskLimits: {
-          maxDurationMs: Math.max(60_000, requestTimeoutMs * Math.max(config.steps.length + 1, 2)),
+          maxDurationMs: config.maxDurationMs ?? defaultMaxDurationMs,
           maxActionCount: Math.max(config.steps.length + 2, 5),
           maxConsecutiveRepairAttempts: 3,
           allowCredentialEntry: false,
@@ -822,6 +826,15 @@ function validateConfig(config: GovernedNavigationProbeConfig): void {
 
   if (config.requestTimeoutMs !== undefined && config.requestTimeoutMs <= 0) {
     throw new Error("requestTimeoutMs must be positive when provided.");
+  }
+
+  if (
+    config.maxDurationMs !== undefined &&
+    (!Number.isInteger(config.maxDurationMs) ||
+      config.maxDurationMs <= 0 ||
+      config.maxDurationMs > maxAllowedDurationMs)
+  ) {
+    throw new Error("maxDurationMs must be a positive integer no greater than 3600000.");
   }
 }
 
