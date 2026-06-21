@@ -77,9 +77,9 @@ Use the session tools to create a bounded task license, record mock observation 
 5. Provide allowed scopes, allowed actions, forbidden actions, risk limits, and observation cadence.
    - If `allowedActions` includes `click` or `type_text`, also provide `licensedAppScope`.
    - `licensedAppScope` must declare the reversible app-under-test scope, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions.
-   - For real Windows observation or movement sessions, use `observationCadence.maxObservationGapMs: 60000` unless the task explicitly requires a tighter freshness bound.
-   - A 5s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds before the next action call.
-   - Keep the cadence bounded; widening this value is not permission for hidden polling, background capture, or stale action chains.
+   - For real Windows observation or movement sessions, prefer `riskLimits.maxDurationMs: 3600000`, `observationCadence.maxObservationGapMs: 180000`, and explicit `observationCadence.evidenceFreshness` tiers: `preActionObservationMaxAgeMs: 180000`, `clickCandidateObservationMaxAgeMs: 180000`, `perceptionDigestMaxAgeMs: 300000`, `workflowStateClaimMaxAgeMs: 300000`, `appScopeBindingMaxAgeMs: 300000`, and `hoverWitnessMaxAgeMs: 300000`.
+   - A single 5s or 60s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, workflow-state review, and post-action lookback can consume several seconds before the next action call.
+   - Keep the cadence bounded; widening these values is not permission for hidden polling, background capture, stale digests, stale workflow claims, or blind action chains.
 6. Call `desktop_observe` only after the session is active.
    - If the session has `licensedAppScope`, the first matching observation creates `boundAppScope`.
    - Later matching observations refresh `boundAppScope`.
@@ -97,7 +97,7 @@ Use the session tools to create a bounded task license, record mock observation 
 14. After movement, call `desktop_observe` with `transitionActionId`. This records cursor/backend telemetry and leaves semantic movement status awaiting assessment.
 15. Submit a new perception digest for the follow-up observation, then call `desktop_submit_transition_assessment` against the action id. Use `supported` only when the follow-up digest and screenshot support the stored relation, candidate, rejected alternative, and expected-evidence claim with no contradiction.
 16. After a supported movement assessment, call `desktop_evaluate_click_candidate` with the current observation id and current `perceptionDigestId` when a future click is being considered.
-17. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, fresh perception digest, frame evidence, scope match, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packet. It records a `click_candidate_evaluated` audit event, returns a hover target witness when ready, and never clicks.
+17. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, fresh perception digest, fresh workflow-state claim, frame evidence, scope match, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packet. It can reuse an older supported movement only when the latest observation, digest, workflow claim, cursor/candidate point, target, and scope revalidate it. It records a `click_candidate_evaluated` audit event, returns a hover target witness when ready, and never clicks.
 18. Call `desktop_click` only after a fresh observation, current perception digest, current `boundAppScope`, app-scoped `click` permission, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, and no prior transition gate is pending. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
 19. Call `desktop_type_text` only after a fresh observation, current perception digest, current `boundAppScope`, app-scoped `type_text` permission, relational evidence, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
 20. For `desktop_type_text`, use generated test input only. The tool records text length and classification but not text content.
@@ -106,7 +106,7 @@ Use the session tools to create a bounded task license, record mock observation 
 23. Use `desktop_session_audit_log` to inspect the session trace.
 24. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, perception digests, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, and click-candidate witness evaluations. It can exercise `observe -> perception digest -> compact relational move -> observe transitionActionId -> perception digest -> semantic landing assessment -> evaluate_click_candidate -> click/type with current digest -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
+The current implementation records session lifecycle, mock observation, perception digests, workflow-state claims, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, click-candidate witness evaluations, tiered evidence freshness, and hover-witness revalidation. It can exercise `observe -> perception digest -> workflow claim -> compact relational move -> observe transitionActionId -> perception digest -> semantic landing assessment -> workflow claim -> evaluate_click_candidate -> click/type with current digest/workflow -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
 
 ## Stop Or Escalate
 
@@ -210,7 +210,7 @@ ADMCP-016 is implemented. The Windows real-observation provider now uses a persi
 ADMCP-017 click-candidate witness gate is implemented as targeting-quality evidence, not as a click executor.
 
 - Use `desktop_evaluate_click_candidate` after a fresh observation and supported semantic landing assessment for the movement probe.
-- A ready result means the current candidate has enough session, scope, frame, cursor, semantic landing, hover witness, and risk evidence for a future app-scoped click request.
+- A ready result means the current candidate has enough session, scope, frame, cursor, semantic landing, hover witness, workflow, and risk evidence for a future app-scoped click request. An older movement witness may be reused only when the latest digest/workflow/cursor evidence revalidates the same target point.
 - A ready result does not execute a click by itself. A future `desktop_click` call must still pass session, binding, provider-gate, hover target witness, audit, and post-click observation requirements.
 - Failed results are repair input: observe again, move again as a reversible probe, refresh stale evidence, or correct scope.
 

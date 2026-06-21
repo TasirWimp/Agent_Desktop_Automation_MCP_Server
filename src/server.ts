@@ -124,6 +124,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           realDesktopTyping,
           realDesktopApplicationLaunch,
           realDesktopMutation: desktopProviderCapabilities.realDesktopMutation,
+          tieredEvidenceFreshness: true,
+          hoverWitnessRevalidation: true,
           desktopMouseKeyboardTools:
             desktopProviderCapabilities.providerKind === "real" &&
             (desktopProviderCapabilities.supportsMouse ||
@@ -134,9 +136,18 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         },
         usageGuidance: {
           recommendedObservationCadence: {
-            realWindowsProviderMaxObservationGapMs: 60_000,
+            realWindowsProviderMaxDurationMs: 3_600_000,
+            realWindowsProviderMaxObservationGapMs: 180_000,
+            realWindowsProviderEvidenceFreshness: {
+              preActionObservationMaxAgeMs: 180_000,
+              clickCandidateObservationMaxAgeMs: 180_000,
+              perceptionDigestMaxAgeMs: 300_000,
+              workflowStateClaimMaxAgeMs: 300_000,
+              appScopeBindingMaxAgeMs: 300_000,
+              hoverWitnessMaxAgeMs: 300_000
+            },
             reason:
-              "The real Windows provider can spend several seconds in capture, helper startup, and visual reasoning loops; a 5s freshness window is often too tight for observe -> move_mouse -> observe workflows.",
+              "The real Windows provider can spend several seconds in capture, helper startup, visual reasoning loops, and workflow revalidation; a single short freshness window is often too tight for observe -> digest -> workflow -> move/click workflows.",
             appliesWhen: [
               "ADMCP_DESKTOP_PROVIDER=windows-active-window",
               "ADMCP_ENABLE_REAL_OBSERVATION=true",
@@ -145,7 +156,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
               "ADMCP_ENABLE_REAL_TYPING=true for app-scoped generated test input"
             ],
             rule:
-              "Use observationCadence.maxObservationGapMs=60000 for real-provider sessions unless the task explicitly needs a tighter bound; keep every observation/action bounded, submit a perception digest for each action-bearing observation, and audit every movement with a post-action observation."
+              "Use riskLimits.maxDurationMs=3600000, observationCadence.maxObservationGapMs=180000, and the recommended evidenceFreshness tiers for real-provider sessions unless the task explicitly needs tighter bounds; keep every observation/action bounded, submit a perception digest for each action-bearing observation, and audit every movement with a post-action observation."
           }
         },
         policy: {

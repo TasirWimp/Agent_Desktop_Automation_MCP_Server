@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+  desktopEvidenceFresh,
+  desktopEvidenceFreshnessMaxAgeMs,
   desktopInteractionScopesMatch,
   desktopSubmitWorkflowStateClaimInputSchema,
   formatNullableStringForAudit,
@@ -9,6 +11,7 @@ import {
   type DesktopObservationPacket,
   type DesktopPerceptionDigest,
   type DesktopSessionAuditEvent,
+  type DesktopInteractionSessionLicense,
   type DesktopSessionStopCondition,
   type DesktopWorkflowStateClaim
 } from "../policy/sessionLicensePolicy.js";
@@ -80,21 +83,6 @@ function latestObservationId(observations: DesktopObservationPacket[]): string |
   return observations.at(-1)?.observationId;
 }
 
-function digestFresh(
-  digest: DesktopPerceptionDigest,
-  now: string,
-  maxObservationGapMs: number
-): boolean {
-  const createdMs = Date.parse(digest.createdAt);
-  const nowMs = Date.parse(now);
-
-  if (Number.isNaN(createdMs) || Number.isNaN(nowMs)) {
-    return true;
-  }
-
-  return nowMs - createdMs <= maxObservationGapMs;
-}
-
 function frameHashesMatch(
   sourceObservationFrameHashes: string[],
   observation: DesktopObservationPacket
@@ -115,7 +103,7 @@ function validateWorkflowClaimInputs(input: {
   intendedElementTarget: string;
   perceptionDigestId: string;
   now: string;
-  maxObservationGapMs: number;
+  sessionLicense: DesktopInteractionSessionLicense;
 }): { ok: true } | { ok: false; code: string; message: string; residue: string[] } {
   if (input.latestObservationId !== input.observation.observationId) {
     return {
@@ -209,13 +197,23 @@ function validateWorkflowClaimInputs(input: {
     };
   }
 
-  if (!digestFresh(input.digest, input.now, input.maxObservationGapMs)) {
+  if (
+    !desktopEvidenceFresh(
+      input.sessionLicense,
+      "perception_digest",
+      input.digest.createdAt,
+      input.now
+    )
+  ) {
     return {
       ok: false,
       code: "stale_perception_digest",
       message:
-        "Workflow-state claim perception digest is older than the session observation cadence allows.",
-      residue: ["Submit a fresh perception digest before workflow-state readiness."]
+        "Workflow-state claim perception digest is older than the perception-digest freshness tier allows.",
+      residue: [
+        `perceptionDigestMaxAgeMs: ${desktopEvidenceFreshnessMaxAgeMs(input.sessionLicense, "perception_digest")}.`,
+        "Submit a fresh perception digest before workflow-state readiness."
+      ]
     };
   }
 
@@ -410,7 +408,7 @@ export function registerWorkflowStateTools(
           intendedElementTarget: input.intendedElementTarget,
           perceptionDigestId: input.perceptionDigestId,
           now: runtime.now(),
-          maxObservationGapMs: session.license.observationCadence.maxObservationGapMs
+          sessionLicense: session.license
         });
 
         if (!inputCheck.ok) {

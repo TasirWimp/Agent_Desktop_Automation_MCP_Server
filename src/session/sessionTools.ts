@@ -6,6 +6,8 @@ import {
   desktopInteractionScopeSchema,
   desktopInteractionScopesMatch,
   desktopSessionActionTypes,
+  desktopEvidenceFresh,
+  desktopEvidenceFreshnessMaxAgeMs,
   desktopSessionObservationCadenceSchema,
   desktopSessionRiskLimitsSchema,
   evaluateSessionStartPolicy,
@@ -191,21 +193,6 @@ function latestObservationId(observations: DesktopObservationPacket[]): string |
   return observations.at(-1)?.observationId;
 }
 
-function digestFresh(
-  digest: DesktopPerceptionDigest,
-  now: string,
-  maxObservationGapMs: number
-): boolean {
-  const createdMs = Date.parse(digest.createdAt);
-  const nowMs = Date.parse(now);
-
-  if (Number.isNaN(createdMs) || Number.isNaN(nowMs)) {
-    return true;
-  }
-
-  return nowMs - createdMs <= maxObservationGapMs;
-}
-
 function digestFrameHashesMatch(
   digest: DesktopPerceptionDigest,
   observation: DesktopObservationPacket
@@ -242,7 +229,7 @@ function validateTransitionAssessmentDigest(input: {
   followUpObservation: DesktopObservationPacket | undefined;
   latestObservationId?: string;
   now: string;
-  maxObservationGapMs: number;
+  sessionLicense: DesktopInteractionSessionLicense;
   assessmentOutcome: "supported" | "contradicted" | "inconclusive";
 }):
   | { ok: true; perceptionDigest: DesktopPerceptionDigest }
@@ -291,12 +278,22 @@ function validateTransitionAssessmentDigest(input: {
     };
   }
 
-  if (!digestFresh(input.digest, input.now, input.maxObservationGapMs)) {
+  if (
+    !desktopEvidenceFresh(
+      input.sessionLicense,
+      "perception_digest",
+      input.digest.createdAt,
+      input.now
+    )
+  ) {
     return {
       ok: false,
       code: "stale_perception_digest",
-      message: "Transition assessment digest is older than the session cadence allows.",
-      residue: ["No transition assessment was recorded."]
+      message: "Transition assessment digest is older than the session perception-digest freshness tier allows.",
+      residue: [
+        `perceptionDigestMaxAgeMs: ${desktopEvidenceFreshnessMaxAgeMs(input.sessionLicense, "perception_digest")}.`,
+        "No transition assessment was recorded."
+      ]
     };
   }
 
@@ -626,7 +623,7 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
             runtime.sessionStore.listObservations(input.sessionId)
           ),
           now: runtime.now(),
-          maxObservationGapMs: session.license.observationCadence.maxObservationGapMs,
+          sessionLicense: session.license,
           assessmentOutcome: input.assessment.outcome
         });
 

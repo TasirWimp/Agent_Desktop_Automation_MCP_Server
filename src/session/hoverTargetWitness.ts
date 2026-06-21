@@ -16,6 +16,9 @@ export const hoverTargetWitnessSchema = z.object({
   sourceMoveActionId: z.string().min(1),
   sourceObservationId: z.string().min(1),
   followUpObservationId: z.string().min(1),
+  semanticLandingObservationId: z.string().min(1).optional(),
+  revalidationObservationId: z.string().min(1).optional(),
+  revalidatedOlderMovement: z.boolean().optional(),
   perceptionDigestId: z.string().min(1).optional(),
   workflowStateClaimId: z.string().min(1).optional(),
   workflowGoal: z.string().min(1).optional(),
@@ -50,6 +53,9 @@ export interface HoverTargetWitnessInput {
   sourceMoveActionId: string;
   sourceObservationId: string;
   followUpObservationId: string;
+  semanticLandingObservationId?: string;
+  revalidationObservationId?: string;
+  revalidatedOlderMovement?: boolean;
   perceptionDigestId?: string;
   workflowStateClaimId?: string;
   workflowGoal?: string;

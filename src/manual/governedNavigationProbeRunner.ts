@@ -22,8 +22,17 @@ const defaultForbiddenActions = [
   "system_change"
 ] as const;
 
-const defaultMaxDurationMs = 600_000;
+const defaultMaxDurationMs = 3_600_000;
+const defaultObservationCadenceMaxGapMs = 180_000;
 const maxAllowedDurationMs = 60 * 60 * 1000;
+const defaultEvidenceFreshness = {
+  preActionObservationMaxAgeMs: 180_000,
+  clickCandidateObservationMaxAgeMs: 180_000,
+  perceptionDigestMaxAgeMs: 300_000,
+  workflowStateClaimMaxAgeMs: 300_000,
+  appScopeBindingMaxAgeMs: 300_000,
+  hoverWitnessMaxAgeMs: 300_000
+};
 
 export interface GovernedNavigationProbeStepConfig {
   stepId?: string;
@@ -138,6 +147,7 @@ export async function runGovernedNavigationProbe(
   const artifactDirectory =
     config.artifactDirectory ?? join("tmp", "navigation-probes", sessionId);
   const includeImages = config.includeImages ?? true;
+  const useDefaultObservationCadence = config.observationCadenceMaxGapMs === undefined;
   const requestTimeoutMs = config.requestTimeoutMs ?? 120_000;
   const desktopProvider = options.desktopProvider ?? createDefaultDesktopProvider();
   const timings: NavigationProbeTiming[] = [];
@@ -197,7 +207,11 @@ export async function runGovernedNavigationProbe(
         observationCadence: {
           beforeEveryAction: true,
           afterEveryStateChangingAction: true,
-          maxObservationGapMs: config.observationCadenceMaxGapMs ?? 60_000
+          maxObservationGapMs:
+            config.observationCadenceMaxGapMs ?? defaultObservationCadenceMaxGapMs,
+          ...(useDefaultObservationCadence
+            ? { evidenceFreshness: defaultEvidenceFreshness }
+            : {})
         }
       },
       requestTimeoutMs,

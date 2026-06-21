@@ -152,7 +152,7 @@ npm run manual:probe -- .\tmp\manual-probes\file-menu.json
 ```
 
 1. Confirm the runner starts a bounded session with explicit visible-content acknowledgement.
-2. Confirm the runner uses a `maxDurationMs` session budget of `600000` by default unless the config intentionally overrides it.
+2. Confirm the runner uses a `maxDurationMs` session budget of `3600000` by default unless the config intentionally overrides it, with `maxObservationGapMs: 180000` and tiered evidence freshness defaults.
 3. Confirm it records every observation id, movement action id, transition-gate status, cursor point, and movement vector.
 4. Confirm it preserves policy blocks, especially stale pre-action observation blocks, instead of hiding them.
 5. Confirm it records wrong-target hover evidence as residue.
@@ -169,7 +169,7 @@ npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
 ```
 
 1. Confirm the runner starts one bounded session for the full navigation path.
-2. Confirm the runner uses a `maxDurationMs` session budget of `600000` by default unless the config intentionally overrides it.
+2. Confirm the runner uses a `maxDurationMs` session budget of `3600000` by default unless the config intentionally overrides it, with `maxObservationGapMs: 180000` and tiered evidence freshness defaults.
 3. Confirm the initial observation is reused as the first pre-action witness.
 4. Confirm each post-movement observation is recorded with `transitionActionId`.
 5. Confirm each post-movement observation is carried forward as the next pre-action witness instead of recording a redundant pre-observation.

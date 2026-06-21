@@ -2,6 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   desktopCompactRelationalClaimSchema,
+  desktopEvidenceFresh,
+  desktopEvidenceFreshnessMaxAgeMs,
   desktopInteractionScopeSchema,
   desktopInteractionScopesMatch,
   desktopPointSchema,
@@ -497,6 +499,29 @@ function validateClickHoverTargetWitness(
       ok: false,
       reason: `Hover target witness ${hoverTargetWitnessId} was not found in the active session.`,
       residue: ["No provider call was made and no click occurred."]
+    };
+  }
+
+  const session = runtime.sessionStore.requireActiveSession(action.sessionId);
+
+  if (
+    !desktopEvidenceFresh(
+      session.license,
+      "hover_witness",
+      hoverTargetWitness.createdAt,
+      action.requestedAt
+    )
+  ) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Hover target witness is older than the hover-witness freshness tier allows.",
+      residue: [
+        `hoverWitnessMaxAgeMs: ${desktopEvidenceFreshnessMaxAgeMs(session.license, "hover_witness")}.`,
+        `hoverTargetWitness.createdAt: ${hoverTargetWitness.createdAt}.`,
+        `click.requestedAt: ${action.requestedAt}.`,
+        "Run desktop_evaluate_click_candidate again with the latest observation, digest, and workflow claim."
+      ]
     };
   }
 

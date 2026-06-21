@@ -123,16 +123,23 @@ describe("desktop_observe MCP tool", () => {
         realDesktopObservation: false,
         realDesktopMutation: false,
         desktopMouseKeyboardTools: false,
-        executeDesktopActions: false
+        executeDesktopActions: false,
+        tieredEvidenceFreshness: true,
+        hoverWitnessRevalidation: true
       });
       expect(structured.usageGuidance).toMatchObject({
         recommendedObservationCadence: {
-          realWindowsProviderMaxObservationGapMs: 60_000
+          realWindowsProviderMaxDurationMs: 3_600_000,
+          realWindowsProviderMaxObservationGapMs: 180_000,
+          realWindowsProviderEvidenceFreshness: {
+            perceptionDigestMaxAgeMs: 300_000,
+            hoverWitnessMaxAgeMs: 300_000
+          }
         }
       });
       expect(
         structured.usageGuidance.recommendedObservationCadence.rule
-      ).toContain("observationCadence.maxObservationGapMs=60000");
+      ).toContain("observationCadence.maxObservationGapMs=180000");
     } finally {
       await client.close();
       await server.close();

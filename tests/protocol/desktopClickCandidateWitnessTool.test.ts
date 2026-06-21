@@ -514,11 +514,134 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       expect(structured.hoverTargetWitness).toMatchObject({
         sourceMoveActionId: moveActionId,
         followUpObservationId,
+        semanticLandingObservationId: followUpObservationId,
+        revalidationObservationId: followUpObservationId,
         visualConfirmation: {
           status: "confirmed",
           coordinateEvidenceOnlyIsInsufficient: true
         }
       });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("allows an older supported movement when latest digest and workflow revalidate it", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const initialObserveResult = await startAndObserve(client);
+      const initialObservation = parseStructuredContent(initialObserveResult)
+        .observation as Record<string, unknown>;
+      const initialObservationId = initialObservation.observationId as string;
+      const initialDigestId = await submitDigest(client, initialObservationId);
+      const moveResult = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: initialObservationId,
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialDigestId,
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim(initialObservationId)
+        }
+      });
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const followUpResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: moveActionId
+        }
+      });
+      const followUpObservation = parseStructuredContent(followUpResult)
+        .observation as Record<string, unknown>;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const followUpDigestId = await submitDigest(client, followUpObservationId);
+
+      await submitSupportedAssessment(client, moveActionId, followUpDigestId);
+
+      const revalidationResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true
+        }
+      });
+      const revalidationObservation = parseStructuredContent(revalidationResult)
+        .observation as Record<string, unknown>;
+      const revalidationObservationId = revalidationObservation.observationId as string;
+      const revalidationDigestId = await submitDigest(client, revalidationObservationId);
+      const revalidationWorkflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        revalidationObservationId,
+        revalidationDigestId
+      );
+
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: revalidationObservationId,
+          perceptionDigestId: revalidationDigestId,
+          workflowStateClaimId: revalidationWorkflowStateClaimId,
+          movementActionId: moveActionId,
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 120,
+            y: 80
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("candidate_ready");
+      expect(structured.clickCandidateWitness).toMatchObject({
+        movementEvidence: {
+          gateStatus: "audited",
+          followUpObservationMatches: false,
+          revalidatedByLatestObservation: true,
+          candidatePointMatchesMovement: true,
+          semanticLandingSupported: true
+        }
+      });
+      expect(structured.hoverTargetWitness).toMatchObject({
+        sourceMoveActionId: moveActionId,
+        followUpObservationId,
+        semanticLandingObservationId: followUpObservationId,
+        revalidationObservationId,
+        revalidatedOlderMovement: true,
+        perceptionDigestId: revalidationDigestId,
+        workflowStateClaimId: revalidationWorkflowStateClaimId
+      });
+      expect((structured.clickCandidateWitness as Record<string, unknown>).residue).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Older supported movement was revalidated")
+        ])
+      );
     } finally {
       await client.close();
       await server.close();

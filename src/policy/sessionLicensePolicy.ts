@@ -58,15 +58,93 @@ export const desktopSessionRiskLimitsSchema = z.object({
 
 export type DesktopSessionRiskLimits = z.infer<typeof desktopSessionRiskLimitsSchema>;
 
+const desktopEvidenceFreshnessMaxAgeMsSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(600_000);
+
+export const desktopSessionEvidenceFreshnessSchema = z.object({
+  preActionObservationMaxAgeMs: desktopEvidenceFreshnessMaxAgeMsSchema.optional(),
+  clickCandidateObservationMaxAgeMs: desktopEvidenceFreshnessMaxAgeMsSchema.optional(),
+  perceptionDigestMaxAgeMs: desktopEvidenceFreshnessMaxAgeMsSchema.optional(),
+  workflowStateClaimMaxAgeMs: desktopEvidenceFreshnessMaxAgeMsSchema.optional(),
+  appScopeBindingMaxAgeMs: desktopEvidenceFreshnessMaxAgeMsSchema.optional(),
+  hoverWitnessMaxAgeMs: desktopEvidenceFreshnessMaxAgeMsSchema.optional()
+});
+
+export type DesktopSessionEvidenceFreshness = z.infer<
+  typeof desktopSessionEvidenceFreshnessSchema
+>;
+
 export const desktopSessionObservationCadenceSchema = z.object({
   beforeEveryAction: z.literal(true),
   afterEveryStateChangingAction: z.literal(true),
-  maxObservationGapMs: z.number().int().positive().max(60_000)
+  maxObservationGapMs: z.number().int().positive().max(300_000),
+  evidenceFreshness: desktopSessionEvidenceFreshnessSchema.optional()
 });
 
 export type DesktopSessionObservationCadence = z.infer<
   typeof desktopSessionObservationCadenceSchema
 >;
+
+export type DesktopEvidenceFreshnessKind =
+  | "pre_action_observation"
+  | "click_candidate_observation"
+  | "perception_digest"
+  | "workflow_state_claim"
+  | "app_scope_binding"
+  | "hover_witness";
+
+export function desktopEvidenceFreshnessMaxAgeMs(
+  license: Pick<DesktopInteractionSessionLicense, "observationCadence">,
+  kind: DesktopEvidenceFreshnessKind
+): number {
+  const fallback = license.observationCadence.maxObservationGapMs;
+  const freshness = license.observationCadence.evidenceFreshness;
+
+  if (freshness === undefined) {
+    return fallback;
+  }
+
+  if (kind === "pre_action_observation") {
+    return freshness.preActionObservationMaxAgeMs ?? fallback;
+  }
+
+  if (kind === "click_candidate_observation") {
+    return freshness.clickCandidateObservationMaxAgeMs ?? fallback;
+  }
+
+  if (kind === "perception_digest") {
+    return freshness.perceptionDigestMaxAgeMs ?? fallback;
+  }
+
+  if (kind === "workflow_state_claim") {
+    return freshness.workflowStateClaimMaxAgeMs ?? fallback;
+  }
+
+  if (kind === "app_scope_binding") {
+    return freshness.appScopeBindingMaxAgeMs ?? fallback;
+  }
+
+  return freshness.hoverWitnessMaxAgeMs ?? fallback;
+}
+
+export function desktopEvidenceFresh(
+  license: Pick<DesktopInteractionSessionLicense, "observationCadence">,
+  kind: DesktopEvidenceFreshnessKind,
+  createdAt: string,
+  checkedAt: string
+): boolean {
+  const createdMs = Date.parse(createdAt);
+  const checkedMs = Date.parse(checkedAt);
+
+  if (Number.isNaN(createdMs) || Number.isNaN(checkedMs)) {
+    return true;
+  }
+
+  return checkedMs - createdMs <= desktopEvidenceFreshnessMaxAgeMs(license, kind);
+}
 
 export const desktopAppForbiddenBoundaryTypes = [
   "credential_or_secret_prompt",
@@ -1075,29 +1153,20 @@ function isObservationFresh(
   observation: DesktopObservationPacket,
   action: DesktopActionPacket
 ): boolean {
-  const observedMs = Date.parse(observation.observedAt);
-  const requestedMs = Date.parse(action.requestedAt);
-
-  if (Number.isNaN(observedMs) || Number.isNaN(requestedMs)) {
-    return true;
-  }
-
-  return requestedMs - observedMs <= license.observationCadence.maxObservationGapMs;
+  return desktopEvidenceFresh(
+    license,
+    "pre_action_observation",
+    observation.observedAt,
+    action.requestedAt
+  );
 }
 
 function isAppScopeBindingFresh(
+  license: DesktopInteractionSessionLicense,
   binding: DesktopAppScopeBinding,
-  now: string,
-  maxObservationGapMs: number
+  now: string
 ): boolean {
-  const boundMs = Date.parse(binding.boundAt);
-  const nowMs = Date.parse(now);
-
-  if (Number.isNaN(boundMs) || Number.isNaN(nowMs)) {
-    return true;
-  }
-
-  return nowMs - boundMs <= maxObservationGapMs;
+  return desktopEvidenceFresh(license, "app_scope_binding", binding.boundAt, now);
 }
 
 function observationMatchesBoundAppScope(
@@ -1158,14 +1227,12 @@ function perceptionDigestFresh(
   digest: DesktopPerceptionDigest,
   action: DesktopActionPacket
 ): boolean {
-  const createdMs = Date.parse(digest.createdAt);
-  const requestedMs = Date.parse(action.requestedAt);
-
-  if (Number.isNaN(createdMs) || Number.isNaN(requestedMs)) {
-    return true;
-  }
-
-  return requestedMs - createdMs <= license.observationCadence.maxObservationGapMs;
+  return desktopEvidenceFresh(
+    license,
+    "perception_digest",
+    digest.createdAt,
+    action.requestedAt
+  );
 }
 
 function perceptionDigestFrameHashesMatch(
@@ -1187,14 +1254,12 @@ function workflowStateClaimFresh(
   claim: DesktopWorkflowStateClaim,
   action: DesktopActionPacket
 ): boolean {
-  const createdMs = Date.parse(claim.createdAt);
-  const requestedMs = Date.parse(action.requestedAt);
-
-  if (Number.isNaN(createdMs) || Number.isNaN(requestedMs)) {
-    return true;
-  }
-
-  return requestedMs - createdMs <= license.observationCadence.maxObservationGapMs;
+  return desktopEvidenceFresh(
+    license,
+    "workflow_state_claim",
+    claim.createdAt,
+    action.requestedAt
+  );
 }
 
 function workflowStateClaimFrameHashesMatch(
@@ -2493,9 +2558,9 @@ export function evaluateSessionActionPolicy(
 
       if (
         !isAppScopeBindingFresh(
+          license,
           context.boundAppScope,
-          context.now,
-          license.observationCadence.maxObservationGapMs
+          context.now
         )
       ) {
         const stop = stopCondition(

@@ -383,6 +383,50 @@ describe("desktop interaction session schemas", () => {
     ).not.toThrow();
   });
 
+  it("accepts tiered evidence freshness within schema caps", () => {
+    expect(() =>
+      desktopInteractionSessionLicenseSchema.parse({
+        ...baseLicense,
+        observationCadence: {
+          ...baseLicense.observationCadence,
+          maxObservationGapMs: 300_000,
+          evidenceFreshness: {
+            preActionObservationMaxAgeMs: 600_000,
+            clickCandidateObservationMaxAgeMs: 600_000,
+            perceptionDigestMaxAgeMs: 600_000,
+            workflowStateClaimMaxAgeMs: 600_000,
+            appScopeBindingMaxAgeMs: 600_000,
+            hoverWitnessMaxAgeMs: 600_000
+          }
+        }
+      })
+    ).not.toThrow();
+  });
+
+  it("rejects over-cap observation cadence and evidence freshness values", () => {
+    expect(() =>
+      desktopInteractionSessionLicenseSchema.parse({
+        ...baseLicense,
+        observationCadence: {
+          ...baseLicense.observationCadence,
+          maxObservationGapMs: 300_001
+        }
+      })
+    ).toThrow();
+
+    expect(() =>
+      desktopInteractionSessionLicenseSchema.parse({
+        ...baseLicense,
+        observationCadence: {
+          ...baseLicense.observationCadence,
+          evidenceFreshness: {
+            perceptionDigestMaxAgeMs: 600_001
+          }
+        }
+      })
+    ).toThrow();
+  });
+
   it("accepts app-scope kinds for future binding models", () => {
     expect(() =>
       desktopInteractionSessionLicenseSchema.parse({
@@ -661,6 +705,65 @@ describe("evaluateSessionActionPolicy", () => {
 
     expect(result.decision).toBe("block");
     expect(result.auditTags).toContain("stale_pre_action_observation");
+  });
+
+  it("allows action evidence older than maxObservationGapMs when tiered freshness permits it", () => {
+    const license: DesktopInteractionSessionLicense = {
+      ...baseLicense,
+      observationCadence: {
+        ...baseLicense.observationCadence,
+        evidenceFreshness: {
+          preActionObservationMaxAgeMs: 10_000,
+          perceptionDigestMaxAgeMs: 10_000,
+          workflowStateClaimMaxAgeMs: 10_000,
+          appScopeBindingMaxAgeMs: 10_000
+        }
+      }
+    };
+    const action = actionFixture("click", {
+      requestedAt: "2026-05-27T10:00:07.000Z"
+    });
+    const result = evaluateSessionActionPolicy(license, action, {
+      ...contextFor(action),
+      observations: [
+        observationFixture("obs-before-001", {
+          observedAt: "2026-05-27T10:00:01.500Z"
+        })
+      ],
+      now: "2026-05-27T10:00:07.000Z"
+    });
+
+    expect(result.decision).toBe("allow");
+  });
+
+  it("blocks a perception digest after its own freshness tier expires", () => {
+    const license: DesktopInteractionSessionLicense = {
+      ...baseLicense,
+      observationCadence: {
+        ...baseLicense.observationCadence,
+        evidenceFreshness: {
+          preActionObservationMaxAgeMs: 10_000,
+          perceptionDigestMaxAgeMs: 5_000,
+          workflowStateClaimMaxAgeMs: 10_000,
+          appScopeBindingMaxAgeMs: 10_000
+        }
+      }
+    };
+    const action = actionFixture("click", {
+      requestedAt: "2026-05-27T10:00:07.000Z"
+    });
+    const result = evaluateSessionActionPolicy(license, action, {
+      ...contextFor(action),
+      observations: [
+        observationFixture("obs-before-001", {
+          observedAt: "2026-05-27T10:00:05.000Z"
+        })
+      ],
+      now: "2026-05-27T10:00:07.000Z"
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("stale_perception_digest");
   });
 
   it("blocks state-changing actions when the pre-action observation scope does not match", () => {

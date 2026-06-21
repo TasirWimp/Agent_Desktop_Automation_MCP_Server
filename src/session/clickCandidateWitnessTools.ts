@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  desktopEvidenceFresh,
+  desktopEvidenceFreshnessMaxAgeMs,
   desktopInteractionScopeSchema,
   desktopInteractionScopesMatch,
   desktopPointSchema,
@@ -57,6 +59,7 @@ export const clickCandidateWitnessStatuses = [
 type ClickCandidateWitnessStatus = (typeof clickCandidateWitnessStatuses)[number];
 
 const maximumCandidateCursorDistancePx = 8;
+const maximumWitnessPointDistancePx = 2;
 
 const lowRisk: DesktopActionRisk = {
   credentialExposure: false,
@@ -114,6 +117,8 @@ interface ClickCandidateEvaluation {
     observedAt?: string;
     checkedAt: string;
     maxObservationGapMs: number;
+    freshnessKind?: "click_candidate_observation";
+    maxAgeMs?: number;
     ageMs?: number;
     fresh: boolean;
     frameCount: number;
@@ -128,6 +133,7 @@ interface ClickCandidateEvaluation {
     observationMatches: boolean;
     latestObservationMatches: boolean;
     fresh: boolean;
+    maxAgeMs?: number;
     scopeMatches: boolean;
     targetMatches: boolean;
     requestedTargetCanonical: string;
@@ -145,6 +151,7 @@ interface ClickCandidateEvaluation {
     observationMatches: boolean;
     latestObservationMatches: boolean;
     fresh: boolean;
+    maxAgeMs?: number;
     scopeMatches: boolean;
     targetMatches: boolean;
     perceptionDigestMatches: boolean;
@@ -168,6 +175,11 @@ interface ClickCandidateEvaluation {
     actionType: string;
     gateStatus: InteractionTransitionGate["status"];
     followUpObservationMatches: boolean;
+    semanticLandingObservationId?: string;
+    revalidationObservationId?: string;
+    revalidatedByLatestObservation?: boolean;
+    candidatePointMatchesMovement?: boolean;
+    movementPointDistancePx?: number;
     semanticLandingSupported?: boolean;
     semanticLandingOutcome?: "supported" | "contradicted" | "inconclusive";
     contradictionSeen?: boolean;
@@ -340,7 +352,12 @@ function workflowClaimFrameHashesMatch(
 
 function movementEvidenceFor(
   movementGate: InteractionTransitionGate | undefined,
-  observationId: string
+  observationId: string,
+  revalidation: {
+    candidatePointMatchesMovement?: boolean;
+    movementPointDistancePx?: number;
+    revalidatedByLatestObservation?: boolean;
+  } = {}
 ): ClickCandidateEvaluation["movementEvidence"] | undefined {
   if (movementGate === undefined) {
     return undefined;
@@ -350,6 +367,11 @@ function movementEvidenceFor(
     actionType: movementGate.actionType,
     gateStatus: movementGate.status,
     followUpObservationMatches: movementGate.followUpObservationId === observationId,
+    semanticLandingObservationId: movementGate.followUpObservationId,
+    revalidationObservationId: observationId,
+    revalidatedByLatestObservation: revalidation.revalidatedByLatestObservation,
+    candidatePointMatchesMovement: revalidation.candidatePointMatchesMovement,
+    movementPointDistancePx: revalidation.movementPointDistancePx,
     semanticLandingSupported:
       movementGate.semanticLandingAssessment?.outcome === "supported" &&
       movementGate.semanticLandingAssessment.relationHeld &&
@@ -375,6 +397,7 @@ function chooseStatus(input: {
   movementGate?: InteractionTransitionGate;
   movementGateIsMovement: boolean;
   movementFollowUpMatches: boolean;
+  movementRevalidatedByLatestObservation: boolean;
   semanticLandingSupported: boolean;
   hasFrameEvidence: boolean;
   hasCandidatePoint: boolean;
@@ -459,7 +482,7 @@ function chooseStatus(input: {
     input.movementGate === undefined ||
     !input.movementGateIsMovement ||
     input.movementGate.status !== "audited" ||
-    !input.movementFollowUpMatches ||
+    (!input.movementFollowUpMatches && !input.movementRevalidatedByLatestObservation) ||
     !input.semanticLandingSupported ||
     input.movementGate.movementDeltaWitness?.cursorObserved === false ||
     input.movementGate.movementDeltaWitness?.scopeStable === false
@@ -493,6 +516,7 @@ function buildResidue(input: {
   workflowStateTargetMatches?: boolean;
   workflowStateReadyIssue?: string;
   movementGate?: InteractionTransitionGate;
+  movementRevalidatedByLatestObservation?: boolean;
   perceptionDigest?: DesktopPerceptionDigest;
   workflowStateClaim?: DesktopWorkflowStateClaim;
 }): string[] {
@@ -504,10 +528,13 @@ function buildResidue(input: {
 
   if (input.status === "candidate_ready") {
     residue.push("Candidate has enough current session, scope, frame, cursor, and risk evidence for a future app-scoped click request.");
+    if (input.movementRevalidatedByLatestObservation === true) {
+      residue.push("Older supported movement was revalidated by the latest observation, perception digest, workflow claim, cursor proximity, target, scope, and candidate point.");
+    }
   } else if (input.status === "insufficient_witness") {
     residue.push("Candidate does not yet have enough frame/cursor/targeting evidence; observe again or move as a reversible probe.");
   } else if (input.status === "transition_not_audited") {
-    residue.push("Movement evidence must include follow-up observation and supported semantic landing assessment before it can support a click candidate.");
+    residue.push("Movement evidence must include a supported semantic landing assessment, or an older supported movement must be revalidated by the latest digest/workflow/cursor evidence.");
   } else if (input.status === "scope_unbound") {
     residue.push("Active-window scope must be bound to a concrete observed identity before click targeting is considered ready.");
   } else if (input.status === "scope_mismatch") {
@@ -581,6 +608,10 @@ function buildResidue(input: {
       residue.push(
         `Semantic landing assessment outcome: ${input.movementGate.semanticLandingAssessment.outcome}.`
       );
+    }
+
+    if (input.movementRevalidatedByLatestObservation === true) {
+      residue.push("Movement follow-up observation differs from the current observation, but current evidence revalidated the stored movement point.");
     }
   }
 
@@ -734,16 +765,40 @@ function evaluateClickCandidate(
     candidateContainsCursor === true ||
     (candidateCursorDistancePx !== undefined &&
       candidateCursorDistancePx <= maximumCandidateCursorDistancePx);
+  const clickCandidateObservationMaxAgeMs = desktopEvidenceFreshnessMaxAgeMs(
+    session.license,
+    "click_candidate_observation"
+  );
+  const perceptionDigestMaxAgeMs = desktopEvidenceFreshnessMaxAgeMs(
+    session.license,
+    "perception_digest"
+  );
+  const workflowStateClaimMaxAgeMs = desktopEvidenceFreshnessMaxAgeMs(
+    session.license,
+    "workflow_state_claim"
+  );
   const ageMs = observationAgeMs(observation.observedAt, now);
   const fresh =
-    ageMs === undefined || ageMs <= session.license.observationCadence.maxObservationGapMs;
+    ageMs === undefined ||
+    desktopEvidenceFresh(
+      session.license,
+      "click_candidate_observation",
+      observation.observedAt,
+      now
+    );
   const digestAgeMs =
     perceptionDigest === undefined
       ? undefined
       : perceptionDigestAgeMs(perceptionDigest.createdAt, now);
   const perceptionDigestFresh =
     digestAgeMs === undefined ||
-    digestAgeMs <= session.license.observationCadence.maxObservationGapMs;
+    (perceptionDigest !== undefined &&
+      desktopEvidenceFresh(
+        session.license,
+        "perception_digest",
+        perceptionDigest.createdAt,
+        now
+      ));
   const latestObservationMatches =
     session.observations.at(-1)?.observationId === perceptionDigest?.observationId;
   const perceptionDigestObservationMatches =
@@ -770,7 +825,13 @@ function evaluateClickCandidate(
       : workflowClaimAgeMs(workflowStateClaim.createdAt, now);
   const workflowStateFresh =
     workflowClaimAge === undefined ||
-    workflowClaimAge <= session.license.observationCadence.maxObservationGapMs;
+    (workflowStateClaim !== undefined &&
+      desktopEvidenceFresh(
+        session.license,
+        "workflow_state_claim",
+        workflowStateClaim.createdAt,
+        now
+      ));
   const workflowStateObservationMatches =
     workflowStateClaim?.observationId === observation.observationId;
   const workflowStateLatest =
@@ -807,9 +868,58 @@ function evaluateClickCandidate(
   const cursorObserved =
     cursorPoint !== undefined &&
     (observation.cursorWitness === undefined || observation.cursorWitness.status === "observed");
-  const movementEvidence = movementEvidenceFor(movementGate, observation.observationId);
-  const movementFollowUpMatches = movementEvidence?.followUpObservationMatches ?? true;
-  const semanticLandingSupported = movementEvidence?.semanticLandingSupported === true;
+  const movementGateIsMovement =
+    movementGate === undefined || movementGate.actionType === "move_mouse";
+  const movementActionPoint = movementGate?.actionPoint;
+  const movementPointDistancePx =
+    candidatePoint === undefined || movementActionPoint === undefined
+      ? undefined
+      : roundForPacket(pointDistance(candidatePoint, movementActionPoint));
+  const candidatePointMatchesMovement =
+    movementPointDistancePx !== undefined &&
+    movementPointDistancePx <= maximumWitnessPointDistancePx;
+  const movementFollowUpMatches =
+    movementGate === undefined ||
+    movementGate.followUpObservationId === observation.observationId;
+  const semanticLandingSupported =
+    movementGate?.semanticLandingAssessment?.outcome === "supported" &&
+    movementGate.semanticLandingAssessment.relationHeld &&
+    movementGate.semanticLandingAssessment.candidateSupported &&
+    movementGate.semanticLandingAssessment.rejectedAlternativeAvoided &&
+    !movementGate.semanticLandingAssessment.contradictionSeen;
+  const movementRevalidatedByLatestObservation =
+    movementGate !== undefined &&
+    !movementFollowUpMatches &&
+    movementGateIsMovement &&
+    movementGate.status === "audited" &&
+    semanticLandingSupported &&
+    movementGate.movementDeltaWitness?.cursorObserved !== false &&
+    movementGate.movementDeltaWitness?.scopeStable !== false &&
+    fresh &&
+    perceptionDigest !== undefined &&
+    latestObservationMatches &&
+    perceptionDigestFresh &&
+    perceptionDigestScopeMatches &&
+    perceptionDigestTargetMatches &&
+    perceptionDigestHashesMatch &&
+    perceptionDigestReady &&
+    workflowStateClaim !== undefined &&
+    workflowStateObservationMatches &&
+    workflowStateLatest &&
+    workflowStateFresh &&
+    workflowStateScopeMatches &&
+    workflowStateTargetMatches &&
+    workflowStatePerceptionDigestMatches &&
+    workflowStateHashesMatch &&
+    workflowStateReady &&
+    candidateAlignedWithCursor &&
+    candidatePointMatchesMovement;
+  const movementEvidence = movementEvidenceFor(movementGate, observation.observationId, {
+    candidatePointMatchesMovement:
+      movementPointDistancePx === undefined ? undefined : candidatePointMatchesMovement,
+    movementPointDistancePx,
+    revalidatedByLatestObservation: movementRevalidatedByLatestObservation
+  });
   const clickAllowed =
     session.license.allowedActions.includes("click") &&
     !session.license.forbiddenActions.includes("click");
@@ -822,8 +932,9 @@ function evaluateClickCandidate(
     clickAllowed,
     riskBlocked,
     movementGate,
-    movementGateIsMovement: movementGate === undefined || movementGate.actionType === "move_mouse",
+    movementGateIsMovement,
     movementFollowUpMatches,
+    movementRevalidatedByLatestObservation,
     semanticLandingSupported,
     hasFrameEvidence,
     hasCandidatePoint: candidatePoint !== undefined,
@@ -861,6 +972,7 @@ function evaluateClickCandidate(
     workflowStateTargetMatches,
     workflowStateReadyIssue: workflowStateReadinessIssue,
     movementGate,
+    movementRevalidatedByLatestObservation,
     perceptionDigest,
     workflowStateClaim
   });
@@ -871,7 +983,12 @@ function evaluateClickCandidate(
           sessionId: input.sessionId,
           sourceMoveActionId: movementGate.actionId,
           sourceObservationId: movementGate.sourceObservationId,
-          followUpObservationId: observation.observationId,
+          followUpObservationId:
+            movementGate.followUpObservationId ?? observation.observationId,
+          semanticLandingObservationId:
+            movementGate.followUpObservationId ?? observation.observationId,
+          revalidationObservationId: observation.observationId,
+          revalidatedOlderMovement: movementRevalidatedByLatestObservation || undefined,
           perceptionDigestId: input.perceptionDigestId,
           workflowStateClaimId: input.workflowStateClaimId,
           workflowGoal: workflowStateClaim?.workflowGoal,
@@ -899,7 +1016,9 @@ function evaluateClickCandidate(
           },
           createdAt: now,
           residue: [
-            "Hover target witness was created from supported semantic landing assessment.",
+            movementRevalidatedByLatestObservation
+              ? "Hover target witness was created from an older supported semantic landing assessment revalidated by current digest/workflow/cursor evidence."
+              : "Hover target witness was created from supported semantic landing assessment.",
             "Click point must match this witness; cursor proximity alone is insufficient."
           ]
         })
@@ -927,7 +1046,9 @@ function evaluateClickCandidate(
     observationEvidence: {
       observedAt: observation.observedAt,
       checkedAt: now,
-      maxObservationGapMs: session.license.observationCadence.maxObservationGapMs,
+      maxObservationGapMs: clickCandidateObservationMaxAgeMs,
+      freshnessKind: "click_candidate_observation",
+      maxAgeMs: clickCandidateObservationMaxAgeMs,
       ageMs,
       fresh,
       frameCount: observation.frames.length,
@@ -942,6 +1063,7 @@ function evaluateClickCandidate(
       observationMatches: perceptionDigestObservationMatches,
       latestObservationMatches,
       fresh: perceptionDigestFresh,
+      maxAgeMs: perceptionDigestMaxAgeMs,
       scopeMatches: perceptionDigestScopeMatches,
       targetMatches: perceptionDigestTargetMatches,
       requestedTargetCanonical: semanticTargetCanonicalForm(input.intendedSemanticTarget),
@@ -962,6 +1084,7 @@ function evaluateClickCandidate(
       observationMatches: workflowStateObservationMatches,
       latestObservationMatches: workflowStateLatest,
       fresh: workflowStateFresh,
+      maxAgeMs: workflowStateClaimMaxAgeMs,
       scopeMatches: workflowStateScopeMatches,
       targetMatches: workflowStateTargetMatches,
       perceptionDigestMatches: workflowStatePerceptionDigestMatches,

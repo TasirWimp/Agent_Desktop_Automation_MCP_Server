@@ -40,8 +40,8 @@ const exampleConfig: GovernedNavigationProbeCliConfig = {
       ]
     }
   ],
-  maxDurationMs: 600_000,
-  observationCadenceMaxGapMs: 60_000,
+  maxDurationMs: 3_600_000,
+  observationCadenceMaxGapMs: 180_000,
   includeImages: true,
   artifactDirectory: "tmp/navigation-probes/example",
   requestTimeoutMs: 180_000,
