@@ -19,6 +19,10 @@ import {
   interactionTransitionGateSchema,
   transitionGateBlocksNonObserveAction
 } from "./interactionTransitionGate.js";
+import {
+  type HoverTargetWitness,
+  hoverTargetWitnessSchema
+} from "./hoverTargetWitness.js";
 
 export type DesktopSessionStatus = "active" | "ended";
 
@@ -59,6 +63,7 @@ export interface DesktopSessionSnapshot {
   observations: DesktopObservationPacket[];
   actions: DesktopActionPacket[];
   transitionGates: InteractionTransitionGate[];
+  hoverTargetWitnesses: HoverTargetWitness[];
   stopConditions: DesktopSessionStopCondition[];
   boundAppScope?: DesktopAppScopeBinding;
 }
@@ -85,6 +90,7 @@ interface DesktopSessionEntry {
   observations: Map<string, DesktopObservationPacket>;
   actions: Map<string, DesktopActionPacket>;
   transitionGates: Map<string, InteractionTransitionGate>;
+  hoverTargetWitnesses: Map<string, HoverTargetWitness>;
   stopConditions: DesktopSessionStopCondition[];
   boundAppScope?: DesktopAppScopeBinding;
 }
@@ -120,6 +126,7 @@ function snapshotFromEntry(entry: DesktopSessionEntry): DesktopSessionSnapshot {
     observations: clone([...entry.observations.values()]),
     actions: clone([...entry.actions.values()]),
     transitionGates: clone([...entry.transitionGates.values()]),
+    hoverTargetWitnesses: clone([...entry.hoverTargetWitnesses.values()]),
     stopConditions: clone(entry.stopConditions),
     boundAppScope: entry.boundAppScope === undefined ? undefined : clone(entry.boundAppScope)
   };
@@ -161,6 +168,7 @@ export class InMemoryDesktopSessionStore {
       observations: new Map(),
       actions: new Map(),
       transitionGates: new Map(),
+      hoverTargetWitnesses: new Map(),
       stopConditions: [],
       boundAppScope: undefined
     };
@@ -359,6 +367,36 @@ export class InMemoryDesktopSessionStore {
 
   listTransitionGates(sessionId: string): InteractionTransitionGate[] {
     return clone([...this.requireEntry(sessionId).transitionGates.values()]);
+  }
+
+  recordHoverTargetWitness(
+    witnessInput: HoverTargetWitness
+  ): HoverTargetWitness {
+    const witness = hoverTargetWitnessSchema.parse(witnessInput);
+    const entry = this.requireActiveEntry(witness.sessionId);
+
+    if (entry.hoverTargetWitnesses.has(witness.witnessId)) {
+      throw new SessionStoreError(
+        "transition_gate_already_exists",
+        `Hover target witness ${witness.witnessId} already exists.`
+      );
+    }
+
+    entry.hoverTargetWitnesses.set(witness.witnessId, clone(witness));
+
+    return clone(witness);
+  }
+
+  getHoverTargetWitness(
+    sessionId: string,
+    witnessId: string
+  ): HoverTargetWitness | undefined {
+    const witness = this.requireEntry(sessionId).hoverTargetWitnesses.get(witnessId);
+    return witness === undefined ? undefined : clone(witness);
+  }
+
+  listHoverTargetWitnesses(sessionId: string): HoverTargetWitness[] {
+    return clone([...this.requireEntry(sessionId).hoverTargetWitnesses.values()]);
   }
 
   findBlockingTransitionGate(sessionId: string): InteractionTransitionGate | undefined {

@@ -137,6 +137,33 @@ export const desktopPointSchema = z.object({
 
 export type DesktopPoint = z.infer<typeof desktopPointSchema>;
 
+export const desktopPointProvenances = [
+  "relational_estimate",
+  "relative_probe",
+  "hover_witness",
+  "external_coordinate",
+  "unknown"
+] as const;
+
+export type DesktopPointProvenance = (typeof desktopPointProvenances)[number];
+
+export const desktopCompactRelationalClaimSchema = z.object({
+  sourceObservationId: z.string().min(1),
+  intendedTarget: z.string().min(1).max(1000),
+  scene: z.string().min(1).max(2000),
+  anchor: z.string().min(1).max(1000),
+  relation: z.string().min(1).max(1000),
+  candidate: z.string().min(1).max(2000),
+  rejectedAlternative: z.string().min(1).max(2000),
+  expectedEvidence: z.string().min(1).max(2000),
+  contradiction: z.string().min(1).max(2000),
+  pointProvenance: z.enum(desktopPointProvenances)
+});
+
+export type DesktopCompactRelationalClaim = z.infer<
+  typeof desktopCompactRelationalClaimSchema
+>;
+
 export const desktopRectangleSchema = z.object({
   left: z.number().finite(),
   top: z.number().finite(),
@@ -145,6 +172,208 @@ export const desktopRectangleSchema = z.object({
 });
 
 export type DesktopRectangle = z.infer<typeof desktopRectangleSchema>;
+
+export const desktopRelationalNavigationFrameEvidenceSchema = z.object({
+  evidenceId: z.string().min(1),
+  sourceObservationId: z.string().min(1),
+  frameIndex: z.number().int().nonnegative(),
+  frameSha256: z.string().min(1),
+  imagePayloadPresent: z.literal(true),
+  visualEvidenceRole: z.string().min(1).max(1000),
+  residue: z.array(z.string())
+});
+
+export type DesktopRelationalNavigationFrameEvidence = z.infer<
+  typeof desktopRelationalNavigationFrameEvidenceSchema
+>;
+
+const desktopReasoningConfidenceSchema = z.enum(["low", "medium", "high"]);
+
+export type DesktopReasoningConfidence = z.infer<
+  typeof desktopReasoningConfidenceSchema
+>;
+
+export const desktopRelationalNavigationRejectedAlternativeSchema = z.object({
+  alternativeId: z.string().min(1),
+  description: z.string().min(1).max(2000),
+  whyPlausible: z.string().min(1).max(2000),
+  whyRejected: z.string().min(1).max(2000),
+  relationToTarget: z.string().min(1).max(1000),
+  contradictionSignal: z.string().min(1).max(1000),
+  confidence: desktopReasoningConfidenceSchema,
+  residue: z.array(z.string())
+});
+
+export type DesktopRelationalNavigationRejectedAlternative = z.infer<
+  typeof desktopRelationalNavigationRejectedAlternativeSchema
+>;
+
+export const desktopRelationalNavigationSchema = z
+  .object({
+    navigationId: z.string().min(1),
+    parentNavigationId: z.string().min(1).optional(),
+    frameEvidence: z.array(desktopRelationalNavigationFrameEvidenceSchema).min(1),
+    orientation: z
+      .object({
+        orientationId: z.string().min(1),
+        sourceObservationId: z.string().min(1),
+        userImpliedTask: z.string().min(1).max(2000),
+        sceneSummary: z.string().min(1).max(2000),
+        landmarks: z.array(z.unknown()).min(1),
+        coarseRelations: z.array(z.string().min(1)).min(1),
+        confidence: desktopReasoningConfidenceSchema,
+        residue: z.array(z.string())
+      })
+      .passthrough(),
+    regionHypothesis: z
+      .object({
+        regionId: z.string().min(1),
+        orientationId: z.string().min(1),
+        candidateRegionDescription: z.string().min(1).max(2000),
+        relationToLandmarks: z.array(z.string().min(1)).min(1),
+        expectedTraces: z.array(z.string().min(1)).min(1),
+        ruledOutAlternatives: z.array(z.string().min(1)),
+        rejectedAlternatives: z.array(desktopRelationalNavigationRejectedAlternativeSchema).min(1),
+        confidence: desktopReasoningConfidenceSchema,
+        residue: z.array(z.string())
+      })
+      .passthrough(),
+    traceHypothesis: z
+      .object({
+        traceId: z.string().min(1),
+        regionId: z.string().min(1),
+        traceSummary: z.string().min(1).max(2000),
+        supportingTraces: z.array(z.string().min(1)).min(1),
+        missingOrAmbiguousTraces: z.array(z.string().min(1)),
+        exactTargetCriteria: z.array(z.string().min(1)).min(1),
+        confidence: desktopReasoningConfidenceSchema,
+        residue: z.array(z.string())
+      })
+      .passthrough(),
+    actionJustification: z
+      .object({
+        hypothesisId: z.string().min(1),
+        traceId: z.string().min(1),
+        intendedSemanticTarget: z.string().min(1).max(1000),
+        targetPointRationale: z.string().min(1).max(2000),
+        relationPath: z.array(z.string().min(1)).min(1),
+        expectedHoverEvidence: z.array(z.string().min(1)).min(1),
+        contradictionSignals: z.array(z.string().min(1)).min(1),
+        confidence: desktopReasoningConfidenceSchema,
+        residue: z.array(z.string())
+      })
+      .passthrough(),
+    residue: z.array(z.string())
+  })
+  .passthrough()
+  .superRefine((navigation, context) => {
+    if (navigation.regionHypothesis.orientationId !== navigation.orientation.orientationId) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "regionHypothesis.orientationId must match orientation.orientationId.",
+        path: ["regionHypothesis", "orientationId"]
+      });
+    }
+
+    if (navigation.traceHypothesis.regionId !== navigation.regionHypothesis.regionId) {
+      context.addIssue({
+        code: "custom",
+        message: "traceHypothesis.regionId must match regionHypothesis.regionId.",
+        path: ["traceHypothesis", "regionId"]
+      });
+    }
+
+    if (navigation.actionJustification.traceId !== navigation.traceHypothesis.traceId) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "actionJustification.traceId must match traceHypothesis.traceId.",
+        path: ["actionJustification", "traceId"]
+      });
+    }
+
+    navigation.frameEvidence.forEach((evidence, index) => {
+      if (evidence.sourceObservationId !== navigation.orientation.sourceObservationId) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "frameEvidence.sourceObservationId must match orientation.sourceObservationId.",
+          path: ["frameEvidence", index, "sourceObservationId"]
+        });
+      }
+    });
+  });
+
+export type DesktopRelationalNavigation = z.infer<
+  typeof desktopRelationalNavigationSchema
+>;
+
+export const desktopPreActionNavigationCheckSchema = z
+  .object({
+    checkId: z.string().min(1),
+    sourceObservationId: z.string().min(1),
+    navigationId: z.string().min(1),
+    hypothesisId: z.string().min(1),
+    reviewedLiveObservation: z.literal(true),
+    comparedAgainstAlternatives: z.literal(true),
+    contradictionSignalsReviewed: z.literal(true),
+    acknowledgedSemanticGap: z.literal(true),
+    exploratoryAction: z.boolean(),
+    ambiguityDescription: z.string().min(1).max(2000).optional(),
+    repairOrBacktrackPlan: z.string().min(1).max(2000),
+    readyToAct: z.literal(true),
+    selectedActionRationale: z.string().min(1).max(2000),
+    confidence: desktopReasoningConfidenceSchema,
+    residue: z.array(z.string())
+  })
+  .superRefine((check, context) => {
+    if (check.exploratoryAction && check.ambiguityDescription === undefined) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "ambiguityDescription is required when exploratoryAction is true.",
+        path: ["ambiguityDescription"]
+      });
+    }
+  });
+
+export type DesktopPreActionNavigationCheck = z.infer<
+  typeof desktopPreActionNavigationCheckSchema
+>;
+
+export const desktopCompactSemanticLandingAssessmentSchema = z
+  .object({
+    outcome: z.enum(["supported", "contradicted", "inconclusive"]),
+    relationHeld: z.boolean(),
+    candidateSupported: z.boolean(),
+    rejectedAlternativeAvoided: z.boolean(),
+    expectedEvidenceSeen: z.string().min(1).max(2000),
+    contradictionSeen: z.boolean(),
+    summary: z.string().min(1).max(2000)
+  })
+  .superRefine((assessment, context) => {
+    if (assessment.outcome === "supported") {
+      const supported =
+        assessment.relationHeld &&
+        assessment.candidateSupported &&
+        assessment.rejectedAlternativeAvoided &&
+        !assessment.contradictionSeen;
+
+      if (!supported) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "supported assessments must affirm relation, candidate, rejected-alternative avoidance, and no contradiction.",
+          path: ["outcome"]
+        });
+      }
+    }
+  });
+
+export type DesktopCompactSemanticLandingAssessment = z.infer<
+  typeof desktopCompactSemanticLandingAssessmentSchema
+>;
 
 export const desktopFrameArtifactSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -273,24 +502,112 @@ export type DesktopActionRisk = z.infer<typeof desktopActionRiskSchema>;
 export const desktopActionInputSchema = z.object({
   point: desktopPointSchema.optional(),
   button: z.enum(["left", "middle", "right"]).optional(),
-  textLength: z.number().int().nonnegative().optional()
+  textLength: z.number().int().nonnegative().optional(),
+  hoverTargetWitnessId: z.string().min(1).optional()
 });
 
 export type DesktopActionInput = z.infer<typeof desktopActionInputSchema>;
 
-export const desktopActionPacketSchema = z.object({
-  actionId: z.string().min(1),
-  sessionId: z.string().min(1),
-  actionType: z.enum(desktopSessionActionTypes),
-  requestedAt: z.string().min(1),
-  targetScope: desktopInteractionScopeSchema,
-  preActionObservationId: z.string().min(1).optional(),
-  postActionObservationId: z.string().min(1).optional(),
-  intendedSemanticTarget: z.string().min(1).optional(),
-  input: desktopActionInputSchema,
-  risk: desktopActionRiskSchema,
-  residue: z.array(z.string())
-});
+export const desktopActionPacketSchema = z
+  .object({
+    actionId: z.string().min(1),
+    sessionId: z.string().min(1),
+    actionType: z.enum(desktopSessionActionTypes),
+    requestedAt: z.string().min(1),
+    targetScope: desktopInteractionScopeSchema,
+    preActionObservationId: z.string().min(1).optional(),
+    postActionObservationId: z.string().min(1).optional(),
+    intendedSemanticTarget: z.string().min(1).optional(),
+    input: desktopActionInputSchema,
+    compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
+    relationalNavigation: desktopRelationalNavigationSchema.optional(),
+    preActionNavigationCheck: desktopPreActionNavigationCheckSchema.optional(),
+    risk: desktopActionRiskSchema,
+    residue: z.array(z.string())
+  })
+  .superRefine((action, context) => {
+    if (
+      action.relationalNavigation !== undefined &&
+      action.intendedSemanticTarget !== undefined &&
+      action.relationalNavigation.actionJustification.intendedSemanticTarget !==
+        action.intendedSemanticTarget
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "relationalNavigation.actionJustification.intendedSemanticTarget must match intendedSemanticTarget when both are supplied.",
+        path: ["relationalNavigation", "actionJustification", "intendedSemanticTarget"]
+      });
+    }
+
+    if (
+      action.relationalNavigation !== undefined &&
+      action.preActionObservationId !== undefined &&
+      action.relationalNavigation.orientation.sourceObservationId !==
+        action.preActionObservationId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "relationalNavigation.orientation.sourceObservationId must match preActionObservationId when both are supplied.",
+        path: ["relationalNavigation", "orientation", "sourceObservationId"]
+      });
+    }
+
+    if (
+      action.compactRelationalClaim !== undefined &&
+      action.preActionObservationId !== undefined &&
+      action.compactRelationalClaim.sourceObservationId !== action.preActionObservationId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "compactRelationalClaim.sourceObservationId must match preActionObservationId when both are supplied.",
+        path: ["compactRelationalClaim", "sourceObservationId"]
+      });
+    }
+
+    if (
+      action.compactRelationalClaim !== undefined &&
+      action.intendedSemanticTarget !== undefined &&
+      action.compactRelationalClaim.intendedTarget !== action.intendedSemanticTarget
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "compactRelationalClaim.intendedTarget must match intendedSemanticTarget when both are supplied.",
+        path: ["compactRelationalClaim", "intendedTarget"]
+      });
+    }
+
+    if (
+      action.preActionNavigationCheck !== undefined &&
+      action.relationalNavigation !== undefined &&
+      action.preActionNavigationCheck.navigationId !==
+        action.relationalNavigation.navigationId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "preActionNavigationCheck.navigationId must match relationalNavigation.navigationId when both are supplied.",
+        path: ["preActionNavigationCheck", "navigationId"]
+      });
+    }
+
+    if (
+      action.preActionNavigationCheck !== undefined &&
+      action.relationalNavigation !== undefined &&
+      action.preActionNavigationCheck.hypothesisId !==
+        action.relationalNavigation.actionJustification.hypothesisId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "preActionNavigationCheck.hypothesisId must match relationalNavigation.actionJustification.hypothesisId when both are supplied.",
+        path: ["preActionNavigationCheck", "hypothesisId"]
+      });
+    }
+  });
 
 export type DesktopActionPacket = z.infer<typeof desktopActionPacketSchema>;
 
@@ -302,6 +619,7 @@ export const desktopSessionAuditEventTypes = [
   "action_blocked",
   "action_completed",
   "post_action_observed",
+  "transition_assessed",
   "app_scope_bound",
   "click_candidate_evaluated",
   "session_stopped",
@@ -336,6 +654,11 @@ export const desktopSessionStopConditionTypes = [
   "stale_pre_action_observation",
   "pre_action_observation_scope_mismatch",
   "missing_frame_evidence",
+  "missing_relational_navigation",
+  "invalid_point_provenance",
+  "missing_pre_action_navigation_check",
+  "insufficient_reasoning_contract",
+  "missing_semantic_landing_assessment",
   "missing_post_action_observation",
   "post_action_observation_scope_mismatch",
   "missing_audit_event",
@@ -588,9 +911,91 @@ function findObservation(
   return observations.find((observation) => observation.observationId === observationId);
 }
 
+function observationHasImagePayload(observation: DesktopObservationPacket): boolean {
+  return observation.frames.some(
+    (frame) => frame.dataBase64 !== undefined && frame.dataBase64.length > 0
+  );
+}
+
+function relationalFrameEvidenceIssues(
+  observation: DesktopObservationPacket,
+  navigation: DesktopRelationalNavigation
+): string[] {
+  const issues: string[] = [];
+  const frameHashesByIndex = new Map(
+    observation.frames.map((frame) => [frame.index, frame.sha256])
+  );
+
+  for (const evidence of navigation.frameEvidence) {
+    const observedHash = frameHashesByIndex.get(evidence.frameIndex);
+
+    if (evidence.sourceObservationId !== observation.observationId) {
+      issues.push(
+        `Frame evidence ${evidence.evidenceId} references source observation ${evidence.sourceObservationId}, not ${observation.observationId}.`
+      );
+    }
+
+    if (observedHash === undefined) {
+      issues.push(
+        `Frame evidence ${evidence.evidenceId} references frame ${evidence.frameIndex}, which is not in the pre-action observation.`
+      );
+    } else if (observedHash !== evidence.frameSha256) {
+      issues.push(
+        `Frame evidence ${evidence.evidenceId} hash does not match the live pre-action observation frame.`
+      );
+    }
+  }
+
+  return issues;
+}
+
+function pointProvenanceAllowedForAction(action: DesktopActionPacket): boolean {
+  const provenance = action.compactRelationalClaim?.pointProvenance;
+
+  if (provenance === undefined) {
+    return true;
+  }
+
+  if (provenance === "external_coordinate" || provenance === "unknown") {
+    return false;
+  }
+
+  if (action.actionType === "move_mouse") {
+    return (
+      provenance === "relational_estimate" ||
+      provenance === "relative_probe" ||
+      provenance === "hover_witness"
+    );
+  }
+
+  if (action.actionType === "click") {
+    return provenance === "hover_witness";
+  }
+
+  return (
+    provenance === "relational_estimate" ||
+    provenance === "relative_probe" ||
+    provenance === "hover_witness"
+  );
+}
+
+function invalidPointProvenanceReason(action: DesktopActionPacket): string {
+  const provenance = action.compactRelationalClaim?.pointProvenance ?? "missing";
+
+  if (provenance === "external_coordinate" || provenance === "unknown") {
+    return `${provenance} coordinates are hypotheses from outside relational navigation and cannot license state-changing desktop actions.`;
+  }
+
+  if (action.actionType === "click") {
+    return "desktop_click requires compactRelationalClaim.pointProvenance=hover_witness.";
+  }
+
+  return `${provenance} is not accepted for ${action.actionType}.`;
+}
+
 function postActionObservationReason(actionType: DesktopSessionActionType): string {
   if (actionType === "move_mouse") {
-    return "Mouse movement is a probe and requires post-movement observation before the next non-observe action.";
+    return "Mouse movement is a probe and requires post-movement observation plus semantic landing assessment before the next non-observe action.";
   }
 
   if (actionType === "click" || actionType === "type_text") {
@@ -1058,6 +1463,226 @@ export function evaluateSessionActionPolicy(
       );
 
       return result("block", [stop.reason], [...auditTags, "missing_frame_evidence"], [stop]);
+    }
+
+    if (!observationHasImagePayload(preActionObservation)) {
+      const stop = stopCondition(
+        "missing_frame_evidence",
+        license.sessionId,
+        "The referenced pre-action observation contains frame metadata but no screenshot image payload.",
+        action.actionId,
+        [
+          "Relational navigation must be derived from screenshot-bearing frame evidence.",
+          "Call desktop_observe with includeImages: true before requesting movement, click, or typing."
+        ]
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "missing_screenshot_image_payload"],
+        [stop]
+      );
+    }
+
+    if (
+      action.compactRelationalClaim === undefined &&
+      action.relationalNavigation === undefined
+    ) {
+      const stop = stopCondition(
+        "missing_relational_navigation",
+        license.sessionId,
+        "Every state-changing action must include compactRelationalClaim or full relationalNavigation derived from the live pre-action observation.",
+        action.actionId,
+        [
+          "Coordinates may be probe/action endpoints, but they are not evidence that the target is correct.",
+          "Provide compactRelationalClaim for the mini-agent path or relationalNavigation for strict/debug clients."
+        ]
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "missing_relational_navigation"],
+        [stop]
+      );
+    }
+
+    if (
+      action.compactRelationalClaim !== undefined &&
+      action.compactRelationalClaim.sourceObservationId !== preActionObservation.observationId
+    ) {
+      const stop = stopCondition(
+        "missing_relational_navigation",
+        license.sessionId,
+        "compactRelationalClaim must be derived from the same live observation referenced by the action.",
+        action.actionId,
+        [
+          `Action preActionObservationId: ${preActionObservation.observationId}.`,
+          `Compact claim sourceObservationId: ${action.compactRelationalClaim.sourceObservationId}.`
+        ]
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "compact_relational_claim_observation_mismatch"],
+        [stop]
+      );
+    }
+
+    if (
+      action.compactRelationalClaim !== undefined &&
+      action.intendedSemanticTarget !== undefined &&
+      action.compactRelationalClaim.intendedTarget !== action.intendedSemanticTarget
+    ) {
+      const stop = stopCondition(
+        "missing_relational_navigation",
+        license.sessionId,
+        "compactRelationalClaim.intendedTarget must match the action intendedSemanticTarget.",
+        action.actionId,
+        [
+          `Action intendedSemanticTarget: ${action.intendedSemanticTarget}.`,
+          `Compact claim intendedTarget: ${action.compactRelationalClaim.intendedTarget}.`
+        ]
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "compact_relational_claim_target_mismatch"],
+        [stop]
+      );
+    }
+
+    if (!pointProvenanceAllowedForAction(action)) {
+      const stop = stopCondition(
+        "invalid_point_provenance",
+        license.sessionId,
+        invalidPointProvenanceReason(action),
+        action.actionId,
+        [
+          "Raw coordinates are allowed only as probe/action endpoints.",
+          "Click requests must be backed by a hover witness, not by coordinate proximity alone."
+        ]
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "invalid_point_provenance"],
+        [stop]
+      );
+    }
+
+    if (
+      action.relationalNavigation !== undefined &&
+      action.relationalNavigation.orientation.sourceObservationId !==
+        preActionObservation.observationId
+    ) {
+      const stop = stopCondition(
+        "missing_relational_navigation",
+        license.sessionId,
+        "relationalNavigation must be derived from the same live observation referenced by the action.",
+        action.actionId,
+        [
+          `Action preActionObservationId: ${preActionObservation.observationId}.`,
+          `Relational sourceObservationId: ${action.relationalNavigation.orientation.sourceObservationId}.`
+        ]
+      );
+
+      return result(
+        "block",
+        [stop.reason],
+        [...auditTags, "relational_navigation_observation_mismatch"],
+        [stop]
+      );
+    }
+
+    if (action.relationalNavigation !== undefined) {
+      const frameEvidenceIssues = relationalFrameEvidenceIssues(
+        preActionObservation,
+        action.relationalNavigation
+      );
+
+      if (frameEvidenceIssues.length > 0) {
+        const stop = stopCondition(
+          "missing_frame_evidence",
+          license.sessionId,
+          "relationalNavigation must reference screenshot-bearing frame evidence from the live pre-action observation.",
+          action.actionId,
+          frameEvidenceIssues
+        );
+
+        return result(
+          "block",
+          [stop.reason],
+          [...auditTags, "relational_navigation_frame_evidence_mismatch"],
+          [stop]
+        );
+      }
+
+      if (action.preActionNavigationCheck === undefined) {
+        const stop = stopCondition(
+          "missing_pre_action_navigation_check",
+          license.sessionId,
+          "Full relationalNavigation requires a pre-action navigation self-check before provider execution.",
+          action.actionId,
+          [
+            "The self-check must confirm live-observation review, alternative comparison, contradiction review, and readiness to act."
+          ]
+        );
+
+        return result(
+          "block",
+          [stop.reason],
+          [...auditTags, "missing_pre_action_navigation_check"],
+          [stop]
+        );
+      }
+
+      if (
+        action.preActionNavigationCheck.sourceObservationId !==
+        preActionObservation.observationId
+      ) {
+        const stop = stopCondition(
+          "missing_pre_action_navigation_check",
+          license.sessionId,
+          "The pre-action navigation self-check must reference the same live observation as the action.",
+          action.actionId,
+          [
+            `Action preActionObservationId: ${preActionObservation.observationId}.`,
+            `Self-check sourceObservationId: ${action.preActionNavigationCheck.sourceObservationId}.`
+          ]
+        );
+
+        return result(
+          "block",
+          [stop.reason],
+          [...auditTags, "pre_action_navigation_check_observation_mismatch"],
+          [stop]
+        );
+      }
+
+      if (action.preActionNavigationCheck.exploratoryAction && action.actionType !== "move_mouse") {
+        const stop = stopCondition(
+          "insufficient_reasoning_contract",
+          license.sessionId,
+          "Exploratory ambiguity-resolution actions must use desktop_move_mouse, not click or typing.",
+          action.actionId,
+          [
+            "Click and typing require a non-exploratory relational path.",
+            "Use desktop_move_mouse, observe the transition, and submit a semantic landing assessment first."
+          ]
+        );
+
+        return result(
+          "block",
+          [stop.reason],
+          [...auditTags, "exploratory_action_requires_move_mouse"],
+          [stop]
+        );
+      }
     }
 
     if (appScopedActionTypes.has(action.actionType as DesktopLicensedAppActionType)) {

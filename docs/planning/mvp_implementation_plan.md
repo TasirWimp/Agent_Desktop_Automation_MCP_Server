@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, an opt-in app-scoped Windows generated-text typing gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
+Phase 0 foundation is established: repository scaffold, Codex subagents, GitHub Actions CI, MCP stdio entrypoint, initial policy tests, read-only UI intersection planning, session-license policy contracts, in-memory session runtime/audit store, MCP session lifecycle tools, mock provider-backed observation, mock action probes with transition gates, compact relational navigation enforcement, semantic landing assessments, a click-candidate witness gate, a licensed app scope model, runtime app-scope binding and scope-exit auditing, catalog-only app bootstrap, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, an opt-in app-scoped Windows generated-text typing gate, governed manual/navigation probe runners, Windows provider performance instrumentation, and a persistent Windows observation helper.
 
 ## Planning Document Roles
 
@@ -146,6 +146,7 @@ Extracted implementation slices:
 - ADMCP-020 App-Scoped Real Click Gate - implemented.
 - ADMCP-021 App-Scoped Type Text Gate - implemented.
 - ADMCP-022 Post-Action Observation And Repair Loop - implemented.
+- ADMCP-024 Compact Relational Navigation Enforcement And App Catalog Bootstrap - implemented.
 - ADMCP-023 Governed UI Test Cycle Runner For Local Apps - planned.
 
 Acceptance gate before app-scoped real click, typing, or durable OS mutation:
@@ -160,6 +161,8 @@ Acceptance gate before app-scoped real click, typing, or durable OS mutation:
 - post-action observation is enforced for movement, click, and typing,
 - cursor and hover witnesses are represented explicitly after real movement probes,
 - targeting-quality witnesses are available to reduce wrong-target clicks inside the licensed app,
+- coordinates are only probe/action endpoints, while relational claims and semantic landing assessment carry target correctness,
+- app bootstrap is catalog-only and accepts no arbitrary executable paths or command-line arguments,
 - stop/escalation conditions are covered by tests,
 - manual acceptance checks are documented for the target backend.
 
@@ -840,11 +843,11 @@ Delivered behavior:
 - Registers `desktop_evaluate_click_candidate`.
 - Requires an active session and a recorded observation.
 - Requires `click` to be allowed by the session before a candidate can be ready.
-- Checks observation freshness, target-scope match, frame evidence, cursor witness, candidate point or bounding-box center, and low-risk packet.
-- Optionally consumes an audited movement transition gate and requires it to match the supplied follow-up observation.
-- Marks stale, out-of-scope, unbound active-window, high-risk, unaudited-movement, or weak cursor/target evidence as not ready.
+- Checks observation freshness, target-scope match, frame evidence, cursor witness, candidate point or bounding-box center, supported semantic landing assessment, no contradiction, and low-risk packet.
+- Consumes a movement transition gate and requires it to match the supplied follow-up observation before candidate readiness.
+- Marks stale, out-of-scope, unbound active-window, high-risk, unaudited-movement, missing semantic assessment, contradicted landing, or weak cursor/target evidence as not ready.
 - Appends a `click_candidate_evaluated` audit event.
-- Returns `wouldExecuteClick: false`, `realClickExecutionAvailable: false`, and `requiresPostClickObservation: true`.
+- Returns `wouldExecuteClick: false`, `realClickExecutionAvailable: false`, `requiresPostClickObservation: true`, and a hover target witness when ready.
 
 Implemented files:
 
@@ -861,7 +864,7 @@ Verification:
 Residual scope:
 
 - This slice does not implement real clicking.
-- It does not perform OCR, semantic localization, hover interpretation, or app-scope binding.
+- It does not perform OCR, semantic localization, provider-native hover interpretation, or app-scope binding.
 - Later real click work must consume this as targeting-quality evidence inside the licensed app-under-test model.
 
 ### ADMCP-018 Licensed App Scope Model
@@ -1016,6 +1019,7 @@ Delivered behavior:
 - Converts active-window-frame click points to screen coordinates inside the provider.
 - Checks active-window scope before clicking and records post-click active-window scope residue for follow-up observation.
 - Records real click action packets and transition gates through the same runtime path as mock clicks.
+- Requires normal click requests to carry `hover_witness` point provenance and a stored hover target witness that matches the pre-action observation, semantic target, scope, and click point.
 - Requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 - Keeps real typing, shell, app launch, system changes, external publishing, hidden polling, background capture, OCR, accessibility interpretation, and broad desktop control unavailable.
 
@@ -1050,7 +1054,7 @@ Verification:
 Residual scope:
 
 - Real typing is implemented by ADMCP-021 through a separate app-scoped provider gate.
-- Click-candidate witness output is still targeting-quality evidence; `desktop_click` does not yet require a stored candidate witness id.
+- Click-candidate witness output is targeting-quality evidence and normal `desktop_click` requests now require the stored hover target witness id.
 - Post-click repair classification remains deferred to ADMCP-022.
 - Local URL/origin app binding remains provider-dependent future work.
 
@@ -1119,6 +1123,99 @@ Delivered implementation:
 - No-op, wrong-target, and repair-needed classifications consume bounded repair budget while allowing the next licensed repair action until the limit is reached.
 - Scope exit, forbidden-boundary/risk prompts, uninterpretable follow-up observations, and repair-limit exhaustion create stop/escalation evidence.
 - ADMCP-022 does not add OCR, accessibility trees, hidden polling, app launching, shell execution, or new desktop mutation authority.
+
+### ADMCP-024 Compact Relational Navigation Enforcement And App Catalog Bootstrap
+
+Goal: Make relational navigation the required proof path for state-changing desktop actions while keeping the public agent payload compact enough for smaller automation models, and move app bootstrap allowlisting into JSON configuration.
+
+Status:
+
+- Implemented.
+
+Depends on:
+
+- ADMCP-017 Click-Candidate Witness Gate.
+- ADMCP-019 Scope Binding Runtime.
+- ADMCP-020 App-Scoped Real Click Gate.
+- ADMCP-021 App-Scoped Type Text Gate.
+- ADMCP-022 Post-Action Observation And Repair Loop.
+
+Required behavior:
+
+- Add `compactRelationalClaim` to `desktop_move_mouse`, `desktop_click`, and `desktop_type_text`.
+- Keep full `relationalNavigation` supported for strict/debug clients.
+- Require compact or full relational evidence before provider execution for state-changing actions.
+- Bind compact claims to live screenshot-bearing pre-action observations and expand them server-side into audit-ready relational navigation evidence.
+- Treat raw coordinates as probe/action endpoints only, never as proof that the semantic target was correct.
+- Block `external_coordinate` and `unknown` point provenance for real state-changing actions.
+- Allow `relational_estimate` and `relative_probe` for movement, require `hover_witness` for normal clicks, and preserve generated-test-input typing controls.
+- Record movement cursor landing as backend telemetry only; require semantic landing assessment before click-candidate readiness.
+- Add `desktop_submit_transition_assessment` for supported, contradicted, and inconclusive semantic landing outcomes.
+- Require supported semantic landing, no contradiction, and hover target witness evidence before normal click execution.
+- Move bootstrap app definitions to `config/desktop_applications.json`; allow only catalog IDs or exact aliases, with no executable paths or command-line arguments.
+- Preserve explicit real-provider gates for movement, click, typing, and application launch.
+
+Delivered behavior:
+
+- `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` accept compact relational claims and full relational navigation packets.
+- Compact claims are expanded into server-generated relational navigation, frame-hash binding, rejected alternative, expected/contradiction evidence, and pre-action self-check defaults.
+- State-changing policy blocks coordinate-only requests, stale/wrong observation references, missing screenshot payloads, mismatched compact targets, and blocked point provenance.
+- `desktop_observe({ transitionActionId })` records cursor movement telemetry for relational movement probes but leaves the transition gate in `observed` status until semantic assessment.
+- `desktop_submit_transition_assessment` updates transition gates to expected-delta, wrong-target, or repair-needed dispositions and updates repair accounting.
+- `desktop_evaluate_click_candidate` treats proximity as insufficient by itself and records a hover target witness only after supported semantic landing evidence.
+- `desktop_click` validates the hover target witness id, semantic target, scope, observation id, and click-point match before provider execution.
+- `desktop_open_application` resolves only IDs and aliases from `config/desktop_applications.json`, requires user confirmation, rejects unknown/path-like queries, and rejects launch-argument fields.
+- Mock provider launch remains simulated. Real application launch is behind `ADMCP_ENABLE_REAL_APP_LAUNCH` and provider support; real movement/click/type gates remain unchanged.
+- Governed manual and navigation probe runners now emit compact relational movement claims and submit semantic landing assessments.
+
+Implemented files:
+
+- `config/desktop_applications.json`
+- `src/policy/sessionLicensePolicy.ts`
+- `src/providers/applicationCatalog.ts`
+- `src/providers/desktopProvider.ts`
+- `src/providers/defaultDesktopProvider.ts`
+- `src/providers/mockDesktopProvider.ts`
+- `src/providers/windowsDesktopObservationProvider.ts`
+- `src/session/actionTools.ts`
+- `src/session/applicationBootstrapTools.ts`
+- `src/session/clickCandidateWitnessTools.ts`
+- `src/session/hoverTargetWitness.ts`
+- `src/session/interactionTransitionGate.ts`
+- `src/session/observationTools.ts`
+- `src/session/sessionStore.ts`
+- `src/session/sessionTools.ts`
+- `src/server.ts`
+- `src/manual/governedManualProbeRunner.ts`
+- `src/manual/governedNavigationProbeRunner.ts`
+- `tests/applicationCatalog.test.ts`
+- `tests/sessionLicensePolicy.test.ts`
+- `tests/protocol/desktopMoveMouseTool.test.ts`
+- `tests/protocol/desktopClickCandidateWitnessTool.test.ts`
+- `tests/protocol/desktopClickTypeTools.test.ts`
+- `tests/protocol/desktopOpenApplicationTool.test.ts`
+- `tests/protocol/postActionRepairLoop.test.ts`
+- `tests/protocol/windowsDesktopObserveTool.test.ts`
+- `tests/governedManualProbeRunner.test.ts`
+- `tests/governedNavigationProbeRunner.test.ts`
+
+Required operational loop:
+
+```text
+observe -> compact relational move -> observe transition -> semantic landing assessment -> evaluate click candidate -> click -> observe
+```
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+
+Residual scope:
+
+- The Windows provider exposes the application-launch capability gate, but real application launch still needs a concrete backend launcher implementation before live catalog launch can execute.
+- Semantic landing assessment is submitted by the agent/user-facing workflow; the server verifies the assessment structure and gates downstream actions, but does not independently perform OCR or visual reasoning.
+- Catalog matching is exact after normalization; fuzzy app search is intentionally not implemented.
 
 ### ADMCP-023 Governed UI Test Cycle Runner For Local Apps
 

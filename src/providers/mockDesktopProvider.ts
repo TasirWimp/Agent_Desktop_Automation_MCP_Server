@@ -10,6 +10,8 @@ import type {
   DesktopInteractionProvider,
   DesktopObserveRequest,
   DesktopObserveResult,
+  DesktopApplicationLaunchRequest,
+  DesktopApplicationLaunchResult,
   DesktopProviderActionRequest,
   DesktopProviderActionResult,
   DesktopProviderCapabilities
@@ -53,8 +55,10 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
       supportsMouse: true,
       supportsClick: true,
       supportsTyping: true,
+      supportsApplicationLaunch: true,
       realDesktopCapture: false,
       realDesktopMouseMovement: false,
+      realDesktopApplicationLaunch: false,
       realDesktopMutation: false,
       maxFramesPerObservation: this.maxFramesPerObservation,
       maxObservationDurationMs: this.maxObservationDurationMs,
@@ -63,7 +67,8 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
         "Provider does not capture the real desktop.",
         "Provider simulates mouse movement in memory only.",
         "Provider simulates click and typing results in memory only.",
-        "Provider does not move the real mouse, click the real desktop, type into the real desktop, launch apps, or mutate OS state."
+        "Provider simulates catalog application launch in memory only.",
+        "Provider does not move the real mouse, click the real desktop, type into the real desktop, launch real apps, or mutate OS state."
       ]
     };
   }
@@ -148,6 +153,22 @@ export class MockDesktopProvider implements DesktopInteractionProvider {
         ...(request.intendedSemanticTarget === undefined
           ? []
           : [`Intended semantic target: ${request.intendedSemanticTarget}.`])
+      ]
+    };
+  }
+
+  async openApplication(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult> {
+    return {
+      executed: true,
+      simulated: true,
+      applicationId: request.application.id,
+      displayName: request.application.displayName,
+      residue: [
+        "Mock provider simulated allowlisted application launch in memory only.",
+        "No real application was launched and no OS state was mutated.",
+        `Requested catalog application: ${request.application.displayName}.`
       ]
     };
   }

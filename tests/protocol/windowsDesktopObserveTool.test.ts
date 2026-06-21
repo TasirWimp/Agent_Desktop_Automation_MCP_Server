@@ -144,6 +144,100 @@ function parseJsonText(result: Awaited<ReturnType<Client["callTool"]>>) {
   return JSON.parse(textBlock.text) as Record<string, unknown>;
 }
 
+function compactClaim(
+  sourceObservationId: string,
+  intendedTarget = "Submit button",
+  pointProvenance:
+    | "relational_estimate"
+    | "relative_probe"
+    | "hover_witness" = "relational_estimate"
+) {
+  return {
+    sourceObservationId,
+    intendedTarget,
+    scene: "Generated Test App active window.",
+    anchor: "target control row",
+    relation: "target control in the same row/right-side action area",
+    candidate: "point is inside that row action basin",
+    rejectedAlternative: "nearby launch button for another app",
+    expectedEvidence: "row/control highlights or opens target",
+    contradiction: "another row/control highlights or opens",
+    pointProvenance
+  };
+}
+
+async function prepareHoverWitness(client: Client) {
+  await client.callTool({
+    name: "desktop_move_mouse",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      preActionObservationId: "observation-fixed-2",
+      point: {
+        x: 120,
+        y: 80
+      },
+      intendedSemanticTarget: "Submit button",
+      compactRelationalClaim: compactClaim("observation-fixed-2")
+    }
+  });
+  await client.callTool({
+    name: "desktop_observe",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      includeImages: true,
+      transitionActionId: "action-fixed-4"
+    }
+  });
+  await client.callTool({
+    name: "desktop_submit_transition_assessment",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      actionId: "action-fixed-4",
+      assessment: {
+        outcome: "supported",
+        relationHeld: true,
+        candidateSupported: true,
+        rejectedAlternativeAvoided: true,
+        expectedEvidenceSeen: "row/control highlights or opens target",
+        contradictionSeen: false,
+        summary: "Follow-up screenshot supports the target row/control."
+      }
+    }
+  });
+  const candidateResult = await client.callTool({
+    name: "desktop_evaluate_click_candidate",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      observationId: "observation-fixed-8",
+      movementActionId: "action-fixed-4",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedSemanticTarget: "Submit button",
+      candidatePoint: {
+        x: 120,
+        y: 80
+      }
+    }
+  });
+  const candidate = parseStructuredContent(candidateResult);
+  const hoverTargetWitness = candidate.hoverTargetWitness as Record<string, unknown>;
+
+  return {
+    observationId: "observation-fixed-8",
+    hoverTargetWitnessId: hoverTargetWitness.witnessId as string
+  };
+}
+
 const startArguments = {
   sessionId: "session-real-observe-001",
   userGoal: "Observe the generated app window.",
@@ -606,7 +700,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
       const initialStructured = parseStructuredContent(initialResult);
@@ -670,7 +765,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
       const result = await client.callTool({
@@ -686,7 +782,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             x: 120,
             y: 80
           },
-          intendedSemanticTarget: "File menu"
+          intendedSemanticTarget: "File menu",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "File menu")
         }
       });
       const structured = parseStructuredContent(result);
@@ -730,6 +827,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
+          includeImages: true,
           transitionActionId: "action-fixed-4"
         }
       });
@@ -737,7 +835,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
 
       expect(observeResult.isError).not.toBe(true);
       expect(observeStructured.transitionGate).toMatchObject({
-        status: "audited",
+        status: "observed",
         followUpObservationId: "observation-fixed-8",
         movementDeltaWitness: {
           intendedPoint: {
@@ -774,7 +872,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         name: "desktop_start_interaction_session",
         arguments: {
           ...startArguments,
-          allowedActions: ["observe", "click"],
+          allowedActions: ["observe", "move_mouse", "click"],
           licensedAppScope: {
             description: "Generated Test App is a local reversible UI test fixture.",
             scope: {
@@ -782,7 +880,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
               value: "Generated Test App"
             },
             userDeclaredReversible: true,
-            allowedActions: ["observe", "click"],
+            allowedActions: ["observe", "move_mouse", "click"],
             forbiddenBoundaries: [
               "credential_or_secret_prompt",
               "payment_or_purchase",
@@ -803,9 +901,11 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
+      const witness = await prepareHoverWitness(client);
       const result = await client.callTool({
         name: "desktop_click",
         arguments: {
@@ -814,12 +914,14 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          preActionObservationId: "observation-fixed-2",
+          preActionObservationId: witness.observationId,
           point: {
             x: 120,
             y: 80
           },
-          intendedSemanticTarget: "File menu"
+          intendedSemanticTarget: "Submit button",
+          hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
       const structured = parseStructuredContent(result);
@@ -832,7 +934,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         realDesktopMouseMovement: true,
         realDesktopMutation: false
       });
-      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(0);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(1);
     } finally {
       await client.close();
       await server.close();
@@ -843,7 +945,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
     const backend = new FakeWindowsBackend();
     const { client, server, sessionStore } = await createConnectedClient(
       backend,
-      false,
+      true,
       true
     );
 
@@ -852,13 +954,13 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         name: "desktop_start_interaction_session",
         arguments: {
           ...startArguments,
-          allowedActions: ["observe", "click"],
+          allowedActions: ["observe", "move_mouse", "click"],
           licensedAppScope: licensedAppScopeFor(
             {
               kind: "window_title",
               value: "Generated Test App"
             },
-            ["observe", "click"]
+            ["observe", "move_mouse", "click"]
           )
         }
       });
@@ -869,9 +971,11 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
+      const witness = await prepareHoverWitness(client);
       const result = await client.callTool({
         name: "desktop_click",
         arguments: {
@@ -880,13 +984,15 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          preActionObservationId: "observation-fixed-2",
+          preActionObservationId: witness.observationId,
           point: {
             x: 120,
             y: 80
           },
           button: "left",
-          intendedSemanticTarget: "Submit button"
+          intendedSemanticTarget: "Submit button",
+          hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
       const structured = parseStructuredContent(result);
@@ -908,7 +1014,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       });
       expect(structured.transitionGate).toMatchObject({
         status: "pending_observation",
-        sourceObservationId: "observation-fixed-2"
+        sourceObservationId: witness.observationId
       });
       expect(backend.clickedPoints).toEqual([
         {
@@ -919,7 +1025,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           button: "left"
         }
       ]);
-      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(1);
+      expect(sessionStore.listActions("session-real-observe-001")).toHaveLength(2);
       expect(sessionStore.findBlockingTransitionGate("session-real-observe-001")).toMatchObject({
         status: "pending_observation"
       });
@@ -932,13 +1038,15 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          preActionObservationId: "observation-fixed-2",
+          preActionObservationId: witness.observationId,
           point: {
             x: 121,
             y: 81
           },
           button: "left",
-          intendedSemanticTarget: "Second click before post-click observation"
+          intendedSemanticTarget: "Second click before post-click observation",
+          hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          compactRelationalClaim: compactClaim(witness.observationId, "Second click before post-click observation", "hover_witness")
         }
       });
       const blockedStructured = parseStructuredContent(blockedResult);
@@ -983,7 +1091,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
       const result = await client.callTool({
@@ -997,7 +1106,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           preActionObservationId: "observation-fixed-2",
           text: "generated input",
           sensitivityClassification: "test_input",
-          intendedSemanticTarget: "Name input"
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
         }
       });
       const structured = parseStructuredContent(result);
@@ -1039,6 +1149,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
+          includeImages: true,
           transitionActionId: "action-fixed-4"
         }
       });
@@ -1082,7 +1193,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
       const result = await client.callTool({
@@ -1095,7 +1207,8 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           },
           preActionObservationId: "observation-fixed-2",
           text: "generated input",
-          intendedSemanticTarget: "Name input"
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
         }
       });
       const structured = parseStructuredContent(result);

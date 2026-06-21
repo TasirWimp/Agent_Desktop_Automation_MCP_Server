@@ -94,6 +94,21 @@ function nestedRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function compactClaim(sourceObservationId: string, intendedTarget = "Name input") {
+  return {
+    sourceObservationId,
+    intendedTarget,
+    scene: "Generated Test App form view.",
+    anchor: "Name input row",
+    relation: "target field in the same form row",
+    candidate: "focused text field candidate",
+    rejectedAlternative: "nearby unrelated field",
+    expectedEvidence: "text field reflects generated test input length",
+    contradiction: "another field receives the text",
+    pointProvenance: "relational_estimate"
+  };
+}
+
 const startArguments = {
   sessionId: "session-repair-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -164,13 +179,14 @@ async function startObserveClickAndPostObserve(client: Client) {
       targetScope: {
         kind: "window_title",
         value: "Generated Test App"
-      }
+      },
+      includeImages: true
     }
   });
   const before = parseStructuredContent(beforeResult);
   const beforeObservation = nestedRecord(before.observation);
   const clickResult = await client.callTool({
-    name: "desktop_click",
+    name: "desktop_type_text",
     arguments: {
       sessionId: "session-repair-001",
       targetScope: {
@@ -178,11 +194,9 @@ async function startObserveClickAndPostObserve(client: Client) {
         value: "Generated Test App"
       },
       preActionObservationId: beforeObservation.observationId,
-      point: {
-        x: 240,
-        y: 120
-      },
-      intendedSemanticTarget: "Submit button"
+      text: "generated input",
+      intendedSemanticTarget: "Name input",
+      compactRelationalClaim: compactClaim(beforeObservation.observationId as string)
     }
   });
   const click = parseStructuredContent(clickResult);
@@ -196,6 +210,7 @@ async function startObserveClickAndPostObserve(client: Client) {
         kind: "window_title",
         value: "Generated Test App"
       },
+      includeImages: true,
       transitionActionId: action.actionId
     }
   });
@@ -311,12 +326,13 @@ describe("post-action observation and repair-loop classification", () => {
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
-          }
+          },
+          includeImages: true
         }
       });
       const firstObservation = nestedRecord(parseStructuredContent(firstObserveResult).observation);
       const firstClickResult = await client.callTool({
-        name: "desktop_click",
+        name: "desktop_type_text",
         arguments: {
           sessionId: "session-repair-001",
           targetScope: {
@@ -324,10 +340,9 @@ describe("post-action observation and repair-loop classification", () => {
             value: "Generated Test App"
           },
           preActionObservationId: firstObservation.observationId,
-          point: {
-            x: 240,
-            y: 120
-          }
+          text: "first input",
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim(firstObservation.observationId as string)
         }
       });
       const firstAction = nestedRecord(parseStructuredContent(firstClickResult).action);
@@ -339,6 +354,7 @@ describe("post-action observation and repair-loop classification", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
+          includeImages: true,
           transitionActionId: firstAction.actionId
         }
       });
@@ -349,7 +365,7 @@ describe("post-action observation and repair-loop classification", () => {
       expect(sessionStore.requireActiveSession("session-repair-001").repairAttemptCount).toBe(1);
 
       const secondClickResult = await client.callTool({
-        name: "desktop_click",
+        name: "desktop_type_text",
         arguments: {
           sessionId: "session-repair-001",
           targetScope: {
@@ -357,10 +373,9 @@ describe("post-action observation and repair-loop classification", () => {
             value: "Generated Test App"
           },
           preActionObservationId: firstPostObservation.observationId,
-          point: {
-            x: 245,
-            y: 124
-          }
+          text: "second input",
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim(firstPostObservation.observationId as string)
         }
       });
       const secondAction = nestedRecord(parseStructuredContent(secondClickResult).action);
@@ -372,6 +387,7 @@ describe("post-action observation and repair-loop classification", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
+          includeImages: true,
           transitionActionId: secondAction.actionId
         }
       });

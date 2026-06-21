@@ -1,0 +1,11 @@
+{
+  "applications": [
+    {
+      "id": "zeiss_quality_suite",
+      "displayName": "ZEISS Quality Suite",
+      "aliases": ["quality suite", "zqs", "inspect xray"],
+      "windowsShortcutNames": ["ZEISS Quality Suite", "Quality Suite"],
+      "moduleHints": ["xray_inspection"]
+    }
+  ]
+}

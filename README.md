@@ -8,17 +8,19 @@ The current server exposes:
 - `automation_policy_check` - classifies proposed desktop automation actions before execution.
 - `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
+- `desktop_open_application` - opens only a catalog allowlisted application ID or alias; no arbitrary executable paths or arguments.
 - `desktop_observe` - records a bounded observation frame session for an active interaction session.
-- `desktop_move_mouse` - runs a bounded movement probe inside an active interaction session and requires follow-up observation.
-- `desktop_evaluate_click_candidate` - evaluates current observation, cursor, scope, and risk evidence for a future app-scoped click request without clicking.
-- `desktop_click` - runs a bounded app-scoped click inside an active interaction session and requires follow-up observation; real clicking is opt-in only.
-- `desktop_type_text` - runs bounded app-scoped generated test-text entry without storing text content and requires follow-up observation; real typing is opt-in only.
+- `desktop_move_mouse` - runs a bounded relational movement probe inside an active interaction session and requires follow-up observation plus semantic landing assessment.
+- `desktop_submit_transition_assessment` - records whether a follow-up screenshot supports, contradicts, or cannot conclude the stored relational movement claim.
+- `desktop_evaluate_click_candidate` - evaluates current observation, cursor, semantic landing, scope, and risk evidence for a future app-scoped click request without clicking.
+- `desktop_click` - runs a bounded app-scoped click only after hover-witness evidence and requires follow-up observation; real clicking is opt-in only.
+- `desktop_type_text` - runs bounded app-scoped generated test-text entry with relational evidence, without storing text content, and requires follow-up observation; real typing is opt-in only.
 - `desktop_end_interaction_session` - ends an active interaction session.
 - `desktop_session_audit_log` - reads the session lifecycle audit log.
 
-Real desktop capture and pointer movement are disabled by default. The default provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
+Real desktop capture and pointer movement are disabled by default. The default provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch real apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
-The codebase also defines policy contracts for future licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require follow-up observation.
+The codebase also defines policy contracts for licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require relational evidence and follow-up observation. Coordinates are endpoints only; they are not proof that the semantic target was correct.
 
 Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. Real clicking and real typing additionally require their explicit Windows provider gates.
 
@@ -43,7 +45,7 @@ $env:ADMCP_ENABLE_REAL_MOUSE_MOVEMENT = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a fresh pre-action observation, scope validation, audit logging, and a post-movement observation before any next non-observe action. After that follow-up observation, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
+With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a screenshot-bearing fresh pre-action observation, compact or full relational navigation evidence, scope validation, audit logging, a post-movement observation, and `desktop_submit_transition_assessment` before click readiness. Cursor landing is telemetry only. After a supported semantic landing assessment, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
 
 Real clicking is a separate app-scoped gate:
 
@@ -54,7 +56,7 @@ $env:ADMCP_ENABLE_REAL_CLICK = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
 Real typing is a separate app-scoped generated-input gate:
 
@@ -65,7 +67,15 @@ $env:ADMCP_ENABLE_REAL_TYPING = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+
+The required click path is:
+
+```text
+observe -> compact relational move -> observe transition -> semantic landing assessment -> evaluate click candidate -> click -> observe
+```
+
+Catalog app bootstrap uses `config/desktop_applications.json`. Add apps by ID and aliases there; `desktop_open_application` rejects unknown apps, path-like launch strings, and command-line argument fields.
 
 For real Windows observation or movement sessions, set `observationCadence.maxObservationGapMs` to `60000` unless the task explicitly needs a tighter freshness window. A 5s gap is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds. This value keeps sessions bounded; it does not permit hidden polling, background capture, or stale action chains.
 

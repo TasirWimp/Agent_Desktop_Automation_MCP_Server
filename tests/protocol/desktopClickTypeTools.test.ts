@@ -33,6 +33,100 @@ function parseStructuredContent(result: Awaited<ReturnType<Client["callTool"]>>)
   return result.structuredContent as Record<string, unknown>;
 }
 
+function compactClaim(
+  sourceObservationId: string,
+  intendedTarget = "Submit button",
+  pointProvenance:
+    | "relational_estimate"
+    | "relative_probe"
+    | "hover_witness" = "relational_estimate"
+) {
+  return {
+    sourceObservationId,
+    intendedTarget,
+    scene: "Generated Test App main view.",
+    anchor: "Submit row",
+    relation: "target control in the same row/right-side action area",
+    candidate: "point is inside that row action basin",
+    rejectedAlternative: "nearby launch button for another app",
+    expectedEvidence: "row/control highlights or opens target",
+    contradiction: "another row/control highlights or opens",
+    pointProvenance
+  };
+}
+
+async function prepareHoverWitness(client: Client) {
+  await client.callTool({
+    name: "desktop_move_mouse",
+    arguments: {
+      sessionId: "session-click-type-001",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      preActionObservationId: "observation-fixed-2",
+      point: {
+        x: 240,
+        y: 120
+      },
+      intendedSemanticTarget: "Submit button",
+      compactRelationalClaim: compactClaim("observation-fixed-2")
+    }
+  });
+  await client.callTool({
+    name: "desktop_observe",
+    arguments: {
+      sessionId: "session-click-type-001",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      includeImages: true,
+      transitionActionId: "action-fixed-4"
+    }
+  });
+  await client.callTool({
+    name: "desktop_submit_transition_assessment",
+    arguments: {
+      sessionId: "session-click-type-001",
+      actionId: "action-fixed-4",
+      assessment: {
+        outcome: "supported",
+        relationHeld: true,
+        candidateSupported: true,
+        rejectedAlternativeAvoided: true,
+        expectedEvidenceSeen: "row/control highlights or opens target",
+        contradictionSeen: false,
+        summary: "Follow-up screenshot supports the target row/control."
+      }
+    }
+  });
+  const candidateResult = await client.callTool({
+    name: "desktop_evaluate_click_candidate",
+    arguments: {
+      sessionId: "session-click-type-001",
+      observationId: "observation-fixed-8",
+      movementActionId: "action-fixed-4",
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedSemanticTarget: "Submit button",
+      candidatePoint: {
+        x: 240,
+        y: 120
+      }
+    }
+  });
+  const candidate = parseStructuredContent(candidateResult);
+  const hoverTargetWitness = candidate.hoverTargetWitness as Record<string, unknown>;
+
+  return {
+    observationId: "observation-fixed-8",
+    hoverTargetWitnessId: hoverTargetWitness.witnessId as string
+  };
+}
+
 const startArguments = {
   sessionId: "session-click-type-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -102,7 +196,8 @@ async function startAndObserve(client: Client) {
       targetScope: {
         kind: "window_title",
         value: "Generated Test App"
-      }
+      },
+      includeImages: true
     }
   });
 }
@@ -113,6 +208,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
     try {
       await startAndObserve(client);
+      const witness = await prepareHoverWitness(client);
       const result = await client.callTool({
         name: "desktop_click",
         arguments: {
@@ -121,13 +217,15 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          preActionObservationId: "observation-fixed-2",
+          preActionObservationId: witness.observationId,
           point: {
             x: 240,
             y: 120
           },
           button: "left",
-          intendedSemanticTarget: "Submit button"
+          intendedSemanticTarget: "Submit button",
+          hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
       const structured = parseStructuredContent(result);
@@ -135,9 +233,8 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
       expect(result.isError).not.toBe(true);
       expect(structured.status).toBe("requires_post_action_observation");
       expect(structured.action).toMatchObject({
-        actionId: "action-fixed-4",
         actionType: "click",
-        preActionObservationId: "observation-fixed-2",
+        preActionObservationId: witness.observationId,
         input: {
           point: {
             x: 240,
@@ -152,13 +249,11 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
         clickedButton: "left"
       });
       expect(structured.transitionGate).toMatchObject({
-        transitionId: "transition-fixed-6",
-        actionId: "action-fixed-4",
         status: "pending_observation"
       });
-      expect(sessionStore.listActions("session-click-type-001")).toHaveLength(1);
+      expect(sessionStore.listActions("session-click-type-001")).toHaveLength(2);
       expect(sessionStore.findBlockingTransitionGate("session-click-type-001")).toMatchObject({
-        actionId: "action-fixed-4"
+        status: "pending_observation"
       });
     } finally {
       await client.close();
@@ -171,7 +266,8 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
     try {
       await startAndObserve(client);
-      await client.callTool({
+      const witness = await prepareHoverWitness(client);
+      const clickResult = await client.callTool({
         name: "desktop_click",
         arguments: {
           sessionId: "session-click-type-001",
@@ -179,13 +275,17 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          preActionObservationId: "observation-fixed-2",
+          preActionObservationId: witness.observationId,
           point: {
             x: 240,
             y: 120
-          }
+          },
+          intendedSemanticTarget: "Submit button",
+          hoverTargetWitnessId: witness.hoverTargetWitnessId,
+          compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
+      const clickAction = (parseStructuredContent(clickResult).action as Record<string, unknown>);
 
       const observeResult = await client.callTool({
         name: "desktop_observe",
@@ -195,18 +295,19 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          transitionActionId: "action-fixed-4"
+          includeImages: true,
+          transitionActionId: clickAction.actionId
         }
       });
       const observeStructured = parseStructuredContent(observeResult);
 
       expect(observeResult.isError).not.toBe(true);
       expect(observeStructured.transitionGate).toMatchObject({
-        actionId: "action-fixed-4",
+        actionId: clickAction.actionId,
         status: "audited",
-        followUpObservationId: "observation-fixed-8"
       });
       expect(sessionStore.findBlockingTransitionGate("session-click-type-001")).toBeUndefined();
+      const postObservation = observeStructured.observation as Record<string, unknown>;
 
       const typeResult = await client.callTool({
         name: "desktop_type_text",
@@ -216,22 +317,22 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
-          preActionObservationId: "observation-fixed-8",
+          preActionObservationId: postObservation.observationId,
           text: "generated input",
-          intendedSemanticTarget: "Name input"
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim(postObservation.observationId as string, "Name input")
         }
       });
       const typeStructured = parseStructuredContent(typeResult);
 
       expect(typeResult.isError).not.toBe(true);
       expect(typeStructured.action).toMatchObject({
-        actionId: "action-fixed-11",
         actionType: "type_text",
         input: {
           textLength: 15
         }
       });
-      expect(sessionStore.requireActiveSession("session-click-type-001").actionCount).toBe(2);
+      expect(sessionStore.requireActiveSession("session-click-type-001").actionCount).toBe(3);
     } finally {
       await client.close();
       await server.close();
@@ -253,7 +354,8 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           preActionObservationId: "observation-fixed-2",
           text: "generated input",
-          intendedSemanticTarget: "Name input"
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
         }
       });
       const structured = parseStructuredContent(result);
@@ -297,7 +399,8 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           preActionObservationId: "observation-fixed-2",
           text: "password=supersecret",
-          intendedSemanticTarget: "Password input"
+          intendedSemanticTarget: "Password input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Password input")
         }
       });
       const structured = parseStructuredContent(result);
@@ -333,6 +436,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             x: 240,
             y: 120
           },
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Submit button", "hover_witness"),
           risk: {
             recoverability: "low"
           }
@@ -358,7 +462,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
     try {
       await startAndObserve(client);
       await client.callTool({
-        name: "desktop_click",
+        name: "desktop_type_text",
         arguments: {
           sessionId: "session-click-type-001",
           targetScope: {
@@ -366,10 +470,9 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
-          point: {
-            x: 240,
-            y: 120
-          }
+          text: "first input",
+          intendedSemanticTarget: "Name input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
         }
       });
 
@@ -382,7 +485,8 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             value: "Generated Test App"
           },
           preActionObservationId: "observation-fixed-2",
-          text: "generated input"
+          text: "generated input",
+          compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
         }
       });
       const structured = parseStructuredContent(result);

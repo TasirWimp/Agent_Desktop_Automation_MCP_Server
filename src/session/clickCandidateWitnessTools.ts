@@ -16,6 +16,10 @@ import {
 import type { DesktopInteractionProvider } from "../providers/desktopProvider.js";
 import type { InteractionTransitionGate } from "./interactionTransitionGate.js";
 import {
+  createHoverTargetWitness,
+  type HoverTargetWitness
+} from "./hoverTargetWitness.js";
+import {
   InMemoryDesktopSessionStore,
   SessionStoreError,
   type DesktopSessionSnapshot
@@ -110,11 +114,15 @@ interface ClickCandidateEvaluation {
     actionType: string;
     gateStatus: InteractionTransitionGate["status"];
     followUpObservationMatches: boolean;
+    semanticLandingSupported?: boolean;
+    semanticLandingOutcome?: "supported" | "contradicted" | "inconclusive";
+    contradictionSeen?: boolean;
     cursorObserved?: boolean;
     scopeStable?: boolean;
     distanceFromIntendedPx?: number;
     confidence?: "low" | "medium" | "high";
   };
+  hoverTargetWitness?: HoverTargetWitness;
   riskEvidence: {
     credentialExposure: boolean;
     destructive: boolean;
@@ -242,6 +250,14 @@ function movementEvidenceFor(
     actionType: movementGate.actionType,
     gateStatus: movementGate.status,
     followUpObservationMatches: movementGate.followUpObservationId === observationId,
+    semanticLandingSupported:
+      movementGate.semanticLandingAssessment?.outcome === "supported" &&
+      movementGate.semanticLandingAssessment.relationHeld &&
+      movementGate.semanticLandingAssessment.candidateSupported &&
+      movementGate.semanticLandingAssessment.rejectedAlternativeAvoided &&
+      !movementGate.semanticLandingAssessment.contradictionSeen,
+    semanticLandingOutcome: movementGate.semanticLandingAssessment?.outcome,
+    contradictionSeen: movementGate.semanticLandingAssessment?.contradictionSeen,
     cursorObserved: movementGate.movementDeltaWitness?.cursorObserved,
     scopeStable: movementGate.movementDeltaWitness?.scopeStable,
     distanceFromIntendedPx: movementGate.movementDeltaWitness?.distanceFromIntendedPx,
@@ -259,6 +275,7 @@ function chooseStatus(input: {
   movementGate?: InteractionTransitionGate;
   movementGateIsMovement: boolean;
   movementFollowUpMatches: boolean;
+  semanticLandingSupported: boolean;
   hasFrameEvidence: boolean;
   hasCandidatePoint: boolean;
   cursorObserved: boolean;
@@ -285,12 +302,13 @@ function chooseStatus(input: {
   }
 
   if (
-    input.movementGate !== undefined &&
-    (!input.movementGateIsMovement ||
-      input.movementGate.status !== "audited" ||
-      !input.movementFollowUpMatches ||
-      input.movementGate.movementDeltaWitness?.cursorObserved === false ||
-      input.movementGate.movementDeltaWitness?.scopeStable === false)
+    input.movementGate === undefined ||
+    !input.movementGateIsMovement ||
+    input.movementGate.status !== "audited" ||
+    !input.movementFollowUpMatches ||
+    !input.semanticLandingSupported ||
+    input.movementGate.movementDeltaWitness?.cursorObserved === false ||
+    input.movementGate.movementDeltaWitness?.scopeStable === false
   ) {
     return "transition_not_audited";
   }
@@ -319,7 +337,7 @@ function buildResidue(input: {
 }): string[] {
   const residue = [
     "Click-candidate witness gate evaluated targeting readiness only; no click was executed.",
-    "Real click remains unavailable until app scope, scope binding, provider click gate, and post-click repair behavior are implemented.",
+    "Real click remains unavailable unless app scope, scope binding, provider click gate, hover witness, and post-click observation requirements are all satisfied.",
     "A future click request must still require post-click observation before success can be claimed."
   ];
 
@@ -328,7 +346,7 @@ function buildResidue(input: {
   } else if (input.status === "insufficient_witness") {
     residue.push("Candidate does not yet have enough frame/cursor/targeting evidence; observe again or move as a reversible probe.");
   } else if (input.status === "transition_not_audited") {
-    residue.push("Movement evidence must be audited by the follow-up observation before it can support a click candidate.");
+    residue.push("Movement evidence must include follow-up observation and supported semantic landing assessment before it can support a click candidate.");
   } else if (input.status === "scope_unbound") {
     residue.push("Active-window scope must be bound to a concrete observed identity before click targeting is considered ready.");
   } else if (input.status === "scope_mismatch") {
@@ -376,6 +394,14 @@ function buildResidue(input: {
 
     if (input.movementGate.actionType !== "move_mouse") {
       residue.push("Supplied movement action id does not reference a move_mouse transition.");
+    }
+
+    if (input.movementGate.semanticLandingAssessment === undefined) {
+      residue.push("Movement transition has no semantic landing assessment; cursor proximity alone is insufficient.");
+    } else {
+      residue.push(
+        `Semantic landing assessment outcome: ${input.movementGate.semanticLandingAssessment.outcome}.`
+      );
     }
   }
 
@@ -425,6 +451,7 @@ function evaluateClickCandidate(
     (observation.cursorWitness === undefined || observation.cursorWitness.status === "observed");
   const movementEvidence = movementEvidenceFor(movementGate, observation.observationId);
   const movementFollowUpMatches = movementEvidence?.followUpObservationMatches ?? true;
+  const semanticLandingSupported = movementEvidence?.semanticLandingSupported === true;
   const clickAllowed =
     session.license.allowedActions.includes("click") &&
     !session.license.forbiddenActions.includes("click");
@@ -439,6 +466,7 @@ function evaluateClickCandidate(
     movementGate,
     movementGateIsMovement: movementGate === undefined || movementGate.actionType === "move_mouse",
     movementFollowUpMatches,
+    semanticLandingSupported,
     hasFrameEvidence,
     hasCandidatePoint: candidatePoint !== undefined,
     cursorObserved,
@@ -454,6 +482,41 @@ function evaluateClickCandidate(
     candidateContainsCursor,
     movementGate
   });
+  const hoverTargetWitness =
+    status === "candidate_ready" && movementGate !== undefined
+      ? createHoverTargetWitness({
+          witnessId: `hover-witness-${movementGate.actionId}-${observation.observationId}`,
+          sessionId: input.sessionId,
+          sourceMoveActionId: movementGate.actionId,
+          sourceObservationId: movementGate.sourceObservationId,
+          followUpObservationId: observation.observationId,
+          targetScope: input.targetScope,
+          intendedSemanticTarget: input.intendedSemanticTarget,
+          plannedHoverPoint: movementGate.actionPoint,
+          observedCursorPoint: cursorPoint,
+          candidatePoint,
+          candidateBbox: input.candidateBbox,
+          cursorInsideCandidateBbox: candidateContainsCursor,
+          cursorDistanceFromCandidatePointPx: candidateCursorDistancePx,
+          visualConfirmation: {
+            status: "confirmed",
+            confidence: "high",
+            evidence: [
+              movementGate.semanticLandingAssessment?.expectedEvidenceSeen ??
+                "Semantic landing assessment supported the stored relational claim."
+            ],
+            contradictionSignals: [],
+            assessedAgainstFollowUpScreenshot: true,
+            semanticAssessmentWasAgentDeclared: true,
+            coordinateEvidenceOnlyIsInsufficient: true
+          },
+          createdAt: now,
+          residue: [
+            "Hover target witness was created from supported semantic landing assessment.",
+            "Click point must match this witness; cursor proximity alone is insufficient."
+          ]
+        })
+      : undefined;
 
   return {
     status,
@@ -488,6 +551,7 @@ function evaluateClickCandidate(
       hoverConfidence: observation.hoverWitness?.confidence
     },
     movementEvidence,
+    hoverTargetWitness,
     riskEvidence: input.risk,
     requiresPostClickObservation: true,
     wouldExecuteClick: false,
@@ -550,6 +614,12 @@ export function registerClickCandidateWitnessTools(
           input,
           runtime.now()
         );
+        const hoverTargetWitness =
+          evaluation.hoverTargetWitness === undefined
+            ? undefined
+            : runtime.sessionStore.recordHoverTargetWitness(
+                evaluation.hoverTargetWitness
+              );
         const auditEvent: DesktopSessionAuditEvent = {
           eventId: runtime.generateId("event"),
           sessionId: input.sessionId,
@@ -566,7 +636,11 @@ export function registerClickCandidateWitnessTools(
         return structuredResult({
           sessionId: input.sessionId,
           status: evaluation.status,
-          clickCandidateWitness: evaluation,
+          clickCandidateWitness: {
+            ...evaluation,
+            hoverTargetWitness
+          },
+          hoverTargetWitness,
           auditEvent,
           providerCapabilities: {
             providerKind: providerCapabilities.providerKind,

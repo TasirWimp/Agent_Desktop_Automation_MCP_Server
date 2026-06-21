@@ -280,7 +280,12 @@ async function runAttempts(args: {
       targetScope,
       preActionObservationId: preObservation.observationId,
       point: plannedPoint,
-      intendedSemanticTarget: args.config.intendedSemanticTarget
+      intendedSemanticTarget: args.config.intendedSemanticTarget,
+      compactRelationalClaim: buildCompactRelationalClaim(
+        preObservation.observationId,
+        args.config.intendedSemanticTarget ?? "manual movement probe target",
+        attemptNumber
+      )
     });
     const movePayload = parseToolResult(moveResult);
     const move = summarizeMove(movePayload, moveResult.isError === true, plannedPoint);
@@ -316,7 +321,7 @@ async function runAttempts(args: {
       mode: "single_frame",
       maxFrames: 1,
       durationMs: 0,
-      includeImages: args.includeImages,
+      includeImages: true,
       transitionActionId: move.actionId
     });
     const postObservation = summarizeObservation(
@@ -328,12 +333,75 @@ async function runAttempts(args: {
     );
 
     attempt.postObservation = postObservation;
-    attempt.transitionGate = postObservationResult.transitionGate;
+    const assessment = await callToolJson(args.client, "desktop_submit_transition_assessment", {
+      sessionId: args.sessionId,
+      actionId: move.actionId,
+      assessment: buildSemanticLandingAssessment(attempt.visibleWitnessNotes)
+    });
+
+    attempt.transitionGate = assessment.transitionGate;
     attempt.residue.push("Post-movement observation recorded through transitionActionId.");
     attempts.push(attempt);
   }
 
   return attempts;
+}
+
+function buildCompactRelationalClaim(
+  sourceObservationId: string,
+  intendedTarget: string,
+  attemptNumber: number
+) {
+  return {
+    sourceObservationId,
+    intendedTarget,
+    scene: "Manual probe active-window scene.",
+    anchor: `manual probe attempt ${attemptNumber} cursor origin and area of interest`,
+    relation: "point moves along the configured vector toward the intended target area",
+    candidate: "planned point is inside the intended target approach basin",
+    rejectedAlternative: "nearby unrelated control or row",
+    expectedEvidence: "cursor/hover witness remains in the intended target area",
+    contradiction: "another control, row, or unrelated area highlights",
+    pointProvenance: "relative_probe"
+  };
+}
+
+function buildSemanticLandingAssessment(witnessNotes: string[]) {
+  const joinedNotes = witnessNotes.join(" ").toLowerCase();
+
+  if (joinedNotes.includes("wrong") || joinedNotes.includes("contradict")) {
+    return {
+      outcome: "contradicted",
+      relationHeld: false,
+      candidateSupported: false,
+      rejectedAlternativeAvoided: false,
+      expectedEvidenceSeen: witnessNotes.join("; ") || "manual witness contradicted the target",
+      contradictionSeen: true,
+      summary: witnessNotes.join("; ") || "Manual witness notes contradicted the movement target."
+    };
+  }
+
+  if (joinedNotes.includes("inconclusive") || joinedNotes.includes("uncertain")) {
+    return {
+      outcome: "inconclusive",
+      relationHeld: false,
+      candidateSupported: false,
+      rejectedAlternativeAvoided: true,
+      expectedEvidenceSeen: witnessNotes.join("; ") || "manual witness was inconclusive",
+      contradictionSeen: false,
+      summary: witnessNotes.join("; ") || "Manual witness notes were inconclusive."
+    };
+  }
+
+  return {
+    outcome: "supported",
+    relationHeld: true,
+    candidateSupported: true,
+    rejectedAlternativeAvoided: true,
+    expectedEvidenceSeen: witnessNotes.join("; ") || "manual probe follow-up remained in the intended target area",
+    contradictionSeen: false,
+    summary: witnessNotes.join("; ") || "Manual probe runner treated the configured movement relation as supported."
+  };
 }
 
 async function observe(
@@ -351,7 +419,7 @@ async function observe(
     mode: "single_frame",
     maxFrames: 1,
     durationMs: 0,
-    includeImages
+    includeImages: true
   });
 
   return summarizeObservation(

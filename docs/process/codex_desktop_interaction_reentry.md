@@ -8,15 +8,24 @@ Available MCP tools:
 - `automation_policy_check`
 - `ui_intersection_plan`
 - `desktop_start_interaction_session`
+- `desktop_open_application`
 - `desktop_observe`
 - `desktop_move_mouse`
+- `desktop_submit_transition_assessment`
 - `desktop_evaluate_click_candidate`
 - `desktop_click`
 - `desktop_type_text`
 - `desktop_end_interaction_session`
 - `desktop_session_audit_log`
 
-Default server behavior is mock-only. By default, no tool captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` are backed by a deterministic mock provider unless the server is started with the Windows real provider gates enabled.
+Default server behavior is mock-only. By default, no tool captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches real apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, `desktop_type_text`, and `desktop_open_application` are backed by deterministic mock/simulated provider behavior unless the server is started with the relevant Windows real provider gates enabled.
+
+Catalog app bootstrap:
+
+- `desktop_open_application` accepts only application IDs or exact aliases from `config/desktop_applications.json`.
+- It requires `userConfirmed: true`.
+- It does not accept executable paths, command-line arguments, shell commands, dev-server commands, or arbitrary launch strings.
+- Mock provider launch is simulated. Real provider launch requires explicit provider support and `ADMCP_ENABLE_REAL_APP_LAUNCH=true`.
 
 Real observation spike:
 
@@ -31,15 +40,17 @@ Real mouse movement probe:
 - Additional opt-in only with `ADMCP_ENABLE_REAL_MOUSE_MOVEMENT=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_move_mouse`; no separate raw pointer tool exists.
 - Requires an active session, `move_mouse` in the session license, fresh pre-action observation, matching active-window scope, and a point inside the active-window capture frame.
+- Requires compact or full relational navigation evidence. `relational_estimate` and `relative_probe` are allowed as movement endpoints; `external_coordinate` and `unknown` are blocked.
 - Treats the point as active-window frame coordinates and converts it to screen coordinates inside the provider.
-- Creates the same transition gate as mock movement and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+- Creates the same transition gate as mock movement and requires `desktop_observe` with `transitionActionId`, followed by `desktop_submit_transition_assessment`, before any next non-observe action.
+- Treats cursor landing as backend telemetry only; cursor movement alone does not prove the semantic target was correct.
 - Does not enable real click, typing, shell, app launch, system changes, or durable desktop mutation.
 
 Real click gate:
 
 - Additional opt-in only with `ADMCP_ENABLE_REAL_CLICK=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_click`; no separate raw click tool exists.
-- Requires an active session, `click` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, matching app scope, and a point inside the active-window capture frame.
+- Requires an active session, `click` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, matching app scope, `hover_witness` point provenance, a stored hover target witness, and a point inside the active-window capture frame.
 - Treats the point as active-window frame coordinates and converts it to screen coordinates inside the provider.
 - Creates the same transition gate as mock clicking and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 - Does not enable real typing, shell, app launch, system changes, external publishing, or broad desktop control.
@@ -75,19 +86,22 @@ Use the session tools to create a bounded task license, record mock observation 
 7. Keep `mode: "frame_session"` unless a single-frame witness is explicitly enough for the test.
 8. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
 9. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
-10. Call `desktop_move_mouse` only after a fresh observation and pass that observation id as `preActionObservationId`.
-11. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state. If real mouse movement is enabled, the move can affect cursor position and hover state but still must not click or type.
-12. After an audited movement observation, call `desktop_evaluate_click_candidate` when a future click is being considered.
-13. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, frame evidence, scope match, cursor/candidate proximity, movement-transition evidence when supplied, and low-risk packet. It records a `click_candidate_evaluated` audit event and never clicks.
-14. Call `desktop_click` only after a fresh observation, current `boundAppScope`, app-scoped `click` permission, and no prior transition gate is pending. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
-15. Call `desktop_type_text` only after a fresh observation, current `boundAppScope`, app-scoped `type_text` permission, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
-16. For `desktop_type_text`, use generated test input only. The tool records text length and classification but not text content.
-17. After every movement, click, or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
-18. Do not call another non-observe action until the transition gate returns `audited`.
-19. Use `desktop_session_audit_log` to inspect the session trace.
-20. Use `desktop_end_interaction_session` when the task license should stop.
+10. Call `desktop_move_mouse` only after a screenshot-bearing fresh observation and pass that observation id as `preActionObservationId`.
+11. Include `compactRelationalClaim` unless using the full `relationalNavigation` debug packet. The compact claim must name the source observation, intended target, scene, anchor, relation, candidate, rejected alternative, expected evidence, contradiction, and point provenance.
+12. Treat `desktop_move_mouse` as a probe. It returns an interaction transition gate in `pending_observation` state. If real mouse movement is enabled, the move can affect cursor position and hover state but still must not click or type.
+13. After movement, call `desktop_observe` with `transitionActionId`. This records cursor/backend telemetry and leaves semantic movement status awaiting assessment.
+14. Call `desktop_submit_transition_assessment` against that action id. Use `supported` only when the follow-up screenshot supports the stored relation, candidate, rejected alternative, and expected-evidence claim with no contradiction.
+15. After a supported movement assessment, call `desktop_evaluate_click_candidate` when a future click is being considered.
+16. Treat `desktop_evaluate_click_candidate` as a targeting-quality gate. It checks active session, allowed click action, fresh observation, frame evidence, scope match, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packet. It records a `click_candidate_evaluated` audit event, returns a hover target witness when ready, and never clicks.
+17. Call `desktop_click` only after a fresh observation, current `boundAppScope`, app-scoped `click` permission, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, and no prior transition gate is pending. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
+18. Call `desktop_type_text` only after a fresh observation, current `boundAppScope`, app-scoped `type_text` permission, relational evidence, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
+19. For `desktop_type_text`, use generated test input only. The tool records text length and classification but not text content.
+20. After every click or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
+21. Do not call another non-observe action until the transition gate is complete or a supported semantic landing assessment has made the next probe/click path ready.
+22. Use `desktop_session_audit_log` to inspect the session trace.
+23. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement-delta audit events, and click-candidate witness evaluations. It can exercise `observe -> move_mouse -> observe transitionActionId -> evaluate_click_candidate -> click/type -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
+The current implementation records session lifecycle, mock observation, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, and click-candidate witness evaluations. It can exercise `observe -> compact relational move -> observe transitionActionId -> semantic landing assessment -> evaluate_click_candidate -> click/type -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
 
 ## Stop Or Escalate
 
@@ -97,12 +111,13 @@ Stop or ask the user before continuing if:
 - visible-content acknowledgement is absent,
 - the requested scope is unrelated to the user's task,
 - an interaction transition gate is blocked or cannot be audited from the available observation,
+- a movement transition has only cursor telemetry and lacks semantic landing assessment,
 - `desktop_observe` returns `status: "scope_exit"` because the active target drifted outside `boundAppScope`,
 - the request implies credentials, payments, messages, publishing, destructive operations, shell execution, or system settings,
 - `desktop_type_text` input is credential-like, secret-like, private, or not generated test input,
 - the user expects real clicking without an enabled real-click provider gate and a bound reversible app-under-test,
 - the user expects real typing without an enabled real-typing provider gate and a bound reversible app-under-test,
-- the user expects app launch, shell execution, system changes, or broad desktop mutation,
+- the user expects arbitrary app launch, shell execution, command-line arguments, system changes, or broad desktop mutation,
 - real observation is enabled but the active window does not match the requested scope.
 
 ## Current Mock Loop
@@ -112,12 +127,14 @@ Executable mock sequence:
 1. Start a licensed session.
 2. Observe the scoped app/window with mock bounded frame evidence.
 3. Move as a mock probe only after fresh observation.
-4. Observe with `transitionActionId` to audit the movement transition.
-5. Click or type as a mock probe only after the transition gate is audited.
-6. Observe with `transitionActionId` to audit the click or typing transition.
-7. Inspect audit logs and stop the session.
+4. Observe with `transitionActionId` to record movement telemetry.
+5. Submit semantic landing assessment for the movement transition.
+6. Evaluate the click candidate and retain the hover target witness when ready.
+7. Click or type as a mock probe only after the required relational/semantic gate is satisfied.
+8. Observe with `transitionActionId` to audit the click or typing transition.
+9. Inspect audit logs and stop the session.
 
-Real providers reuse the same transition gate discipline; every movement, click, or typing action must be followed by observation before another non-observe action.
+Real providers reuse the same transition gate discipline; every movement, click, or typing action must be followed by observation, and movement must also receive semantic landing assessment before click-candidate readiness.
 
 ## Next Implementation Target
 
@@ -187,9 +204,9 @@ ADMCP-016 is implemented. The Windows real-observation provider now uses a persi
 
 ADMCP-017 click-candidate witness gate is implemented as targeting-quality evidence, not as a click executor.
 
-- Use `desktop_evaluate_click_candidate` after a fresh observation, preferably the follow-up observation that audited a movement probe.
-- A ready result means the current candidate has enough session, scope, frame, cursor, movement, and risk evidence for a future app-scoped click request.
-- A ready result does not execute a click by itself. A future `desktop_click` call must still pass session, binding, provider-gate, audit, and post-click observation requirements.
+- Use `desktop_evaluate_click_candidate` after a fresh observation and supported semantic landing assessment for the movement probe.
+- A ready result means the current candidate has enough session, scope, frame, cursor, semantic landing, hover witness, and risk evidence for a future app-scoped click request.
+- A ready result does not execute a click by itself. A future `desktop_click` call must still pass session, binding, provider-gate, hover target witness, audit, and post-click observation requirements.
 - Failed results are repair input: observe again, move again as a reversible probe, refresh stale evidence, or correct scope.
 
 ADMCP-018 licensed app scope model is implemented at the session-policy layer.
@@ -214,7 +231,7 @@ ADMCP-020 app-scoped real click gate is implemented.
 
 - Enable only with `ADMCP_ENABLE_REAL_CLICK=true` while the Windows real-observation provider is enabled.
 - `desktop_capabilities` reports `realDesktopClick: true`, `executeDesktopActions: true`, and `closedLoopClickExecution: false` only when the click provider gate is active.
-- `desktop_click` requires active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, in-frame target point, app-scoped `click`, audit logging, and post-click observation.
+- `desktop_click` requires active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, relational `hover_witness` provenance, stored hover target witness, in-frame target point, app-scoped `click`, audit logging, and post-click observation.
 - The provider checks active-window scope before clicking and reports post-click active-window residue for the follow-up observation.
 - Real typing requires the separate provider gate; shell, app launch, system changes, external publishing, and broad desktop clicking remain unavailable.
 
@@ -222,7 +239,7 @@ ADMCP-021 app-scoped type text gate is implemented.
 
 - Enable only with `ADMCP_ENABLE_REAL_TYPING=true` while the Windows real-observation provider is enabled.
 - `desktop_capabilities` reports `realDesktopTyping: true` and `executeDesktopActions: true` only when the typing provider gate is active.
-- `desktop_type_text` requires active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, generated/synthetic input classification, audit logging, and post-type observation.
+- `desktop_type_text` requires active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, relational evidence, generated/synthetic input classification, audit logging, and post-type observation.
 - The provider checks active-window scope before typing and reports post-typing active-window residue for the follow-up observation.
 - Credentials, secrets, private data, external publishing, shell, app launch, system changes, and broad desktop control remain blocked or unavailable.
 
@@ -234,7 +251,16 @@ ADMCP-022 post-action observation and repair-loop classification is implemented.
 - `no_op`, `wrong_target`, and `repair_needed` consume bounded repair budget while allowing the next licensed in-scope repair action until the session limit is reached.
 - `scope_exit`, `risk_prompt`, `uninterpretable_state`, or repair-limit exhaustion stops or escalates through audit and stop-condition evidence.
 - `desktop_capabilities` reports `postActionRepairClassification: true`.
-- ADMCP-022 does not add a UI test runner, OCR, semantic localization, app launching, shell execution, or new desktop mutation authority.
+- ADMCP-022 does not add a UI test runner, OCR, semantic localization, shell execution, or new desktop mutation authority.
+
+ADMCP-024 compact relational navigation enforcement and app catalog bootstrap is implemented.
+
+- `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` require compact or full relational navigation evidence before provider execution.
+- Compact claims are server-expanded and bound to screenshot-bearing live observations and frame hashes.
+- Raw coordinates are endpoints only; cursor landing is backend telemetry and cannot prove semantic target correctness.
+- `desktop_submit_transition_assessment` records supported, contradicted, or inconclusive semantic landing outcomes.
+- `desktop_evaluate_click_candidate` requires supported semantic landing with no contradiction before recording a hover target witness.
+- `desktop_open_application` is catalog-only through `config/desktop_applications.json`; unknown apps, path-like queries, and command-line argument fields are rejected or blocked.
 
 Next unimplemented target: ADMCP-023 Governed UI Test Cycle Runner For Local Apps.
 
@@ -243,7 +269,7 @@ ADMCP-023 should not drift into a default ordered click/type runner. The target 
 The runner should use the existing MCP tools only and preserve this cycle shape:
 
 ```text
-test goal -> active cut -> observe -> licensed probe/action -> observe transitionActionId -> classify delta -> carry residue -> continue/repair/ask/close
+test goal -> active cut -> observe -> licensed probe/action -> observe transitionActionId -> semantic assessment/classify delta -> carry residue -> continue/repair/ask/close
 ```
 
 Every runner cycle should produce a `ui_test_cycle` packet. Observation-only cycles may omit action and transition-classification fields. Probe-action cycles such as `desktop_evaluate_click_candidate` require current observation evidence but no transition gate. State-changing cycles must include before observation, action id, after observation through `transitionActionId`, and transition classification. The runner should end with a landfall/re-entry packet that states protected observables, satisfied observables, unsatisfied residue, audit count, stop conditions, closure status, and re-entry notes.
@@ -266,7 +292,7 @@ Recommended split:
 - ADMCP-023C: local app manual runner using existing real-provider gates only.
 - ADMCP-023D: Phaser/Vite fixture pressure test with pass, no-op, wrong-target, delayed-transition, and scope-exit cases.
 
-Do not add app launch, dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, or new desktop mutation authority in ADMCP-023.
+Do not add dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, arbitrary app launch, or new desktop mutation authority in ADMCP-023.
 
 Next safe code step: implement ADMCP-023A only.
 

@@ -40,6 +40,9 @@ Session policy tests must cover:
 - credential, system, external-publishing, and destructive actions remain blocked,
 - every in-session action has an audit event,
 - every state-changing action has a fresh pre-action observation,
+- every state-changing action has compact relational or full relational navigation evidence linked to a screenshot-bearing live observation,
+- raw coordinate-only movement, click, and typing requests are blocked before provider execution,
+- external or unknown point provenance is blocked for real state-changing actions,
 - every state-changing action has post-action observation before completion,
 - observation references match session id, target scope, freshness limits, and frame-evidence expectations,
 - low-risk in-session actions do not require repeated user confirmation.
@@ -56,7 +59,10 @@ Use for:
 - session lifecycle tool calls and audit-log behavior,
 - mock observation tool calls, bounded frame metadata, optional image content blocks, and audit events,
 - mock movement tool calls, pre-action observation validation, transition gate creation, blocked blind action chains, and post-movement observation audit,
+- compact semantic landing assessment through `desktop_submit_transition_assessment`, including supported, contradicted, and inconclusive outcomes,
 - mock click and typing tool calls, credential-like text blocking, low-recoverability escalation, absence of typed text persistence, transition gate creation, and post-action observation audit,
+- click-candidate readiness requiring supported semantic landing assessment and hover target witness evidence, not cursor proximity alone,
+- catalog-only app bootstrap through `desktop_open_application`, including unknown app queries, path-like queries, user confirmation, and launch-argument rejection,
 - transport smoke checks.
 
 After ADMCP-011, mock action tools are available, but protocol tests must continue to assert that real desktop capture and real desktop mutation capabilities remain disabled by default.
@@ -105,7 +111,7 @@ For ADMCP-015, tests must cover optional provider timing diagnostics without mak
 
 For ADMCP-016, tests must cover the persistent Windows helper as an implementation detail behind the provider seam. Windows provider tests should verify default persistent-helper selection, explicit per-call fallback, helper command delegation, helper failure mapping, provider cleanup delegation, and continued absence of click/type authority. Manual runner tests should preserve provider cleanup paths so helper processes do not outlive governed probe runs. Live checks should verify repeated observations through one session, while treating cold-start latency as residue.
 
-For ADMCP-017, tests must cover the click-candidate witness gate. Protocol tests should verify that `desktop_evaluate_click_candidate` requires an active session and recorded observation, checks click permission, observation freshness, scope match, frame evidence, cursor/candidate proximity, optional audited movement-transition evidence, and low-risk packets, appends a `click_candidate_evaluated` audit event, and never executes a click.
+For ADMCP-017, tests must cover the click-candidate witness gate. Protocol tests should verify that `desktop_evaluate_click_candidate` requires an active session and recorded observation, checks click permission, observation freshness, scope match, frame evidence, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packets, appends a `click_candidate_evaluated` audit event, and never executes a click.
 
 For ADMCP-018, tests must cover the licensed app-under-test scope model. Session-policy tests should reject `click`/`type_text` permissions when the user has not declared a reversible app scope, accept declared reversible app scopes, preserve forbidden boundary declarations, and keep click-candidate evidence as targeting quality rather than the main safety gate.
 
@@ -116,6 +122,10 @@ For ADMCP-020, tests cover app-scoped real click gating without allowing broad d
 For ADMCP-021, tests must cover app-scoped real typing of generated test input. Tests should verify provider gate disabled, in-scope generated input allowed, credential-like or secret-like input blocked, out-of-scope typing blocked, text content not stored in audit/action packets, and mandatory post-type observation.
 
 For ADMCP-022, tests must cover post-action observation and repair-loop classification: expected delta, no-op, wrong target, scope exit, risk prompt, uninterpretable state, repair attempt counting, and transition-gate audit completeness.
+
+For compact relational navigation enforcement, tests must cover coordinate-only action blocks, compact claim expansion from live screenshot-bearing observations, stale or mismatched observation blocks, blocked `external_coordinate` and `unknown` provenance, movement cursor landing as telemetry only, supported landing assessment unlocking candidate readiness, contradicted landing mapping to wrong target, inconclusive landing consuming repair budget, click proximity being insufficient without semantic confirmation, hover-witness click requirements, and full `relationalNavigation` compatibility for strict/debug clients.
+
+For catalog application bootstrap, tests must cover JSON-only app additions, duplicate ID validation, ambiguous alias validation, unknown app/query blocks, path-like query blocks, launch-argument/schema rejection, user confirmation, and provider capability blocks.
 
 For ADMCP-023, tests must cover the governed UI test cycle runner, not a generic ordered click/type script.
 

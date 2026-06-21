@@ -2,7 +2,11 @@ import { z } from "zod";
 import {
   desktopInteractionScopeSchema,
   desktopInteractionScopesMatch,
+  desktopCompactRelationalClaimSchema,
+  desktopCompactSemanticLandingAssessmentSchema,
+  desktopRelationalNavigationSchema,
   type DesktopActionPacket,
+  type DesktopCompactSemanticLandingAssessment,
   type DesktopObservationPacket,
   desktopPointSchema,
   type DesktopPoint
@@ -74,6 +78,9 @@ export const interactionTransitionGateSchema = z.object({
   protectedObservables: z.array(z.string().min(1)),
   expectedEvidenceAfterAction: z.array(z.string().min(1)),
   observedDeltaSummary: z.string().min(1).optional(),
+  compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
+  relationalNavigation: desktopRelationalNavigationSchema.optional(),
+  semanticLandingAssessment: desktopCompactSemanticLandingAssessmentSchema.optional(),
   postActionClassification: postActionObservationClassificationSchema.optional(),
   movementDeltaWitness: z
     .object({
@@ -125,6 +132,8 @@ export function createPendingInteractionTransitionGate(
     sourceActiveWindowIdentity: observedWindowIdentity(input.sourceObservation?.activeWindow),
     protectedObservables: input.protectedObservables,
     expectedEvidenceAfterAction: input.expectedEvidenceAfterAction,
+    compactRelationalClaim: input.action.compactRelationalClaim,
+    relationalNavigation: input.action.relationalNavigation,
     residue: input.residue
   });
 }
@@ -141,6 +150,36 @@ export function auditInteractionTransitionGate(
     gate.actionType === "move_mouse"
       ? buildMovementDeltaWitness(gate, observation, scopeMatches)
       : undefined;
+  const requiresSemanticLandingAssessment =
+    gate.actionType === "move_mouse" &&
+    (gate.compactRelationalClaim !== undefined ||
+      gate.relationalNavigation !== undefined);
+
+  if (requiresSemanticLandingAssessment && scopeMatches && hasFrameEvidence) {
+    const residue = [
+      ...gate.residue,
+      "Follow-up observation target scope matched the transition gate.",
+      "Follow-up observation included frame evidence.",
+      ...(movementDeltaWitness?.residue ?? []),
+      "Cursor landing is recorded as telemetry only.",
+      "Submit desktop_submit_transition_assessment before using this movement as click-candidate evidence."
+    ];
+
+    return interactionTransitionGateSchema.parse({
+      ...gate,
+      status: "observed",
+      updatedAt: auditedAt,
+      followUpObservationId: observation.observationId,
+      movementDeltaWitness,
+      observedDeltaSummary:
+        movementDeltaWitness === undefined
+          ? observation.lastActionDeltaSummary ??
+            "Follow-up observation was attached; semantic landing assessment is pending."
+          : `${summarizeMovementDeltaWitness(movementDeltaWitness)} Semantic landing assessment is pending.`,
+      residue
+    });
+  }
+
   const postActionClassification = classifyPostActionObservation({
     gate,
     observation,
@@ -210,6 +249,82 @@ export function markInteractionTransitionScopeExit(
       "Post-action observation detected scope exit from the bound app-under-test.",
     postActionClassification: classification,
     residue: [...gate.residue, ...classification.residue]
+  });
+}
+
+export function applyCompactSemanticLandingAssessment(
+  gate: InteractionTransitionGate,
+  assessment: DesktopCompactSemanticLandingAssessment,
+  assessedAt: string
+): InteractionTransitionGate {
+  const semanticClassification =
+    assessment.outcome === "supported" &&
+    assessment.relationHeld &&
+    assessment.candidateSupported &&
+    assessment.rejectedAlternativeAvoided &&
+    !assessment.contradictionSeen
+      ? classification({
+          kind: "expected_delta",
+          confidence: "high",
+          disposition: "complete",
+          reason:
+            "Semantic landing assessment supported the stored relational movement claim.",
+          evidence: [
+            "semantic_landing_assessment_supported",
+            `expectedEvidenceSeen: ${assessment.expectedEvidenceSeen}`,
+            `summary: ${assessment.summary}`
+          ],
+          residue: [
+            "The agent declared that the follow-up screenshot supports the relation, candidate, rejected-alternative avoidance, and expected evidence.",
+            "Cursor movement telemetry was not treated as proof by itself."
+          ]
+        })
+      : assessment.outcome === "contradicted" || assessment.contradictionSeen
+        ? classification({
+            kind: "wrong_target",
+            confidence: "high",
+            disposition: "repair_allowed",
+            reason:
+              "Semantic landing assessment contradicted the stored relational movement claim.",
+            evidence: [
+              "semantic_landing_assessment_contradicted",
+              `expectedEvidenceSeen: ${assessment.expectedEvidenceSeen}`,
+              `summary: ${assessment.summary}`
+            ],
+            residue: [
+              "The movement may have landed near a coordinate, but the relational witness indicates the wrong target or rejected alternative.",
+              "A bounded repair movement may refine the relational target inside the licensed scope."
+            ]
+          })
+        : classification({
+            kind: "repair_needed",
+            confidence: "medium",
+            disposition: "repair_allowed",
+            reason:
+              "Semantic landing assessment was inconclusive for the stored relational movement claim.",
+            evidence: [
+              "semantic_landing_assessment_inconclusive",
+              `expectedEvidenceSeen: ${assessment.expectedEvidenceSeen}`,
+              `summary: ${assessment.summary}`
+            ],
+            residue: [
+              "The follow-up screenshot did not provide enough semantic support to unlock click readiness.",
+              "A bounded repair action may collect stronger hover or visual evidence."
+            ]
+          });
+
+  return interactionTransitionGateSchema.parse({
+    ...gate,
+    status: "audited",
+    updatedAt: assessedAt,
+    semanticLandingAssessment: assessment,
+    postActionClassification: semanticClassification,
+    observedDeltaSummary: `Semantic landing assessment: ${assessment.outcome}. ${assessment.summary}`,
+    residue: [
+      ...gate.residue,
+      `Semantic landing assessment outcome: ${assessment.outcome}.`,
+      ...semanticClassification.residue
+    ]
   });
 }
 

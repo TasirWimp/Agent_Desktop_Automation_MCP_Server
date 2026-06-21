@@ -613,16 +613,18 @@ export function registerObservationTools(
                 eventId: runtime.generateId("event"),
                 sessionId: input.sessionId,
                 eventType:
-                  auditedTransitionGate.status === "audited"
-                    ? "post_action_observed"
-                    : "escalation_required",
+                  auditedTransitionGate.status === "escalation_required"
+                    ? "escalation_required"
+                    : "post_action_observed",
                 occurredAt: runtime.now(),
                 actionId: auditedTransitionGate.actionId,
                 observationId: recordedObservation.observationId,
                 summary:
                   auditedTransitionGate.status === "audited"
                     ? `Post-action observation classified as ${auditedTransitionGate.postActionClassification?.kind ?? "observed"}.`
-                    : `Post-action observation escalated as ${auditedTransitionGate.postActionClassification?.kind ?? "unresolved"}.`,
+                    : auditedTransitionGate.status === "observed"
+                      ? "Post-action observation recorded; semantic landing assessment is required before the next non-observe action."
+                      : `Post-action observation escalated as ${auditedTransitionGate.postActionClassification?.kind ?? "unresolved"}.`,
                 residue: auditedTransitionGate.residue
               };
 

@@ -4,7 +4,7 @@
 
 Use this checklist only for the opt-in Windows active-window observation, pointer-movement, app-scoped click, and app-scoped generated-text typing gates.
 
-The base observation check must not use real mouse movement, real clicking, or real typing. The optional pointer-movement check may move the real cursor only after the movement gate is explicitly enabled. The optional click check may click only inside a user-declared reversible app-under-test after the real click gate is explicitly enabled. The optional typing check may type only generated test input inside a user-declared reversible app-under-test after the real typing gate is explicitly enabled. No check may use OCR, localization, shell tools, app launching, external publishing, or broad desktop control through this MCP server.
+The base observation check must not use real mouse movement, real clicking, or real typing. The optional pointer-movement check may move the real cursor only after the movement gate is explicitly enabled and relational evidence is supplied. The optional click check may click only inside a user-declared reversible app-under-test after the real click gate is explicitly enabled and hover-witness evidence is supplied. The optional typing check may type only generated test input inside a user-declared reversible app-under-test after the real typing gate is explicitly enabled. No check may use OCR, localization, shell tools, arbitrary app launching, external publishing, or broad desktop control through this MCP server.
 
 ## Setup
 
@@ -82,7 +82,7 @@ Run these only after the user has granted a bounded session license for clicking
 10. Attempt a second `desktop_click` before the post-click observation in a separate test session and confirm it is blocked by the pending transition gate.
 11. Attempt a click with a stale pre-action observation and confirm it is blocked before provider execution.
 12. Attempt a click outside the licensed app scope and confirm it is blocked before provider execution.
-13. Confirm shell, app launch, system change, external publishing, and broad desktop control remain unavailable.
+13. Confirm shell, arbitrary app launch, command-line launch arguments, system change, external publishing, and broad desktop control remain unavailable.
 
 ## Optional App-Scoped Typing Checks
 
@@ -100,7 +100,7 @@ Run these only after the user has granted a bounded session license for typing g
 10. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
 11. Attempt credential-like text such as `password=example` and confirm it is blocked before provider execution and raw text is not stored.
 12. Attempt typing outside the licensed app scope and confirm it is blocked before provider execution.
-13. Confirm shell, app launch, system change, external publishing, and broad desktop control remain unavailable.
+13. Confirm shell, arbitrary app launch, command-line launch arguments, system change, external publishing, and broad desktop control remain unavailable.
 
 ## ADMCP-014 Witness Checks
 
@@ -127,7 +127,7 @@ Extend the observation and pointer-movement checks with these diagnostic asserti
 5. Confirm movement timing includes pre-move active-window lookup, cursor-position setting, and post-move active-window lookup.
 6. Confirm governed navigation probe output carries observation provider timing summaries so slow provider calls are visible without ad hoc debug scripts.
 7. Confirm timing diagnostics do not change policy decisions, transition-gate behavior, or click/type availability.
-8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, app launch, system change, hidden polling, background capture, and broad desktop control must remain unavailable.
+8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, arbitrary app launch, command-line launch arguments, system change, hidden polling, background capture, and broad desktop control must remain unavailable.
 
 ## ADMCP-016 Persistent Helper Checks
 
@@ -140,7 +140,7 @@ Extend the real Windows observation checks with these helper-specific assertions
 5. Treat cold-start latency as residue; the helper optimization target is repeated observation during governed navigation, not guaranteed instant first capture.
 6. Confirm provider cleanup runs after manual probe runners exit.
 7. Confirm helper failures return controlled provider errors and do not leave hidden capture, polling, or control loops running.
-8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, app launch, system change, OCR, accessibility interpretation, background capture, and broad desktop control must remain unavailable.
+8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, arbitrary app launch, command-line launch arguments, system change, OCR, accessibility interpretation, background capture, and broad desktop control must remain unavailable.
 
 ## Manual Probe Runner Checks
 
@@ -174,7 +174,7 @@ npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
 5. Confirm the result records timing diagnostics for capabilities, session start, each observation, each movement, audit-log read, and session end.
 6. Confirm the output includes enough frame hashes or screenshot paths to compare before/after states.
 7. Confirm the runner still requires `userConfirmed: true`, `visibleContentAcknowledged: true`, and `allowRealMouseMovement: true` before using a real mouse-movement provider.
-8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, app launch, system change, and broad desktop control must remain unavailable.
+8. Confirm no real click or real typing occurs unless the separate app-scoped provider gate is explicitly enabled for that action; shell, arbitrary app launch, command-line launch arguments, system change, and broad desktop control must remain unavailable.
 
 ## Pass Criteria
 
@@ -183,11 +183,11 @@ npm run manual:navigation-probe -- .\tmp\navigation-probes\example.json
 - Active-window identity is available through `windowId` or process/title metadata.
 - Cursor position is available in active-window frame coordinates when the provider can read it.
 - Mismatched active-window scope fails before recording an observation.
-- Optional real movement remains inside the active-window capture frame and requires post-movement observation.
+- Optional real movement remains inside the active-window capture frame and requires post-movement observation plus semantic landing assessment.
 - No hidden polling or background capture continues after the tool returns.
 - Real clicking remains unavailable unless the app-scoped click gate is explicitly enabled and bound to a reversible app-under-test.
 - Real typing remains unavailable unless the app-scoped typing gate is explicitly enabled and bound to a reversible app-under-test.
-- Shell, app launch, system changes, external publishing, and broad desktop control remain unavailable.
+- Shell, arbitrary app launch, command-line launch arguments, system changes, external publishing, and broad desktop control remain unavailable.
 
 ## Stop Conditions
 
@@ -200,4 +200,4 @@ Stop immediately if:
 - pointer movement leaves the intended active-window scope,
 - any real click occurs outside the explicitly enabled app-scoped click gate,
 - any real typing occurs outside the explicitly enabled app-scoped typing gate,
-- any app launch, shell, system change, external publishing, or broad desktop-control behavior appears.
+- any arbitrary app launch, command-line launch argument handling, shell, system change, external publishing, or broad desktop-control behavior appears.

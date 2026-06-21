@@ -2,14 +2,23 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   desktopLicensedAppScopeSchema,
+  desktopCompactSemanticLandingAssessmentSchema,
   desktopInteractionScopeSchema,
   desktopSessionActionTypes,
   desktopSessionObservationCadenceSchema,
   desktopSessionRiskLimitsSchema,
   evaluateSessionStartPolicy,
   type DesktopInteractionSessionLicense,
+  type DesktopSessionStopCondition,
   type DesktopSessionAuditEvent
 } from "../policy/sessionLicensePolicy.js";
+import {
+  applyCompactSemanticLandingAssessment,
+  repairDispositionRequiresAttempt,
+  withExpectedDeltaRepairReset,
+  withPostActionRepairAttempt,
+  type InteractionTransitionGate
+} from "./interactionTransitionGate.js";
 import {
   InMemoryDesktopSessionStore,
   SessionStoreError,
@@ -43,6 +52,12 @@ const endInteractionSessionInputSchema = z.object({
 
 const sessionAuditLogInputSchema = z.object({
   sessionId: z.string().min(1)
+});
+
+const submitTransitionAssessmentInputSchema = z.object({
+  sessionId: z.string().min(1),
+  actionId: z.string().min(1),
+  assessment: desktopCompactSemanticLandingAssessmentSchema
 });
 
 function structuredResult(value: Record<string, unknown>, isError = false) {
@@ -102,6 +117,120 @@ function sessionToolError(error: unknown) {
     },
     true
   );
+}
+
+function stopConditionForAssessment(
+  sessionId: string,
+  gate: InteractionTransitionGate
+): DesktopSessionStopCondition | undefined {
+  const classification = gate.postActionClassification;
+
+  if (classification === undefined) {
+    return undefined;
+  }
+
+  if (classification.repairLimitReached) {
+    return {
+      condition: "max_repair_attempts_reached",
+      sessionId,
+      actionId: gate.actionId,
+      reason:
+        "The desktop interaction session reached its consecutive repair-attempt limit.",
+      residue: classification.residue
+    };
+  }
+
+  if (classification.kind === "risk_prompt") {
+    return {
+      condition: "forbidden_boundary_detected",
+      sessionId,
+      actionId: gate.actionId,
+      reason:
+        "The transition assessment indicates a forbidden or high-risk app boundary.",
+      residue: classification.residue
+    };
+  }
+
+  if (classification.kind === "scope_exit") {
+    return {
+      condition: "outside_allowed_scope",
+      sessionId,
+      actionId: gate.actionId,
+      reason: "The transition assessment indicates scope exit.",
+      residue: classification.residue
+    };
+  }
+
+  if (classification.kind === "uninterpretable_state") {
+    return {
+      condition: "uninterpretable_post_action_state",
+      sessionId,
+      actionId: gate.actionId,
+      reason: "The transition assessment could not be interpreted safely.",
+      residue: classification.residue
+    };
+  }
+
+  return undefined;
+}
+
+function classifyAndAccountForAssessment(
+  runtime: SessionToolRuntime,
+  sessionId: string,
+  gate: InteractionTransitionGate
+): {
+  transitionGate: InteractionTransitionGate;
+  stopCondition?: DesktopSessionStopCondition;
+} {
+  const classification = gate.postActionClassification;
+
+  if (classification === undefined) {
+    return { transitionGate: gate };
+  }
+
+  if (classification.kind === "expected_delta") {
+    runtime.sessionStore.resetRepairAttemptCount(sessionId);
+    return {
+      transitionGate: withExpectedDeltaRepairReset(gate, runtime.now())
+    };
+  }
+
+  if (repairDispositionRequiresAttempt(classification)) {
+    const session = runtime.sessionStore.requireActiveSession(sessionId);
+    const currentRepairAttemptCount = session.repairAttemptCount;
+    const maxRepairAttempts = session.license.riskLimits.maxConsecutiveRepairAttempts;
+
+    if (currentRepairAttemptCount >= maxRepairAttempts) {
+      const transitionGate = withPostActionRepairAttempt(
+        gate,
+        currentRepairAttemptCount,
+        true,
+        runtime.now()
+      );
+
+      return {
+        transitionGate,
+        stopCondition: stopConditionForAssessment(sessionId, transitionGate)
+      };
+    }
+
+    const repairAttemptCount = runtime.sessionStore.incrementRepairAttemptCount(
+      sessionId
+    );
+    const transitionGate = withPostActionRepairAttempt(
+      gate,
+      repairAttemptCount,
+      false,
+      runtime.now()
+    );
+
+    return { transitionGate };
+  }
+
+  return {
+    transitionGate: gate,
+    stopCondition: stopConditionForAssessment(sessionId, gate)
+  };
 }
 
 export function registerSessionTools(server: McpServer, runtime: SessionToolRuntime): void {
@@ -214,6 +343,127 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
           session: summarizeSession(session),
           auditEvent,
           residue: ["Session ended and audit log remains readable."]
+        });
+      } catch (error: unknown) {
+        return sessionToolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "desktop_submit_transition_assessment",
+    {
+      title: "Submit Desktop Transition Assessment",
+      description:
+        "Attach a compact semantic landing assessment to an observed relational movement transition. Cursor coordinates are telemetry only and do not prove the target was correct.",
+      inputSchema: submitTransitionAssessmentInputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false
+      }
+    },
+    async (input) => {
+      try {
+        runtime.sessionStore.requireActiveSession(input.sessionId);
+        const transitionGate = runtime.sessionStore.requireTransitionGate(
+          input.sessionId,
+          input.actionId
+        );
+
+        if (transitionGate.status !== "observed") {
+          return structuredResult(
+            {
+              error: {
+                code: "transition_not_observed",
+                message:
+                  "The referenced transition gate must be observed before a semantic landing assessment can be submitted."
+              },
+              transitionGate,
+              residue: ["No transition assessment was recorded."]
+            },
+            true
+          );
+        }
+
+        if (
+          transitionGate.compactRelationalClaim === undefined &&
+          transitionGate.relationalNavigation === undefined
+        ) {
+          return structuredResult(
+            {
+              error: {
+                code: "transition_assessment_not_applicable",
+                message:
+                  "The referenced transition gate is not claim-bound and does not accept semantic landing assessment."
+              },
+              transitionGate,
+              residue: ["No transition assessment was recorded."]
+            },
+            true
+          );
+        }
+
+        if (transitionGate.followUpObservationId === undefined) {
+          return structuredResult(
+            {
+              error: {
+                code: "transition_follow_up_missing",
+                message:
+                  "The referenced transition gate has no follow-up observation id."
+              },
+              transitionGate,
+              residue: ["No transition assessment was recorded."]
+            },
+            true
+          );
+        }
+
+        const assessedGate = applyCompactSemanticLandingAssessment(
+          transitionGate,
+          input.assessment,
+          runtime.now()
+        );
+        const transitionAuditResult = classifyAndAccountForAssessment(
+          runtime,
+          input.sessionId,
+          assessedGate
+        );
+        const updatedTransitionGate = runtime.sessionStore.updateTransitionGate(
+          transitionAuditResult.transitionGate
+        );
+        const postActionStopCondition = transitionAuditResult.stopCondition;
+
+        if (postActionStopCondition !== undefined) {
+          runtime.sessionStore.appendStopCondition(postActionStopCondition);
+        }
+
+        const auditEvent: DesktopSessionAuditEvent = {
+          eventId: runtime.generateId("event"),
+          sessionId: input.sessionId,
+          eventType: "transition_assessed",
+          occurredAt: runtime.now(),
+          actionId: updatedTransitionGate.actionId,
+          observationId: updatedTransitionGate.followUpObservationId,
+          summary:
+            `Transition assessment classified as ${updatedTransitionGate.postActionClassification?.kind ?? "observed"} with status ${updatedTransitionGate.status}.`,
+          residue: updatedTransitionGate.residue
+        };
+
+        runtime.sessionStore.appendAuditEvent(auditEvent);
+
+        return structuredResult({
+          sessionId: input.sessionId,
+          status: updatedTransitionGate.status,
+          transitionGate: updatedTransitionGate,
+          postActionStopCondition,
+          auditEvent,
+          residue: [
+            "Transition assessment was recorded in session state and audit log.",
+            "The assessment is the agent's semantic comparison against the follow-up screenshot.",
+            "Cursor coordinates and backend movement success remain telemetry only."
+          ]
         });
       } catch (error: unknown) {
         return sessionToolError(error);

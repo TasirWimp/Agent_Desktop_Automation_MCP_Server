@@ -6,6 +6,7 @@ import {
   automationActionTypes,
   evaluateAutomationPolicy
 } from "./policy/automationPolicy.js";
+import type { DesktopApplicationCatalog } from "./providers/applicationCatalog.js";
 import {
   cursorObservationPacketSchema,
   intersectionSignalPacketSchema,
@@ -15,6 +16,7 @@ import { buildUiIntersectionPlan } from "./uiPlanning/intersectionPolicy.js";
 import type { DesktopInteractionProvider } from "./providers/desktopProvider.js";
 import { createDefaultDesktopProvider } from "./providers/defaultDesktopProvider.js";
 import { registerActionTools } from "./session/actionTools.js";
+import { registerApplicationBootstrapTools } from "./session/applicationBootstrapTools.js";
 import { registerClickCandidateWitnessTools } from "./session/clickCandidateWitnessTools.js";
 import { registerObservationTools } from "./session/observationTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
@@ -26,6 +28,7 @@ const serverVersion = "0.1.0";
 export interface CreateServerOptions {
   sessionStore?: InMemoryDesktopSessionStore;
   desktopProvider?: DesktopInteractionProvider;
+  applicationCatalog?: DesktopApplicationCatalog;
   now?: () => string;
   generateId?: (prefix: string) => string;
 }
@@ -55,6 +58,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     desktopProviderCapabilities.providerKind === "real" &&
     desktopProviderCapabilities.supportsTyping &&
     desktopProviderCapabilities.realDesktopMutation;
+  const realDesktopApplicationLaunch =
+    desktopProviderCapabilities.providerKind === "real" &&
+    desktopProviderCapabilities.supportsApplicationLaunch &&
+    desktopProviderCapabilities.realDesktopApplicationLaunch;
   const server = new McpServer({
     name: serverName,
     version: serverVersion
@@ -85,6 +92,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           sessionLifecycleTools: true,
           sessionAuditLog: true,
           clickCandidateWitnessGate: true,
+          compactRelationalClaims: true,
+          semanticLandingAssessment: true,
+          desktopOpenApplicationTool: true,
+          applicationCatalogLaunchOnly: true,
           mockDesktopProvider: desktopProviderCapabilities.providerKind === "mock",
           mockDesktopMovement:
             desktopProviderCapabilities.providerKind === "mock" &&
@@ -107,6 +118,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           realDesktopMouseMovement: desktopProviderCapabilities.realDesktopMouseMovement,
           realDesktopClick,
           realDesktopTyping,
+          realDesktopApplicationLaunch,
           realDesktopMutation: desktopProviderCapabilities.realDesktopMutation,
           desktopMouseKeyboardTools:
             desktopProviderCapabilities.providerKind === "real" &&
@@ -150,6 +162,12 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     sessionStore,
     now,
     generateId
+  });
+
+  registerApplicationBootstrapTools(server, {
+    desktopProvider,
+    now,
+    catalog: options.applicationCatalog
   });
 
   registerObservationTools(server, {

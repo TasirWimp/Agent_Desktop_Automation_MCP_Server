@@ -185,8 +185,10 @@ describe("runGovernedNavigationProbe", () => {
       "desktop_observe:initial",
       "desktop_move_mouse:step-1",
       "desktop_observe:step-1:post",
+      "desktop_submit_transition_assessment:step-1",
       "desktop_move_mouse:step-2",
       "desktop_observe:step-2:post",
+      "desktop_submit_transition_assessment:step-2",
       "desktop_session_audit_log",
       "desktop_end_interaction_session"
     ]);

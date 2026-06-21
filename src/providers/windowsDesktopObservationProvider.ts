@@ -17,6 +17,8 @@ import type {
 } from "../policy/sessionLicensePolicy.js";
 import {
   DesktopProviderError,
+  type DesktopApplicationLaunchRequest,
+  type DesktopApplicationLaunchResult,
   type DesktopInteractionProvider,
   type DesktopObserveRequest,
   type DesktopObserveResult,
@@ -68,6 +70,9 @@ export interface WindowsObservationBackend {
     button: "left" | "middle" | "right"
   ): Promise<DesktopPoint>;
   typeText?(text: string): Promise<number>;
+  openApplication?(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult>;
   dispose?(): void;
 }
 
@@ -77,6 +82,7 @@ export interface WindowsDesktopObservationProviderOptions {
   enableRealMouseMovement?: boolean;
   enableRealClick?: boolean;
   enableRealTyping?: boolean;
+  enableRealApplicationLaunch?: boolean;
   maxFramesPerObservation?: number;
   maxObservationDurationMs?: number;
   frameDelay?: (milliseconds: number) => Promise<void>;
@@ -89,6 +95,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
   private readonly enableRealMouseMovement: boolean;
   private readonly enableRealClick: boolean;
   private readonly enableRealTyping: boolean;
+  private readonly enableRealApplicationLaunch: boolean;
   private readonly maxFramesPerObservation: number;
   private readonly maxObservationDurationMs: number;
   private readonly frameDelay: (milliseconds: number) => Promise<void>;
@@ -103,6 +110,7 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     this.enableRealMouseMovement = options.enableRealMouseMovement ?? false;
     this.enableRealClick = options.enableRealClick ?? false;
     this.enableRealTyping = options.enableRealTyping ?? false;
+    this.enableRealApplicationLaunch = options.enableRealApplicationLaunch ?? false;
     this.maxFramesPerObservation = options.maxFramesPerObservation ?? 6;
     this.maxObservationDurationMs = options.maxObservationDurationMs ?? 2_000;
     this.frameDelay = options.frameDelay ?? delay;
@@ -116,8 +124,12 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
       supportsMouse: this.enableRealMouseMovement,
       supportsClick: this.enableRealClick,
       supportsTyping: this.enableRealTyping,
+      supportsApplicationLaunch:
+        this.enableRealApplicationLaunch && this.backend.openApplication !== undefined,
       realDesktopCapture: true,
       realDesktopMouseMovement: this.enableRealMouseMovement || this.enableRealClick,
+      realDesktopApplicationLaunch:
+        this.enableRealApplicationLaunch && this.backend.openApplication !== undefined,
       realDesktopMutation: this.enableRealClick || this.enableRealTyping,
       maxFramesPerObservation: this.maxFramesPerObservation,
       maxObservationDurationMs: this.maxObservationDurationMs,
@@ -135,7 +147,10 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
         this.enableRealTyping
           ? "Provider may type generated test input only through the explicit app-scoped real-typing gate."
           : "Provider does not type unless the explicit app-scoped real-typing gate is enabled.",
-        "Provider does not launch apps, run shell commands, or make durable desktop changes beyond gated click/type interactions.",
+        this.enableRealApplicationLaunch
+          ? "Provider may launch catalog allowlisted applications only through the explicit app-launch gate."
+          : "Provider does not launch applications unless the explicit app-launch gate is enabled.",
+        "Provider does not accept arbitrary executable paths, command-line arguments, shell commands, or broad desktop-control requests.",
         "Provider performs no OCR, localization, hidden polling, or background capture."
       ]
     };
@@ -432,6 +447,27 @@ export class WindowsDesktopObservationProvider implements DesktopInteractionProv
     };
   }
 
+  async openApplication(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult> {
+    if (!this.enableRealApplicationLaunch || this.backend.openApplication === undefined) {
+      return {
+        executed: false,
+        simulated: false,
+        applicationId: request.application.id,
+        displayName: request.application.displayName,
+        residue: [
+          "Application launch is disabled for the Windows provider unless ADMCP_ENABLE_REAL_APP_LAUNCH=true and the backend supports catalog launch.",
+          "No application was launched."
+        ]
+      };
+    }
+
+    this.ensureAvailable();
+
+    return this.backend.openApplication(request);
+  }
+
   private ensureAvailable(): void {
     if (this.platform !== "win32") {
       throw new DesktopProviderError(
@@ -578,6 +614,7 @@ type WindowsHelperCommand =
   | "move_mouse"
   | "click_mouse"
   | "type_text"
+  | "open_application"
   | "shutdown";
 
 export interface WindowsObservationHelperClient {
@@ -640,6 +677,15 @@ export class PersistentPowerShellWindowsObservationBackend implements WindowsObs
     );
 
     return result.typedTextLength;
+  }
+
+  async openApplication(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult> {
+    return this.helperClient.request<DesktopApplicationLaunchResult>("open_application", {
+      application: request.application,
+      requestedAt: request.requestedAt
+    });
   }
 
   dispose(): void {
@@ -928,6 +974,14 @@ class PowerShellWindowsObservationBackend implements WindowsObservationBackend {
 
     return result.typedTextLength;
   }
+
+  async openApplication(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult> {
+    return runPowerShellControlJson<DesktopApplicationLaunchResult>(
+      openApplicationScript(request)
+    );
+  }
 }
 
 async function runPowerShellJson<T>(script: string): Promise<T> {
@@ -952,6 +1006,31 @@ async function runPowerShellJson<T>(script: string): Promise<T> {
     return JSON.parse(stdout.trim()) as T;
   } catch (error: unknown) {
     throw providerCaptureError(error, "PowerShell active-window observation failed.");
+  }
+}
+
+async function runPowerShellControlJson<T>(script: string): Promise<T> {
+  try {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script
+      ],
+      {
+        windowsHide: true,
+        timeout: 10_000,
+        maxBuffer: 64 * 1024 * 1024
+      }
+    );
+
+    return JSON.parse(stdout.trim()) as T;
+  } catch (error: unknown) {
+    throw providerControlError(error, "PowerShell desktop control command failed.");
   }
 }
 
@@ -1570,6 +1649,110 @@ function Invoke-AdmcpTypeText {
   }
 }
 
+function Get-AdmcpCatalogShortcutNames {
+  param(
+    [Parameter(Mandatory = $true)] $Application
+  )
+
+  $seen = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+  $names = New-Object 'System.Collections.Generic.List[string]'
+  $candidateValues = @(
+    $Application.displayName,
+    $Application.id
+  )
+
+  foreach ($name in @($Application.aliases)) {
+    $candidateValues += $name
+  }
+
+  foreach ($name in @($Application.windowsShortcutNames)) {
+    $candidateValues += $name
+  }
+
+  foreach ($candidate in $candidateValues) {
+    $value = ([string]$candidate).Trim()
+
+    if ($value.Length -gt 0 -and $seen.Add($value)) {
+      $names.Add($value)
+    }
+  }
+
+  return @($names)
+}
+
+function Get-AdmcpApplicationShortcutRoots {
+  $roots = New-Object 'System.Collections.Generic.List[string]'
+  $candidateRoots = @(
+    [System.IO.Path]::Combine([Environment]::GetFolderPath("StartMenu"), "Programs"),
+    [System.IO.Path]::Combine([Environment]::GetFolderPath("CommonStartMenu"), "Programs"),
+    [Environment]::GetFolderPath("DesktopDirectory"),
+    [Environment]::GetFolderPath("CommonDesktopDirectory")
+  )
+
+  foreach ($root in $candidateRoots) {
+    if (-not [string]::IsNullOrWhiteSpace($root) -and (Test-Path -LiteralPath $root)) {
+      $roots.Add($root)
+    }
+  }
+
+  return @($roots)
+}
+
+function Invoke-AdmcpOpenCatalogApplication {
+  param(
+    [Parameter(Mandatory = $true)] $Application
+  )
+
+  $applicationId = [string]$Application.id
+  $displayName = [string]$Application.displayName
+  $shortcutNames = Get-AdmcpCatalogShortcutNames -Application $Application
+
+  if ($shortcutNames.Count -eq 0) {
+    throw ("Catalog application {0} has no shortcut names to resolve." -f $applicationId)
+  }
+
+  $allowedNames = New-Object 'System.Collections.Generic.HashSet[string]' -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+
+  foreach ($shortcutName in $shortcutNames) {
+    [void]$allowedNames.Add([string]$shortcutName)
+  }
+
+  $matches = New-Object 'System.Collections.Generic.List[object]'
+
+  foreach ($root in (Get-AdmcpApplicationShortcutRoots)) {
+    foreach ($shortcut in (Get-ChildItem -LiteralPath $root -Filter "*.lnk" -File -Recurse -ErrorAction SilentlyContinue)) {
+      if ($allowedNames.Contains($shortcut.BaseName)) {
+        $matches.Add($shortcut)
+      }
+    }
+  }
+
+  if ($matches.Count -eq 0) {
+    throw ("No Windows shortcut matched catalog application {0}. Allowed shortcut names: {1}" -f $applicationId, ($shortcutNames -join ", "))
+  }
+
+  $match = @($matches | Sort-Object FullName)[0]
+  Start-Process -FilePath $match.FullName
+
+  $residue = @(
+    "Launched catalog application through a Windows shortcut resolved from the allowlist.",
+    ("Matched shortcut name: {0}." -f $match.BaseName),
+    "No executable path, command-line argument, shell command, or arbitrary launch string was accepted from the agent."
+  )
+
+  if ($matches.Count -gt 1) {
+    $residue += ("Multiple matching shortcuts were found; launched the first deterministic path for {0}." -f $match.BaseName)
+  }
+
+  [pscustomobject]@{
+    executed = $true
+    simulated = $false
+    applicationId = $applicationId
+    displayName = $displayName
+    residue = $residue
+  }
+}
+
 function Add-AdmcpCursorOverlay {
   param(
     [Parameter(Mandatory = $true)] $Graphics,
@@ -1880,6 +2063,20 @@ Invoke-AdmcpTypeText -Text $text | ConvertTo-Json -Compress -Depth 6
 `;
 }
 
+function openApplicationScript(request: DesktopApplicationLaunchRequest): string {
+  const applicationBase64 = Buffer.from(
+    JSON.stringify(request.application),
+    "utf8"
+  ).toString("base64");
+
+  return String.raw`
+${activeWindowPreamble}
+$applicationJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${applicationBase64}"))
+$application = $applicationJson | ConvertFrom-Json
+Invoke-AdmcpOpenCatalogApplication -Application $application | ConvertTo-Json -Compress -Depth 6
+`;
+}
+
 const persistentWindowsObservationHelperScript = String.raw`
 ${activeWindowPreamble}
 
@@ -2006,6 +2203,9 @@ while (-not $shouldStop) {
         $text = [string]$request.text
 
         Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Invoke-AdmcpTypeText -Text $text)
+      }
+      "open_application" {
+        Write-AdmcpHelperResponse -Id $id -Ok $true -Result (Invoke-AdmcpOpenCatalogApplication -Application $request.application)
       }
       "shutdown" {
         Write-AdmcpHelperResponse -Id $id -Ok $true -Result ([pscustomobject]@{

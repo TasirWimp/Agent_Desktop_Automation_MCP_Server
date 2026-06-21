@@ -21,6 +21,8 @@ The MVP provides:
 - policy contracts for future task-scoped licensed desktop interaction sessions,
 - a user-declared reversible app-under-test scope model for click/type session permissions,
 - session lifecycle tools, deterministic mock observation packets, mock movement/click/type probes, a click-candidate witness gate, an opt-in Windows real-observation spike, an opt-in Windows real mouse-movement probe, an opt-in app-scoped Windows real-click gate, and an opt-in app-scoped Windows generated-text typing gate,
+- compact relational navigation claims for smaller agents, with server-expanded audit packets and semantic landing assessment before click readiness,
+- a catalog-only desktop application bootstrap tool backed by `config/desktop_applications.json`,
 - a governed manual probe runner for repeatable observation/movement path-finding checks,
 - documented scope-enforcement boundaries for future execution tools,
 - unit tests and CI for the initial policy behavior.
@@ -38,6 +40,8 @@ The MVP provides:
 - No real clicking or real typing outside a user-declared reversible app-under-test scope.
 - No real desktop capture unless the Windows active-window observation spike is explicitly enabled.
 - No real cursor movement unless the Windows real-observation provider and the explicit real mouse-movement gate are both enabled.
+- No coordinate-only proof for state-changing desktop actions. Coordinates may be used as probe/action endpoints, but relational evidence must carry the target claim.
+- No arbitrary executable path, command-line argument, or shell-based application launch through desktop application bootstrap.
 
 ## Acceptance Criteria
 
@@ -52,8 +56,13 @@ The MVP provides:
 - Sessions with `licensedAppScope` bind that app-under-test through `desktop_observe`, expose the binding as `boundAppScope`, and stop/escalate with `scope_exit` evidence if later observations drift outside the bound app.
 - `desktop_observe` requires an active session, stays bounded, records observation packets, and captures real desktop frames only when the Windows active-window observation spike is explicitly enabled.
 - `desktop_move_mouse` requires a fresh pre-action observation, records an interaction transition gate, requires post-movement observation, and moves the real cursor only when the Windows real mouse-movement gate is explicitly enabled.
-- `desktop_evaluate_click_candidate` requires a current recorded observation, checks session scope, freshness, frame/cursor evidence, optional movement-transition evidence, and low-risk packet, records a witness audit event, and never clicks.
-- `desktop_click` and `desktop_type_text` require fresh pre-action observation, record interaction transition gates, and require post-action observation. `desktop_click` can click the real desktop only when the explicit app-scoped Windows click gate is enabled; `desktop_type_text` can type generated test input in the real desktop only when the explicit app-scoped Windows typing gate is enabled.
+- State-changing desktop action tools require either `compactRelationalClaim` or the full `relationalNavigation` packet before provider execution. Compact claims bind to screenshot-bearing live observations and are expanded server-side into audit evidence.
+- `desktop_move_mouse` accepts relational estimates and relative probes as endpoints, but cursor landing is telemetry only. The follow-up `desktop_observe({ transitionActionId })` leaves semantic movement transitions awaiting `desktop_submit_transition_assessment`.
+- `desktop_submit_transition_assessment` records whether the follow-up screenshot supports, contradicts, or cannot conclude the stored relation/candidate/rejected-alternative/expected-evidence claim.
+- `desktop_evaluate_click_candidate` requires a current recorded observation, checks session scope, freshness, frame/cursor evidence, supported semantic landing assessment, no contradiction, and low-risk packet, records a hover target witness audit event, and never clicks.
+- `desktop_click` requires hover-witness point provenance and a stored hover target witness for normal clicks. Cursor/candidate proximity is necessary telemetry but insufficient by itself.
+- `desktop_click` and `desktop_type_text` require fresh pre-action observation, relational evidence, record interaction transition gates, and require post-action observation. `desktop_click` can click the real desktop only when the explicit app-scoped Windows click gate is enabled; `desktop_type_text` can type generated test input in the real desktop only when the explicit app-scoped Windows typing gate is enabled.
+- `desktop_open_application` accepts only catalog IDs or aliases from `config/desktop_applications.json`, requires user confirmation, and never accepts arbitrary executable paths or command-line arguments.
 - Post-action observations classify transition outcomes as expected delta, no-op, wrong target, scope exit, risk prompt, uninterpretable state, or repair needed, and they update bounded repair-attempt accounting.
 - `desktop_type_text` blocks credential-like or secret-like text before provider calls and does not store text content in action packets or audit events.
 - The real click and typing gates require a user-declared reversible app-under-test, concrete scope binding, action audit, and post-action observation before success can be claimed.

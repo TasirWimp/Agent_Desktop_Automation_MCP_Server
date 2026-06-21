@@ -33,6 +33,48 @@ function parseStructuredContent(result: Awaited<ReturnType<Client["callTool"]>>)
   return result.structuredContent as Record<string, unknown>;
 }
 
+function compactClaim(
+  sourceObservationId: string,
+  pointProvenance:
+    | "relational_estimate"
+    | "relative_probe"
+    | "hover_witness"
+    | "external_coordinate"
+    | "unknown" = "relational_estimate"
+) {
+  return {
+    sourceObservationId,
+    intendedTarget: "Submit button",
+    scene: "Generated Test App main view.",
+    anchor: "Submit row",
+    relation: "target control in the same row/right-side action area",
+    candidate: "point is inside that row action basin",
+    rejectedAlternative: "nearby launch button for another app",
+    expectedEvidence: "row/control highlights or opens target",
+    contradiction: "another row/control highlights or opens",
+    pointProvenance
+  };
+}
+
+async function submitSupportedAssessment(client: Client, actionId: string) {
+  return client.callTool({
+    name: "desktop_submit_transition_assessment",
+    arguments: {
+      sessionId: "session-move-001",
+      actionId,
+      assessment: {
+        outcome: "supported",
+        relationHeld: true,
+        candidateSupported: true,
+        rejectedAlternativeAvoided: true,
+        expectedEvidenceSeen: "row/control highlights or opens target",
+        contradictionSeen: false,
+        summary: "Follow-up screenshot supports the compact relational movement claim."
+      }
+    }
+  });
+}
+
 const startArguments = {
   sessionId: "session-move-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -102,7 +144,8 @@ async function startAndObserve(client: Client) {
       targetScope: {
         kind: "window_title",
         value: "Generated Test App"
-      }
+      },
+      includeImages: true
     }
   });
 }
@@ -124,7 +167,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          compactRelationalClaim: compactClaim("missing-observation")
         }
       });
       const structured = parseStructuredContent(result);
@@ -196,7 +240,8 @@ describe("desktop_move_mouse MCP tool", () => {
             x: 120,
             y: 80
           },
-          intendedSemanticTarget: "Submit button"
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
       const structured = parseStructuredContent(result);
@@ -250,7 +295,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
 
@@ -266,7 +312,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 160,
             y: 100
-          }
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
       const structured = parseStructuredContent(result);
@@ -304,7 +351,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
 
@@ -316,6 +364,7 @@ describe("desktop_move_mouse MCP tool", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
+          includeImages: true,
           transitionActionId: "action-fixed-4"
         }
       });
@@ -324,7 +373,7 @@ describe("desktop_move_mouse MCP tool", () => {
       expect(observeResult.isError).not.toBe(true);
       expect(observeStructured.transitionGate).toMatchObject({
         actionId: "action-fixed-4",
-        status: "audited",
+        status: "observed",
         followUpObservationId: "observation-fixed-8",
         movementDeltaWitness: {
           intendedPoint: {
@@ -350,6 +399,21 @@ describe("desktop_move_mouse MCP tool", () => {
         actionId: "action-fixed-4",
         observationId: "observation-fixed-8"
       });
+      expect(sessionStore.findBlockingTransitionGate("session-move-001")).toMatchObject({
+        status: "observed"
+      });
+
+      const assessmentResult = await submitSupportedAssessment(client, "action-fixed-4");
+      const assessmentStructured = parseStructuredContent(assessmentResult);
+
+      expect(assessmentResult.isError).not.toBe(true);
+      expect(assessmentStructured.transitionGate).toMatchObject({
+        actionId: "action-fixed-4",
+        status: "audited",
+        postActionClassification: {
+          kind: "expected_delta"
+        }
+      });
       expect(sessionStore.findBlockingTransitionGate("session-move-001")).toBeUndefined();
 
       const secondMoveResult = await client.callTool({
@@ -364,18 +428,298 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 160,
             y: 100
-          }
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-8", "relative_probe")
         }
       });
       const secondMoveStructured = parseStructuredContent(secondMoveResult);
 
       expect(secondMoveResult.isError).not.toBe(true);
       expect(secondMoveStructured.action).toMatchObject({
-        actionId: "action-fixed-11",
+        actionId: "action-fixed-12",
         actionType: "move_mouse",
         preActionObservationId: "observation-fixed-8"
       });
       expect(sessionStore.requireActiveSession("session-move-001").actionCount).toBe(2);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks coordinate-only movement before provider execution", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+
+      const result = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.policy).toMatchObject({
+        decision: "block",
+        stopConditions: [
+          {
+            condition: "missing_relational_navigation"
+          }
+        ]
+      });
+      expect(sessionStore.listActions("session-move-001")).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks external coordinate provenance before provider execution", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+
+      const result = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2", "external_coordinate")
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.policy).toMatchObject({
+        decision: "block",
+        stopConditions: [
+          {
+            condition: "invalid_point_provenance"
+          }
+        ]
+      });
+      expect(sessionStore.listActions("session-move-001")).toHaveLength(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("keeps semantic movement transitions blocked until assessment", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: "action-fixed-4"
+        }
+      });
+
+      const result = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-8",
+          point: {
+            x: 160,
+            y: 100
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-8")
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.blockingTransitionGate).toMatchObject({
+        actionId: "action-fixed-4",
+        status: "observed"
+      });
+      expect(sessionStore.requireActiveSession("session-move-001").actionCount).toBe(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("contradicted semantic landing assessment records wrong-target repair", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: "action-fixed-4"
+        }
+      });
+
+      const result = await client.callTool({
+        name: "desktop_submit_transition_assessment",
+        arguments: {
+          sessionId: "session-move-001",
+          actionId: "action-fixed-4",
+          assessment: {
+            outcome: "contradicted",
+            relationHeld: false,
+            candidateSupported: false,
+            rejectedAlternativeAvoided: false,
+            expectedEvidenceSeen: "another row/control highlighted",
+            contradictionSeen: true,
+            summary: "Follow-up screenshot indicates the nearby rejected alternative."
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.transitionGate).toMatchObject({
+        status: "audited",
+        postActionClassification: {
+          kind: "wrong_target",
+          disposition: "repair_allowed",
+          repairAttemptCount: 1
+        }
+      });
+      expect(sessionStore.requireActiveSession("session-move-001").repairAttemptCount).toBe(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("inconclusive semantic landing assessment records repair needed", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-move-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: "action-fixed-4"
+        }
+      });
+
+      const result = await client.callTool({
+        name: "desktop_submit_transition_assessment",
+        arguments: {
+          sessionId: "session-move-001",
+          actionId: "action-fixed-4",
+          assessment: {
+            outcome: "inconclusive",
+            relationHeld: false,
+            candidateSupported: false,
+            rejectedAlternativeAvoided: true,
+            expectedEvidenceSeen: "no clear hover or row change",
+            contradictionSeen: false,
+            summary: "Follow-up screenshot did not show enough target evidence."
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.transitionGate).toMatchObject({
+        status: "audited",
+        postActionClassification: {
+          kind: "repair_needed",
+          disposition: "repair_allowed",
+          repairAttemptCount: 1
+        }
+      });
+      expect(sessionStore.requireActiveSession("session-move-001").repairAttemptCount).toBe(1);
     } finally {
       await client.close();
       await server.close();
@@ -400,7 +744,8 @@ describe("desktop_move_mouse MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
       const structured = parseStructuredContent(result);

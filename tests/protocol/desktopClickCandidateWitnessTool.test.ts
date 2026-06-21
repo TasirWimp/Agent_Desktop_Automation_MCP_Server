@@ -47,6 +47,40 @@ function parseJsonText(result: Awaited<ReturnType<Client["callTool"]>>) {
   return JSON.parse(textBlock.text) as Record<string, unknown>;
 }
 
+function compactClaim(sourceObservationId: string) {
+  return {
+    sourceObservationId,
+    intendedTarget: "Submit button",
+    scene: "Generated Test App main view.",
+    anchor: "Submit row",
+    relation: "target control in the same row/right-side action area",
+    candidate: "point is inside that row action basin",
+    rejectedAlternative: "nearby launch button for another app",
+    expectedEvidence: "row/control highlights or opens target",
+    contradiction: "another row/control highlights or opens",
+    pointProvenance: "relational_estimate"
+  };
+}
+
+async function submitSupportedAssessment(client: Client, actionId: string) {
+  await client.callTool({
+    name: "desktop_submit_transition_assessment",
+    arguments: {
+      sessionId: "session-click-candidate-001",
+      actionId,
+      assessment: {
+        outcome: "supported",
+        relationHeld: true,
+        candidateSupported: true,
+        rejectedAlternativeAvoided: true,
+        expectedEvidenceSeen: "row/control highlights or opens target",
+        contradictionSeen: false,
+        summary: "Follow-up screenshot supports the target row/control."
+      }
+    }
+  });
+}
+
 const startArguments = {
   sessionId: "session-click-candidate-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -119,7 +153,8 @@ async function startAndObserve(client: Client, overrides: Record<string, unknown
       targetScope: {
         kind: "window_title",
         value: "Generated Test App"
-      }
+      },
+      includeImages: true
     }
   });
 }
@@ -147,7 +182,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     }
   });
 
-  it("evaluates a ready click candidate from fresh frame and cursor evidence without clicking", async () => {
+  it("does not treat cursor proximity without semantic landing assessment as click-ready", async () => {
     const { client, server, sessionStore } = await createConnectedClient();
 
     try {
@@ -171,9 +206,9 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       const structured = parseStructuredContent(result);
 
       expect(result.isError).not.toBe(true);
-      expect(structured.status).toBe("candidate_ready");
+      expect(structured.status).toBe("transition_not_audited");
       expect(structured.clickCandidateWitness).toMatchObject({
-        readyForClickRequest: true,
+        readyForClickRequest: false,
         wouldExecuteClick: false,
         realClickExecutionAvailable: false,
         requiresPostClickObservation: true,
@@ -187,7 +222,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       expect(structured.auditEvent).toMatchObject({
         eventType: "click_candidate_evaluated",
         observationId: "observation-fixed-2",
-        summary: "Click candidate witness gate result: candidate_ready."
+        summary: "Click candidate witness gate result: transition_not_audited."
       });
       expect(sessionStore.listActions("session-click-candidate-001")).toHaveLength(0);
       expect(sessionStore.listTransitionGates("session-click-candidate-001")).toHaveLength(0);
@@ -231,7 +266,8 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
             x: 120,
             y: 80
           },
-          intendedSemanticTarget: "Submit button"
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
       await client.callTool({
@@ -242,9 +278,11 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
             kind: "window_title",
             value: "Generated Test App"
           },
+          includeImages: true,
           transitionActionId: "action-fixed-4"
         }
       });
+      await submitSupportedAssessment(client, "action-fixed-4");
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
@@ -271,6 +309,8 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         movementEvidence: {
           gateStatus: "audited",
           followUpObservationMatches: true,
+          semanticLandingSupported: true,
+          semanticLandingOutcome: "supported",
           cursorObserved: true,
           scopeStable: true,
           distanceFromIntendedPx: 0,
@@ -280,6 +320,14 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       expect(structured.auditEvent).toMatchObject({
         actionId: "action-fixed-4",
         observationId: "observation-fixed-8"
+      });
+      expect(structured.hoverTargetWitness).toMatchObject({
+        sourceMoveActionId: "action-fixed-4",
+        followUpObservationId: "observation-fixed-8",
+        visualConfirmation: {
+          status: "confirmed",
+          coordinateEvidenceOnlyIsInsufficient: true
+        }
       });
     } finally {
       await client.close();
@@ -304,7 +352,8 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           point: {
             x: 120,
             y: 80
-          }
+          },
+          compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
 

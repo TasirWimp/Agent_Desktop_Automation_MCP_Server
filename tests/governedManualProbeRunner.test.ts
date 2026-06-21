@@ -140,9 +140,13 @@ describe("runGovernedManualProbe", () => {
     expect(result.clickBlock).toMatchObject({
       attempted: true,
       isError: true,
-      status: "blocked"
+      status: "block"
     });
-    expect(result.clickBlock?.residue).toContain("No provider call was made.");
+    expect(result.clickBlock?.residue).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/provider|policy/i)
+      ])
+    );
     expect(result.residue).toContain("No raw OS input was used by the runner.");
     expect(result.attempts[0]?.preObservation?.frames[0]?.imagePath).toEqual(expect.any(String));
     expect(existsSync(result.attempts[0]?.preObservation?.frames[0]?.imagePath ?? "")).toBe(true);

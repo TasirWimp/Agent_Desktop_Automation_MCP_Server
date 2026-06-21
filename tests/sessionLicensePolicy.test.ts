@@ -114,13 +114,34 @@ function observationFixture(
         width: 1280,
         height: 720,
         byteLength: 128,
-        sha256: "framehash"
+        sha256: "framehash",
+        dataBase64:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
       }
     ],
     lastActionDeltaSummary: "No prior action in this session.",
     residue: [],
     ...overrides,
     observationId
+  };
+}
+
+function compactClaimFor(
+  observationId: string,
+  intendedTarget: string,
+  pointProvenance: "relational_estimate" | "relative_probe" | "hover_witness" = "relational_estimate"
+) {
+  return {
+    sourceObservationId: observationId,
+    intendedTarget,
+    scene: "Generated Test App main view with controls.",
+    anchor: "Submit button row",
+    relation: "target control in the same row/right-side action area",
+    candidate: "point is inside the intended control action basin",
+    rejectedAlternative: "nearby launch button for another app",
+    expectedEvidence: "row/control highlights or opens target",
+    contradiction: "another row/control highlights or opens",
+    pointProvenance
   };
 }
 
@@ -182,6 +203,14 @@ function actionFixture(
       systemChange: false,
       recoverability: "high"
     },
+    compactRelationalClaim:
+      actionType === "observe"
+        ? undefined
+        : compactClaimFor(
+            "obs-before-001",
+            "Submit button",
+            actionType === "click" ? "hover_witness" : "relational_estimate"
+          ),
     residue: [],
     ...overrides,
     actionId

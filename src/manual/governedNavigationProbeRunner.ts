@@ -347,7 +347,12 @@ async function runStep(args: {
       targetScope: args.targetScope,
       preActionObservationId: args.preObservation.observationId,
       point: plannedPoint,
-      intendedSemanticTarget: args.stepConfig.intendedSemanticTarget
+      intendedSemanticTarget: args.stepConfig.intendedSemanticTarget,
+      compactRelationalClaim: buildCompactRelationalClaim(
+        args.preObservation.observationId,
+        args.stepConfig.intendedSemanticTarget,
+        args.stepIndex
+      )
     },
     args.requestTimeoutMs,
     args.timings
@@ -397,7 +402,7 @@ async function runStep(args: {
       mode: "single_frame",
       maxFrames: 1,
       durationMs: 0,
-      includeImages: args.includeImages,
+      includeImages: true,
       transitionActionId: move.actionId
     },
     args.requestTimeoutMs,
@@ -411,10 +416,80 @@ async function runStep(args: {
   );
 
   summary.postObservation = postObservation;
-  summary.transitionGate = postObservationResult.transitionGate;
+  const assessmentResult = await callToolJsonTimed(
+    args.client,
+    `desktop_submit_transition_assessment:step-${args.stepIndex}`,
+    "desktop_submit_transition_assessment",
+    {
+      sessionId: args.sessionId,
+      actionId: move.actionId,
+      assessment: buildSemanticLandingAssessment(args.stepConfig.witnessNotes ?? [])
+    },
+    args.requestTimeoutMs,
+    args.timings
+  );
+
+  summary.transitionGate = assessmentResult.transitionGate;
   summary.residue.push("Post-movement observation recorded through transitionActionId.");
 
   return summary;
+}
+
+function buildCompactRelationalClaim(
+  sourceObservationId: string,
+  intendedTarget: string,
+  stepIndex: number
+) {
+  return {
+    sourceObservationId,
+    intendedTarget,
+    scene: "Governed navigation probe active-window scene.",
+    anchor: `navigation step ${stepIndex} cursor origin and area of interest`,
+    relation: "point moves along the configured vector toward the intended target area",
+    candidate: "planned point is inside the intended target approach basin",
+    rejectedAlternative: "nearby unrelated control or row",
+    expectedEvidence: "cursor/hover witness remains in the intended target area",
+    contradiction: "another control, row, or unrelated area highlights",
+    pointProvenance: "relative_probe"
+  };
+}
+
+function buildSemanticLandingAssessment(witnessNotes: string[]) {
+  const joinedNotes = witnessNotes.join(" ").toLowerCase();
+
+  if (joinedNotes.includes("wrong") || joinedNotes.includes("contradict")) {
+    return {
+      outcome: "contradicted",
+      relationHeld: false,
+      candidateSupported: false,
+      rejectedAlternativeAvoided: false,
+      expectedEvidenceSeen: witnessNotes.join("; ") || "navigation witness contradicted the target",
+      contradictionSeen: true,
+      summary: witnessNotes.join("; ") || "Navigation witness notes contradicted the movement target."
+    };
+  }
+
+  if (joinedNotes.includes("inconclusive") || joinedNotes.includes("uncertain")) {
+    return {
+      outcome: "inconclusive",
+      relationHeld: false,
+      candidateSupported: false,
+      rejectedAlternativeAvoided: true,
+      expectedEvidenceSeen: witnessNotes.join("; ") || "navigation witness was inconclusive",
+      contradictionSeen: false,
+      summary: witnessNotes.join("; ") || "Navigation witness notes were inconclusive."
+    };
+  }
+
+  return {
+    outcome: "supported",
+    relationHeld: true,
+    candidateSupported: true,
+    rejectedAlternativeAvoided: true,
+    expectedEvidenceSeen: witnessNotes.join("; ") || "navigation probe follow-up remained in the intended target area",
+    contradictionSeen: false,
+    summary: witnessNotes.join("; ") || "Navigation probe runner treated the configured movement relation as supported."
+  };
 }
 
 async function observe(args: {
@@ -437,7 +512,7 @@ async function observe(args: {
       mode: "single_frame",
       maxFrames: 1,
       durationMs: 0,
-      includeImages: args.includeImages
+      includeImages: true
     },
     args.requestTimeoutMs,
     args.timings

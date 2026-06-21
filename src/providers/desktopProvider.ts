@@ -7,6 +7,7 @@ import type {
   DesktopProviderTimingDiagnostics,
   DesktopWindowMetadata
 } from "../policy/sessionLicensePolicy.js";
+import type { DesktopApplicationDefinition as CatalogDesktopApplicationDefinition } from "./applicationCatalog.js";
 
 export const desktopObservationModes = ["frame_session", "single_frame"] as const;
 
@@ -23,8 +24,10 @@ export interface DesktopProviderCapabilities {
   supportsMouse: boolean;
   supportsClick: boolean;
   supportsTyping: boolean;
+  supportsApplicationLaunch: boolean;
   realDesktopCapture: boolean;
   realDesktopMouseMovement: boolean;
+  realDesktopApplicationLaunch: boolean;
   realDesktopMutation: boolean;
   maxFramesPerObservation: number;
   maxObservationDurationMs: number;
@@ -97,11 +100,28 @@ export interface DesktopProviderActionResult {
   residue: string[];
 }
 
+export interface DesktopApplicationLaunchRequest {
+  application: CatalogDesktopApplicationDefinition;
+  requestedAt: string;
+}
+
+export interface DesktopApplicationLaunchResult {
+  executed: boolean;
+  simulated: boolean;
+  applicationId: string;
+  displayName: string;
+  providerTiming?: DesktopProviderTimingDiagnostics;
+  residue: string[];
+}
+
 export interface DesktopInteractionProvider {
   getCapabilities(): DesktopProviderCapabilities;
   observe(request: DesktopObserveRequest): Promise<DesktopObserveResult>;
   moveMouse(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult>;
   click(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult>;
   typeText(request: DesktopProviderActionRequest): Promise<DesktopProviderActionResult>;
+  openApplication?(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult>;
   dispose?(): void;
 }

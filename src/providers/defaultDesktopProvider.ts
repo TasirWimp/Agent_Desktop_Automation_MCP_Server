@@ -12,6 +12,7 @@ export interface DesktopProviderEnvironment {
   ADMCP_ENABLE_REAL_MOUSE_MOVEMENT?: string;
   ADMCP_ENABLE_REAL_CLICK?: string;
   ADMCP_ENABLE_REAL_TYPING?: string;
+  ADMCP_ENABLE_REAL_APP_LAUNCH?: string;
 }
 
 export function createDefaultDesktopProvider(
@@ -24,7 +25,8 @@ export function createDefaultDesktopProvider(
     return new WindowsDesktopObservationProvider({
       enableRealMouseMovement: env.ADMCP_ENABLE_REAL_MOUSE_MOVEMENT === "true",
       enableRealClick: env.ADMCP_ENABLE_REAL_CLICK === "true",
-      enableRealTyping: env.ADMCP_ENABLE_REAL_TYPING === "true"
+      enableRealTyping: env.ADMCP_ENABLE_REAL_TYPING === "true",
+      enableRealApplicationLaunch: env.ADMCP_ENABLE_REAL_APP_LAUNCH === "true"
     });
   }
 

@@ -1,11 +1,20 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  desktopCompactRelationalClaimSchema,
   desktopInteractionScopeSchema,
+  desktopInteractionScopesMatch,
   desktopPointSchema,
+  desktopPreActionNavigationCheckSchema,
+  desktopRelationalNavigationSchema,
   evaluateSessionActionPolicy,
   type DesktopActionPacket,
   type DesktopActionRisk,
+  type DesktopCompactRelationalClaim,
+  type DesktopObservationPacket,
+  type DesktopPoint,
+  type DesktopPreActionNavigationCheck,
+  type DesktopRelationalNavigation,
   type DesktopSessionActionType,
   type DesktopSessionAuditEvent,
   type DesktopSessionStopCondition
@@ -19,6 +28,7 @@ import {
   createPendingInteractionTransitionGate,
   type InteractionTransitionGate
 } from "./interactionTransitionGate.js";
+import type { HoverTargetWitness } from "./hoverTargetWitness.js";
 import {
   InMemoryDesktopSessionStore,
   SessionStoreError
@@ -58,7 +68,10 @@ const baseActionInputSchema = z.object({
   sessionId: z.string().min(1),
   targetScope: desktopInteractionScopeSchema,
   preActionObservationId: z.string().min(1),
-  intendedSemanticTarget: z.string().min(1).max(1000).optional()
+  intendedSemanticTarget: z.string().min(1).max(1000).optional(),
+  compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
+  relationalNavigation: desktopRelationalNavigationSchema.optional(),
+  preActionNavigationCheck: desktopPreActionNavigationCheckSchema.optional()
 });
 
 const moveMouseInputSchema = baseActionInputSchema.extend({
@@ -68,6 +81,7 @@ const moveMouseInputSchema = baseActionInputSchema.extend({
 const clickInputSchema = baseActionInputSchema.extend({
   point: desktopPointSchema,
   button: z.enum(["left", "middle", "right"]).default("left"),
+  hoverTargetWitnessId: z.string().min(1).optional(),
   risk: actionRiskInputSchema
 });
 
@@ -87,7 +101,12 @@ interface ActionExecutionConfig<Input> {
   actionType: SupportedActionType;
   unsupportedProviderReason: string;
   providerSupports: (provider: DesktopInteractionProvider) => boolean;
-  buildAction: (input: Input, actionId: string, requestedAt: string) => DesktopActionPacket;
+  buildAction: (
+    input: Input,
+    actionId: string,
+    requestedAt: string,
+    sourceObservation?: DesktopObservationPacket
+  ) => DesktopActionPacket;
   callProvider: (
     provider: DesktopInteractionProvider,
     input: Input,
@@ -237,6 +256,305 @@ function riskForTypeText(input: TypeTextInput): DesktopActionRisk {
   };
 }
 
+interface CompactClaimExpansion {
+  relationalNavigation: DesktopRelationalNavigation;
+  preActionNavigationCheck: DesktopPreActionNavigationCheck;
+}
+
+function expandCompactRelationalClaim(
+  claim: DesktopCompactRelationalClaim,
+  actionId: string,
+  actionType: SupportedActionType,
+  sourceObservation?: DesktopObservationPacket
+): CompactClaimExpansion | undefined {
+  if (sourceObservation === undefined || sourceObservation.frames.length === 0) {
+    return undefined;
+  }
+
+  const navigationId = `nav-${actionId}`;
+  const orientationId = `orientation-${actionId}`;
+  const regionId = `region-${actionId}`;
+  const traceId = `trace-${actionId}`;
+  const hypothesisId = `hypothesis-${actionId}`;
+  const exploratoryAction =
+    actionType === "move_mouse" && claim.pointProvenance !== "hover_witness";
+  const frameEvidence = sourceObservation.frames
+    .filter((frame) => frame.dataBase64 !== undefined && frame.dataBase64.length > 0)
+    .map((frame) => ({
+      evidenceId: `frame-evidence-${actionId}-${frame.index}`,
+      sourceObservationId: sourceObservation.observationId,
+      frameIndex: frame.index,
+      frameSha256: frame.sha256,
+      imagePayloadPresent: true as const,
+      visualEvidenceRole:
+        "Live screenshot frame used to derive compact relational navigation claim.",
+      residue: [
+        "Frame hash was copied from the live pre-action observation during compact claim expansion."
+      ]
+    }));
+
+  if (frameEvidence.length === 0) {
+    return undefined;
+  }
+
+  const relationalNavigation = desktopRelationalNavigationSchema.parse({
+    navigationId,
+    frameEvidence,
+    orientation: {
+      orientationId,
+      sourceObservationId: claim.sourceObservationId,
+      userImpliedTask: claim.intendedTarget,
+      sceneSummary: claim.scene,
+      landmarks: [
+        {
+          landmarkId: `landmark-${actionId}-anchor`,
+          kind: "spatial",
+          label: claim.anchor,
+          description: claim.anchor,
+          observedRole: "compact_claim_anchor",
+          spatialRelation: claim.relation,
+          confidence: "medium",
+          residue: []
+        }
+      ],
+      coarseRelations: [claim.relation],
+      confidence: claim.pointProvenance === "hover_witness" ? "high" : "medium",
+      residue: [
+        "Orientation was generated from compactRelationalClaim to reduce client token burden."
+      ]
+    },
+    regionHypothesis: {
+      regionId,
+      orientationId,
+      candidateRegionDescription: claim.candidate,
+      relationToLandmarks: [claim.relation],
+      expectedTraces: [claim.expectedEvidence],
+      ruledOutAlternatives: [claim.rejectedAlternative],
+      rejectedAlternatives: [
+        {
+          alternativeId: `alternative-${actionId}-rejected`,
+          description: claim.rejectedAlternative,
+          whyPlausible:
+            "The compact claim names this as the nearby plausible wrong target.",
+          whyRejected: claim.contradiction,
+          relationToTarget: claim.relation,
+          contradictionSignal: claim.contradiction,
+          confidence: "medium",
+          residue: []
+        }
+      ],
+      confidence: claim.pointProvenance === "hover_witness" ? "high" : "medium",
+      residue: [
+        `Point provenance: ${claim.pointProvenance}.`,
+        "Coordinates are retained as action endpoints only, not as target-correctness proof."
+      ]
+    },
+    traceHypothesis: {
+      traceId,
+      regionId,
+      traceSummary: claim.expectedEvidence,
+      supportingTraces: [claim.expectedEvidence],
+      missingOrAmbiguousTraces: [claim.contradiction],
+      exactTargetCriteria: [
+        claim.relation,
+        claim.candidate,
+        `Rejected alternative avoided: ${claim.rejectedAlternative}.`
+      ],
+      confidence: claim.pointProvenance === "hover_witness" ? "high" : "medium",
+      residue: []
+    },
+    actionJustification: {
+      hypothesisId,
+      traceId,
+      intendedSemanticTarget: claim.intendedTarget,
+      targetPointRationale:
+        "Point is used as a relationally justified probe/action endpoint; semantic correctness must be verified by follow-up observation.",
+      relationPath: [claim.scene, claim.anchor, claim.relation, claim.candidate],
+      expectedHoverEvidence: [claim.expectedEvidence],
+      contradictionSignals: [claim.contradiction],
+      confidence: claim.pointProvenance === "hover_witness" ? "high" : "medium",
+      residue: [
+        "Expanded from compactRelationalClaim by the server before provider execution."
+      ]
+    },
+    residue: [
+      "Compact relational claim was expanded server-side for auditability.",
+      "Raw coordinate landing is telemetry only; semantic landing still requires assessment."
+    ]
+  });
+  const preActionNavigationCheck = desktopPreActionNavigationCheckSchema.parse({
+    checkId: `pre-action-check-${actionId}`,
+    sourceObservationId: claim.sourceObservationId,
+    navigationId,
+    hypothesisId,
+    reviewedLiveObservation: true,
+    comparedAgainstAlternatives: true,
+    contradictionSignalsReviewed: true,
+    acknowledgedSemanticGap: true,
+    exploratoryAction,
+    ambiguityDescription: exploratoryAction
+      ? "Movement is a relational probe whose semantic landing must be assessed after follow-up observation."
+      : undefined,
+    repairOrBacktrackPlan:
+      "If follow-up evidence contradicts the claimed relation, backtrack or refine the target inside the licensed scope.",
+    readyToAct: true,
+    selectedActionRationale:
+      "The compact claim names the scene, anchor, relation, candidate, rejected alternative, expected evidence, and contradiction.",
+    confidence: claim.pointProvenance === "hover_witness" ? "high" : "medium",
+    residue: [
+      "Generated server-side from compactRelationalClaim.",
+      "This self-check records the required relational comparison without requiring the client to emit the full packet."
+    ]
+  });
+
+  return {
+    relationalNavigation,
+    preActionNavigationCheck
+  };
+}
+
+function sourceObservationForAction(
+  runtime: ActionToolRuntime,
+  input: { sessionId: string; preActionObservationId?: string }
+): DesktopObservationPacket | undefined {
+  if (input.preActionObservationId === undefined) {
+    return undefined;
+  }
+
+  return runtime.sessionStore.getObservation(
+    input.sessionId,
+    input.preActionObservationId
+  );
+}
+
+interface ClickHoverWitnessValidationResult {
+  ok: boolean;
+  hoverTargetWitness?: HoverTargetWitness;
+  reason?: string;
+  residue: string[];
+}
+
+function pointDistance(first: DesktopPoint, second: DesktopPoint): number {
+  return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function validateClickHoverTargetWitness(
+  runtime: ActionToolRuntime,
+  action: DesktopActionPacket
+): ClickHoverWitnessValidationResult {
+  if (action.actionType !== "click") {
+    return { ok: true, residue: [] };
+  }
+
+  const hoverTargetWitnessId = action.input.hoverTargetWitnessId;
+
+  if (hoverTargetWitnessId === undefined) {
+    return {
+      ok: false,
+      reason: "desktop_click requires hoverTargetWitnessId from desktop_evaluate_click_candidate.",
+      residue: [
+        "Click requests require a supported semantic landing assessment and hover witness.",
+        "Run observe -> semantic landing assessment -> desktop_evaluate_click_candidate before clicking."
+      ]
+    };
+  }
+
+  const hoverTargetWitness = runtime.sessionStore.getHoverTargetWitness(
+    action.sessionId,
+    hoverTargetWitnessId
+  );
+
+  if (hoverTargetWitness === undefined) {
+    return {
+      ok: false,
+      reason: `Hover target witness ${hoverTargetWitnessId} was not found in the active session.`,
+      residue: ["No provider call was made and no click occurred."]
+    };
+  }
+
+  if (hoverTargetWitness.visualConfirmation.status !== "confirmed") {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Hover target witness is not visually and semantically confirmed.",
+      residue: hoverTargetWitness.residue
+    };
+  }
+
+  if (!desktopInteractionScopesMatch(hoverTargetWitness.targetScope, action.targetScope)) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Hover target witness scope does not match click target scope.",
+      residue: hoverTargetWitness.residue
+    };
+  }
+
+  if (hoverTargetWitness.followUpObservationId !== action.preActionObservationId) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Click pre-action observation must be the hover witness follow-up observation.",
+      residue: [
+        `Click preActionObservationId: ${action.preActionObservationId ?? "missing"}.`,
+        `Witness followUpObservationId: ${hoverTargetWitness.followUpObservationId}.`
+      ]
+    };
+  }
+
+  if (
+    action.intendedSemanticTarget !== undefined &&
+    hoverTargetWitness.intendedSemanticTarget !== action.intendedSemanticTarget
+  ) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Hover target witness semantic target does not match the click request.",
+      residue: [
+        `Click target: ${action.intendedSemanticTarget}.`,
+        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`
+      ]
+    };
+  }
+
+  const witnessedPoint =
+    hoverTargetWitness.candidatePoint ??
+    hoverTargetWitness.observedCursorPoint ??
+    hoverTargetWitness.plannedHoverPoint;
+
+  if (action.input.point === undefined || witnessedPoint === undefined) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Click point and witnessed hover/candidate point are both required.",
+      residue: hoverTargetWitness.residue
+    };
+  }
+
+  const distance = pointDistance(action.input.point, witnessedPoint);
+
+  if (distance > 2) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Click point must match the supported hover/candidate witness.",
+      residue: [
+        `Click point is ${Math.round(distance * 100) / 100} px from the witnessed point.`,
+        "A nearby coordinate is not accepted as proof of the same target."
+      ]
+    };
+  }
+
+  return {
+    ok: true,
+    hoverTargetWitness,
+    residue: [
+      "Click point matched the supported hover/candidate witness.",
+      "Semantic confirmation came from the stored landing assessment, not coordinate proximity alone."
+    ]
+  };
+}
+
 async function executeStateChangingAction<Input extends { sessionId: string }>(
   runtime: ActionToolRuntime,
   input: Input,
@@ -246,10 +564,12 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
     runtime.sessionStore.requireActiveSession(input.sessionId);
 
     const requestedAt = runtime.now();
+    const sourceObservation = sourceObservationForAction(runtime, input);
     const action = config.buildAction(
       input,
       runtime.generateId("action"),
-      requestedAt
+      requestedAt,
+      sourceObservation
     );
     const requestedAuditEvent = actionRequestedEvent(runtime, action);
 
@@ -315,6 +635,47 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
           policy,
           auditEvents: [requestedAuditEvent, decisionAuditEvent],
           residue: [config.policyBlockedResidue]
+        },
+        true
+      );
+    }
+
+    const clickHoverWitnessValidation = validateClickHoverTargetWitness(
+      runtime,
+      action
+    );
+
+    if (!clickHoverWitnessValidation.ok) {
+      const stopCondition: DesktopSessionStopCondition = {
+        condition: "missing_semantic_landing_assessment",
+        sessionId: input.sessionId,
+        actionId: action.actionId,
+        reason:
+          clickHoverWitnessValidation.reason ??
+          "Click request lacks a valid hover target witness.",
+        residue: clickHoverWitnessValidation.residue
+      };
+      const blockedAuditEvent = actionDecisionEvent(
+        runtime,
+        action,
+        "action_blocked",
+        stopCondition.reason,
+        stopCondition.residue
+      );
+
+      runtime.sessionStore.appendStopCondition(stopCondition);
+      runtime.sessionStore.appendAuditEvent(blockedAuditEvent);
+
+      return structuredResult(
+        {
+          sessionId: input.sessionId,
+          status: "blocked",
+          action,
+          policy,
+          stopCondition,
+          hoverTargetWitness: clickHoverWitnessValidation.hoverTargetWitness,
+          auditEvents: [requestedAuditEvent, blockedAuditEvent],
+          residue: ["No provider call was made and no click occurred."]
         },
         true
       );
@@ -442,13 +803,6 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
       ...action,
       residue: [...action.residue, ...providerResult.residue]
     });
-    const sourceObservation =
-      action.preActionObservationId === undefined
-        ? undefined
-        : runtime.sessionStore.getObservation(
-            input.sessionId,
-            action.preActionObservationId
-          );
     const actionCount = runtime.sessionStore.incrementActionCount(input.sessionId);
     const transitionGate = runtime.sessionStore.recordTransitionGate(
       createPendingInteractionTransitionGate({
@@ -513,23 +867,44 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
         actionType: "move_mouse",
         unsupportedProviderReason: "The active desktop provider does not support mouse movement.",
         providerSupports: (provider) => provider.getCapabilities().supportsMouse,
-        buildAction: (actionInput, actionId, requestedAt) => ({
-          actionId,
-          sessionId: actionInput.sessionId,
-          actionType: "move_mouse",
-          requestedAt,
-          targetScope: actionInput.targetScope,
-          preActionObservationId: actionInput.preActionObservationId,
-          intendedSemanticTarget: actionInput.intendedSemanticTarget,
-          input: {
-            point: actionInput.point
-          },
-          risk: lowRisk,
-          residue: [
-            "Mouse movement is treated as a probe.",
-            "A post-movement observation is required before the next non-observe action."
-          ]
-        }),
+        buildAction: (actionInput, actionId, requestedAt, sourceObservation) => {
+          const expansion =
+            actionInput.compactRelationalClaim === undefined
+              ? undefined
+              : expandCompactRelationalClaim(
+                  actionInput.compactRelationalClaim,
+                  actionId,
+                  "move_mouse",
+                  sourceObservation
+                );
+
+          return {
+            actionId,
+            sessionId: actionInput.sessionId,
+            actionType: "move_mouse",
+            requestedAt,
+            targetScope: actionInput.targetScope,
+            preActionObservationId: actionInput.preActionObservationId,
+            intendedSemanticTarget:
+              actionInput.intendedSemanticTarget ??
+              actionInput.compactRelationalClaim?.intendedTarget,
+            input: {
+              point: actionInput.point
+            },
+            compactRelationalClaim: actionInput.compactRelationalClaim,
+            relationalNavigation:
+              actionInput.relationalNavigation ?? expansion?.relationalNavigation,
+            preActionNavigationCheck:
+              actionInput.preActionNavigationCheck ??
+              expansion?.preActionNavigationCheck,
+            risk: lowRisk,
+            residue: [
+              "Mouse movement is treated as a relational probe.",
+              "Coordinates are action endpoints only; semantic landing must be assessed after follow-up observation.",
+              "A post-movement observation is required before the next non-observe action."
+            ]
+          };
+        },
         callProvider: (provider, actionInput, requestedAt) =>
           provider.moveMouse({
             sessionId: actionInput.sessionId,
@@ -559,7 +934,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
         recordedResidue: [
           "Movement probe was recorded.",
           "The active provider result states whether movement was real or simulated.",
-          "The next non-observe action is blocked until the transition gate is audited by observation."
+          "The next non-observe action is blocked until post-movement observation and semantic landing assessment complete the transition gate."
         ]
       })
   );
@@ -583,24 +958,45 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
         actionType: "click",
         unsupportedProviderReason: "The active desktop provider does not support clicking.",
         providerSupports: (provider) => provider.getCapabilities().supportsClick,
-        buildAction: (actionInput, actionId, requestedAt) => ({
-          actionId,
-          sessionId: actionInput.sessionId,
-          actionType: "click",
-          requestedAt,
-          targetScope: actionInput.targetScope,
-          preActionObservationId: actionInput.preActionObservationId,
-          intendedSemanticTarget: actionInput.intendedSemanticTarget,
-          input: {
-            point: actionInput.point,
-            button: actionInput.button
-          },
-          risk: actionInput.risk,
-          residue: [
-            "Clicking requires current visual evidence.",
-            "A post-click observation is required before success can be claimed."
-          ]
-        }),
+        buildAction: (actionInput, actionId, requestedAt, sourceObservation) => {
+          const expansion =
+            actionInput.compactRelationalClaim === undefined
+              ? undefined
+              : expandCompactRelationalClaim(
+                  actionInput.compactRelationalClaim,
+                  actionId,
+                  "click",
+                  sourceObservation
+                );
+
+          return {
+            actionId,
+            sessionId: actionInput.sessionId,
+            actionType: "click",
+            requestedAt,
+            targetScope: actionInput.targetScope,
+            preActionObservationId: actionInput.preActionObservationId,
+            intendedSemanticTarget:
+              actionInput.intendedSemanticTarget ??
+              actionInput.compactRelationalClaim?.intendedTarget,
+            input: {
+              point: actionInput.point,
+              button: actionInput.button,
+              hoverTargetWitnessId: actionInput.hoverTargetWitnessId
+            },
+            compactRelationalClaim: actionInput.compactRelationalClaim,
+            relationalNavigation:
+              actionInput.relationalNavigation ?? expansion?.relationalNavigation,
+            preActionNavigationCheck:
+              actionInput.preActionNavigationCheck ??
+              expansion?.preActionNavigationCheck,
+            risk: actionInput.risk,
+            residue: [
+              "Clicking requires current relational and hover-witness evidence.",
+              "A post-click observation is required before success can be claimed."
+            ]
+          };
+        },
         callProvider: (provider, actionInput, requestedAt) =>
           provider.click({
             sessionId: actionInput.sessionId,
@@ -654,24 +1050,44 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
         actionType: "type_text",
         unsupportedProviderReason: "The active desktop provider does not support typing.",
         providerSupports: (provider) => provider.getCapabilities().supportsTyping,
-        buildAction: (actionInput, actionId, requestedAt) => ({
-          actionId,
-          sessionId: actionInput.sessionId,
-          actionType: "type_text",
-          requestedAt,
-          targetScope: actionInput.targetScope,
-          preActionObservationId: actionInput.preActionObservationId,
-          intendedSemanticTarget: actionInput.intendedSemanticTarget,
-          input: {
-            textLength: actionInput.text.length
-          },
-          risk: riskForTypeText(actionInput),
-          residue: [
-            `Text sensitivity classification: ${actionInput.sensitivityClassification}.`,
-            "Text content is not stored in the action packet or audit event.",
-            "A post-typing observation is required before success can be claimed."
-          ]
-        }),
+        buildAction: (actionInput, actionId, requestedAt, sourceObservation) => {
+          const expansion =
+            actionInput.compactRelationalClaim === undefined
+              ? undefined
+              : expandCompactRelationalClaim(
+                  actionInput.compactRelationalClaim,
+                  actionId,
+                  "type_text",
+                  sourceObservation
+                );
+
+          return {
+            actionId,
+            sessionId: actionInput.sessionId,
+            actionType: "type_text",
+            requestedAt,
+            targetScope: actionInput.targetScope,
+            preActionObservationId: actionInput.preActionObservationId,
+            intendedSemanticTarget:
+              actionInput.intendedSemanticTarget ??
+              actionInput.compactRelationalClaim?.intendedTarget,
+            input: {
+              textLength: actionInput.text.length
+            },
+            compactRelationalClaim: actionInput.compactRelationalClaim,
+            relationalNavigation:
+              actionInput.relationalNavigation ?? expansion?.relationalNavigation,
+            preActionNavigationCheck:
+              actionInput.preActionNavigationCheck ??
+              expansion?.preActionNavigationCheck,
+            risk: riskForTypeText(actionInput),
+            residue: [
+              `Text sensitivity classification: ${actionInput.sensitivityClassification}.`,
+              "Text content is not stored in the action packet or audit event.",
+              "A post-typing observation is required before success can be claimed."
+            ]
+          };
+        },
         callProvider: (provider, actionInput, requestedAt) =>
           provider.typeText({
             sessionId: actionInput.sessionId,

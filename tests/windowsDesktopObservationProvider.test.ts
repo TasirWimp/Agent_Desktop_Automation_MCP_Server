@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DesktopProviderError } from "../src/providers/desktopProvider.js";
+import {
+  DesktopProviderError,
+  type DesktopApplicationLaunchRequest,
+  type DesktopApplicationLaunchResult
+} from "../src/providers/desktopProvider.js";
 import {
   PersistentPowerShellWindowsObservationBackend,
   WindowsDesktopObservationProvider,
@@ -32,6 +36,7 @@ class FakeWindowsBackend implements WindowsObservationBackend {
   public movedPoints: DesktopPoint[] = [];
   public clickedPoints: Array<{ point: DesktopPoint; button: "left" | "middle" | "right" }> = [];
   public typedTexts: string[] = [];
+  public launchedApplications: string[] = [];
   public disposed = false;
   private cursorPosition: DesktopPoint;
 
@@ -89,6 +94,23 @@ class FakeWindowsBackend implements WindowsObservationBackend {
     return text.length;
   }
 
+  async openApplication(
+    request: DesktopApplicationLaunchRequest
+  ): Promise<DesktopApplicationLaunchResult> {
+    this.launchedApplications.push(request.application.id);
+
+    return {
+      executed: true,
+      simulated: false,
+      applicationId: request.application.id,
+      displayName: request.application.displayName,
+      residue: [
+        "Fake backend recorded catalog application launch.",
+        "No real application was launched during the test."
+      ]
+    };
+  }
+
   dispose(): void {
     this.disposed = true;
   }
@@ -143,6 +165,14 @@ class FakeWindowsHelperClient implements WindowsObservationHelperClient {
                       typedTextLength:
                         typeof payload?.text === "string" ? payload.text.length : 0
                     }
+                  : command === "open_application"
+                    ? {
+                        executed: true,
+                        simulated: false,
+                        applicationId: "generated_test_app",
+                        displayName: "Generated Test App",
+                        residue: ["Fake helper recorded catalog application launch."]
+                      }
                   : {};
 
     return result as T;
@@ -229,6 +259,22 @@ describe("WindowsDesktopObservationProvider", () => {
       y: 46
     });
     await expect(backend.typeText("abc")).resolves.toBe(3);
+    await expect(
+      backend.openApplication({
+        application: {
+          id: "generated_test_app",
+          displayName: "Generated Test App",
+          aliases: ["generated app"],
+          windowsShortcutNames: ["Generated Test App"],
+          moduleHints: ["fixture"]
+        },
+        requestedAt: "2026-06-21T10:00:00.000Z"
+      })
+    ).resolves.toMatchObject({
+      executed: true,
+      simulated: false,
+      applicationId: "generated_test_app"
+    });
     backend.dispose();
 
     expect(helperClient.commands).toEqual([
@@ -267,6 +313,19 @@ describe("WindowsDesktopObservationProvider", () => {
         command: "type_text",
         payload: {
           text: "abc"
+        }
+      },
+      {
+        command: "open_application",
+        payload: {
+          application: {
+            id: "generated_test_app",
+            displayName: "Generated Test App",
+            aliases: ["generated app"],
+            windowsShortcutNames: ["Generated Test App"],
+            moduleHints: ["fixture"]
+          },
+          requestedAt: "2026-06-21T10:00:00.000Z"
         }
       }
     ]);
@@ -355,6 +414,40 @@ describe("WindowsDesktopObservationProvider", () => {
     expect(provider.getCapabilities().residue).toContain(
       "Provider may type generated test input only through the explicit app-scoped real-typing gate."
     );
+  });
+
+  it("reports and delegates opt-in catalog application launch behind a separate gate", async () => {
+    const backend = new FakeWindowsBackend();
+    const provider = new WindowsDesktopObservationProvider({
+      backend,
+      platform: "win32",
+      enableRealApplicationLaunch: true
+    });
+
+    expect(provider.getCapabilities()).toMatchObject({
+      providerKind: "real",
+      supportsApplicationLaunch: true,
+      realDesktopApplicationLaunch: true,
+      realDesktopMutation: false
+    });
+
+    await expect(
+      provider.openApplication({
+        application: {
+          id: "generated_test_app",
+          displayName: "Generated Test App",
+          aliases: ["generated app"],
+          windowsShortcutNames: ["Generated Test App"],
+          moduleHints: ["fixture"]
+        },
+        requestedAt: "2026-06-21T10:00:00.000Z"
+      })
+    ).resolves.toMatchObject({
+      executed: true,
+      simulated: false,
+      applicationId: "generated_test_app"
+    });
+    expect(backend.launchedApplications).toEqual(["generated_test_app"]);
   });
 
   it("captures bounded active-window frame metadata without inline image data by default", async () => {
