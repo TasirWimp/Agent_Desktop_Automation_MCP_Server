@@ -22,6 +22,7 @@ import { registerObservationTools } from "./session/observationTools.js";
 import { registerPerceptionDigestTools } from "./session/perceptionDigestTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
 import { registerSessionTools } from "./session/sessionTools.js";
+import { registerWorkflowStateTools } from "./session/workflowStateTools.js";
 
 const serverName = "agent-desktop-automation";
 const serverVersion = "0.1.0";
@@ -94,6 +95,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           sessionAuditLog: true,
           clickCandidateWitnessGate: true,
           freshPerceptionDigest: true,
+          workflowStateClaims: true,
           compactRelationalClaims: true,
           semanticLandingAssessment: true,
           desktopOpenApplicationTool: true,
@@ -182,6 +184,12 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   registerPerceptionDigestTools(server, {
     sessionStore,
     now
+  });
+
+  registerWorkflowStateTools(server, {
+    sessionStore,
+    now,
+    generateId
   });
 
   registerActionTools(server, {

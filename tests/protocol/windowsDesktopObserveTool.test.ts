@@ -197,6 +197,46 @@ async function submitDigest(
   return structured.perceptionDigestId as string;
 }
 
+async function submitWorkflowStateClaim(
+  client: Client,
+  observationId: string,
+  perceptionDigestId: string,
+  intendedTarget = "Submit button",
+  targetScope: Record<string, string> = {
+    kind: "window_title",
+    value: "Generated Test App"
+  },
+  overrides: Record<string, unknown> = {}
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_workflow_state_claim",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      observationId,
+      perceptionDigestId,
+      targetScope,
+      workflowGoal: "Observe and interact with the generated app window.",
+      workflowStep: `Use ${intendedTarget}.`,
+      intendedElementTarget: intendedTarget,
+      intendedActionMeaning: `use ${intendedTarget} after committed workflow state is ready`,
+      actionRole: "execute_committed_action",
+      requiredPrecondition: `${intendedTarget} is the committed next workflow action.`,
+      preconditionStatus: "satisfied",
+      committedStateEvidence: `The current screenshot shows ${intendedTarget} as ready.`,
+      transientStateRisk: "none",
+      missingConfirmation: null,
+      expectedPostcondition: `${intendedTarget} changes the generated app state.`,
+      postconditionContradiction: "A different control or workflow state changes.",
+      currentContradiction: null,
+      staleCarryoverReviewed: true,
+      ...overrides
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.workflowStateClaimId as string;
+}
+
 async function prepareHoverWitness(client: Client) {
   const initialDigestId = await submitDigest(client, "observation-fixed-2");
 
@@ -231,6 +271,11 @@ async function prepareHoverWitness(client: Client) {
     }
   });
   const followUpDigestId = await submitDigest(client, "observation-fixed-8");
+  const workflowStateClaimId = await submitWorkflowStateClaim(
+    client,
+    "observation-fixed-8",
+    followUpDigestId
+  );
   await client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
@@ -254,6 +299,7 @@ async function prepareHoverWitness(client: Client) {
       sessionId: "session-real-observe-001",
       observationId: "observation-fixed-8",
       perceptionDigestId: followUpDigestId,
+      workflowStateClaimId,
       movementActionId: "action-fixed-4",
       targetScope: {
         kind: "window_title",
@@ -272,6 +318,7 @@ async function prepareHoverWitness(client: Client) {
   return {
     observationId: "observation-fixed-8",
     perceptionDigestId: followUpDigestId,
+    workflowStateClaimId,
     hoverTargetWitnessId: hoverTargetWitness.witnessId as string
   };
 }
@@ -868,7 +915,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Generated Test App"
           },
           includeImages: true,
-          transitionActionId: "action-fixed-4"
+          transitionActionId: (structured.action as Record<string, unknown>).actionId
         }
       });
       const observeStructured = parseStructuredContent(observeResult);
@@ -962,6 +1009,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           perceptionDigestId: witness.perceptionDigestId,
+          workflowStateClaimId: witness.workflowStateClaimId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
@@ -1034,6 +1082,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           perceptionDigestId: witness.perceptionDigestId,
+          workflowStateClaimId: witness.workflowStateClaimId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
         }
       });
@@ -1139,6 +1188,17 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         }
       });
       const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId,
+        "Name input",
+        undefined,
+        {
+          actionRole: "text_entry",
+          intendedActionMeaning: "type generated test input into Name input"
+        }
+      );
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -1149,6 +1209,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           },
           preActionObservationId: "observation-fixed-2",
           perceptionDigestId: digestId,
+          workflowStateClaimId,
           text: "generated input",
           sensitivityClassification: "test_input",
           intendedSemanticTarget: "Name input",
@@ -1195,16 +1256,17 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
             value: "Generated Test App"
           },
           includeImages: true,
-          transitionActionId: "action-fixed-4"
+          transitionActionId: (structured.action as Record<string, unknown>).actionId
         }
       });
       const observeStructured = parseStructuredContent(observeResult);
+      const followUpObservation = observeStructured.observation as Record<string, unknown>;
 
       expect(observeResult.isError).not.toBe(true);
       expect(observeStructured.transitionGate).toMatchObject({
-        actionId: "action-fixed-4",
+        actionId: (structured.action as Record<string, unknown>).actionId,
         status: "audited",
-        followUpObservationId: "observation-fixed-8"
+        followUpObservationId: followUpObservation.observationId
       });
     } finally {
       await client.close();
@@ -1243,6 +1305,17 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
         }
       });
       const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId,
+        "Name input",
+        undefined,
+        {
+          actionRole: "text_entry",
+          intendedActionMeaning: "type generated test input into Name input"
+        }
+      );
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -1253,6 +1326,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           },
           preActionObservationId: "observation-fixed-2",
           perceptionDigestId: digestId,
+          workflowStateClaimId,
           text: "generated input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")

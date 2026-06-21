@@ -19,7 +19,8 @@ import {
   type DesktopRelationalNavigation,
   type DesktopSessionActionType,
   type DesktopSessionAuditEvent,
-  type DesktopSessionStopCondition
+  type DesktopSessionStopCondition,
+  type DesktopWorkflowStateClaim
 } from "../policy/sessionLicensePolicy.js";
 import type {
   DesktopInteractionProvider,
@@ -85,6 +86,7 @@ const clickInputSchema = baseActionInputSchema.extend({
   point: desktopPointSchema,
   button: z.enum(["left", "middle", "right"]).default("left"),
   hoverTargetWitnessId: z.string().min(1).optional(),
+  workflowStateClaimId: z.string().min(1).optional(),
   risk: actionRiskInputSchema
 });
 
@@ -93,6 +95,7 @@ const typeTextInputSchema = baseActionInputSchema.extend({
   sensitivityClassification: z
     .enum(["test_input", "private", "credential", "secret"])
     .default("test_input"),
+  workflowStateClaimId: z.string().min(1).optional(),
   risk: actionRiskInputSchema
 });
 
@@ -431,6 +434,18 @@ function sourceObservationForAction(
   );
 }
 
+function workflowStateClaimForAction(
+  runtime: ActionToolRuntime,
+  action: DesktopActionPacket
+): DesktopWorkflowStateClaim | undefined {
+  return action.workflowStateClaimId === undefined
+    ? undefined
+    : runtime.sessionStore.getWorkflowStateClaim(
+        action.sessionId,
+        action.workflowStateClaimId
+      );
+}
+
 interface ClickHoverWitnessValidationResult {
   ok: boolean;
   hoverTargetWitness?: HoverTargetWitness;
@@ -440,6 +455,15 @@ interface ClickHoverWitnessValidationResult {
 
 function pointDistance(first: DesktopPoint, second: DesktopPoint): number {
   return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function workflowTextEquivalent(first: string | undefined, second: string | undefined): boolean {
+  if (first === undefined || second === undefined) {
+    return false;
+  }
+
+  return first.normalize("NFKC").trim().toLowerCase().replace(/\s+/gu, " ") ===
+    second.normalize("NFKC").trim().toLowerCase().replace(/\s+/gu, " ");
 }
 
 function validateClickHoverTargetWitness(
@@ -553,6 +577,70 @@ function validateClickHoverTargetWitness(
     };
   }
 
+  const workflowStateClaim = workflowStateClaimForAction(runtime, action);
+
+  if (workflowStateClaim === undefined) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Click request must include a current workflow-state claim.",
+      residue: [
+        `workflowStateClaimId: ${action.workflowStateClaimId ?? "missing"}.`,
+        "The workflow claim revalidates committed app state before the click."
+      ]
+    };
+  }
+
+  if (hoverTargetWitness.workflowStateClaimId === undefined) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Hover target witness has no workflow-state evidence.",
+      residue: [
+        "Run desktop_evaluate_click_candidate with workflowStateClaimId before clicking."
+      ]
+    };
+  }
+
+  if (
+    !semanticTargetsEquivalent(
+      workflowStateClaim.intendedElementTarget,
+      hoverTargetWitness.intendedSemanticTarget
+    )
+  ) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Current workflow-state claim target does not match the hover target witness.",
+      residue: [
+        `Workflow target: ${workflowStateClaim.intendedElementTarget}.`,
+        `Witness target: ${hoverTargetWitness.intendedSemanticTarget}.`,
+        `Workflow target canonical: ${semanticTargetCanonicalForm(workflowStateClaim.intendedElementTarget)}.`,
+        `Witness target canonical: ${semanticTargetCanonicalForm(hoverTargetWitness.intendedSemanticTarget)}.`
+      ]
+    };
+  }
+
+  if (
+    !workflowTextEquivalent(workflowStateClaim.workflowGoal, hoverTargetWitness.workflowGoal) ||
+    !workflowTextEquivalent(workflowStateClaim.workflowStep, hoverTargetWitness.workflowStep) ||
+    workflowStateClaim.actionRole !== hoverTargetWitness.workflowActionRole
+  ) {
+    return {
+      ok: false,
+      hoverTargetWitness,
+      reason: "Current workflow-state claim does not match the hover witness workflow context.",
+      residue: [
+        `Workflow goal: ${workflowStateClaim.workflowGoal}.`,
+        `Witness goal: ${hoverTargetWitness.workflowGoal ?? "missing"}.`,
+        `Workflow step: ${workflowStateClaim.workflowStep}.`,
+        `Witness step: ${hoverTargetWitness.workflowStep ?? "missing"}.`,
+        `Workflow actionRole: ${workflowStateClaim.actionRole}.`,
+        `Witness actionRole: ${hoverTargetWitness.workflowActionRole ?? "missing"}.`
+      ]
+    };
+  }
+
   const witnessedPoint =
     hoverTargetWitness.candidatePoint ??
     hoverTargetWitness.observedCursorPoint ??
@@ -622,6 +710,7 @@ function validateClickHoverTargetWitness(
     residue: [
       "Click point matched the supported hover/candidate witness.",
       "Current perception digest revalidated the target before clicking.",
+      "Current workflow-state claim revalidated the committed app workflow before clicking.",
       "Current cursor/candidate proximity was present in the click pre-action observation.",
       "Semantic confirmation came from the stored landing assessment, not coordinate proximity alone."
     ]
@@ -877,6 +966,7 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
       residue: [...action.residue, ...providerResult.residue]
     });
     const actionCount = runtime.sessionStore.incrementActionCount(input.sessionId);
+    const workflowStateClaim = workflowStateClaimForAction(runtime, recordedAction);
     const transitionGate = runtime.sessionStore.recordTransitionGate(
       createPendingInteractionTransitionGate({
         transitionId: runtime.generateId("transition"),
@@ -884,6 +974,7 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
         createdAt: runtime.now(),
         sourceObservation,
         providerReportedCursorPosition: providerResult.cursorPosition,
+        workflowStateClaim,
         protectedObservables: config.protectedObservables,
         expectedEvidenceAfterAction: config.expectedEvidenceAfterAction,
         residue: [
@@ -1051,6 +1142,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
             targetScope: actionInput.targetScope,
             preActionObservationId: actionInput.preActionObservationId,
             perceptionDigestId: actionInput.perceptionDigestId,
+            workflowStateClaimId: actionInput.workflowStateClaimId,
             intendedSemanticTarget:
               actionInput.intendedSemanticTarget ??
               actionInput.compactRelationalClaim?.intendedTarget,
@@ -1144,6 +1236,7 @@ export function registerActionTools(server: McpServer, runtime: ActionToolRuntim
             targetScope: actionInput.targetScope,
             preActionObservationId: actionInput.preActionObservationId,
             perceptionDigestId: actionInput.perceptionDigestId,
+            workflowStateClaimId: actionInput.workflowStateClaimId,
             intendedSemanticTarget:
               actionInput.intendedSemanticTarget ??
               actionInput.compactRelationalClaim?.intendedTarget,

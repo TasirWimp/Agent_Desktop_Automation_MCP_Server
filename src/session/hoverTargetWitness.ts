@@ -17,6 +17,10 @@ export const hoverTargetWitnessSchema = z.object({
   sourceObservationId: z.string().min(1),
   followUpObservationId: z.string().min(1),
   perceptionDigestId: z.string().min(1).optional(),
+  workflowStateClaimId: z.string().min(1).optional(),
+  workflowGoal: z.string().min(1).optional(),
+  workflowStep: z.string().min(1).optional(),
+  workflowActionRole: z.string().min(1).optional(),
   targetScope: desktopInteractionScopeSchema,
   intendedSemanticTarget: z.string().min(1).max(1000),
   plannedHoverPoint: desktopPointSchema.optional(),
@@ -47,6 +51,10 @@ export interface HoverTargetWitnessInput {
   sourceObservationId: string;
   followUpObservationId: string;
   perceptionDigestId?: string;
+  workflowStateClaimId?: string;
+  workflowGoal?: string;
+  workflowStep?: string;
+  workflowActionRole?: string;
   targetScope: DesktopInteractionScope;
   intendedSemanticTarget: string;
   plannedHoverPoint?: DesktopPoint;

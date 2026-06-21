@@ -8,6 +8,7 @@ import {
   type DesktopActionPacket,
   type DesktopCompactSemanticLandingAssessment,
   type DesktopObservationPacket,
+  type DesktopWorkflowStateClaim,
   desktopPointSchema,
   type DesktopPoint
 } from "../policy/sessionLicensePolicy.js";
@@ -59,6 +60,32 @@ export type PostActionObservationClassification = z.infer<
   typeof postActionObservationClassificationSchema
 >;
 
+const workflowTransitionSnapshotSchema = z.object({
+  workflowStateClaimId: z.string().min(1),
+  workflowGoal: z.string().min(1),
+  workflowStep: z.string().min(1),
+  intendedElementTarget: z.string().min(1),
+  intendedActionMeaning: z.string().min(1),
+  actionRole: z.string().min(1),
+  requiredPrecondition: z.string().min(1),
+  preconditionStatus: z.string().min(1),
+  committedStateEvidence: z.string().min(1),
+  transientStateRisk: z.string().min(1),
+  expectedPostcondition: z.string().min(1),
+  postconditionContradiction: z.string().min(1)
+});
+
+const workflowPostconditionAssessmentSchema = z.object({
+  workflowStateClaimId: z.string().min(1),
+  postconditionStatus: z.enum(["satisfied", "contradicted", "inconclusive"]),
+  expectedPostcondition: z.string().min(1),
+  postconditionContradiction: z.string().min(1),
+  currentContradiction: z.string().min(1).nullable(),
+  committedStateEvidence: z.string().min(1),
+  missingConfirmation: z.string().min(1).nullable(),
+  assessedAt: z.string().min(1)
+});
+
 export const interactionTransitionGateSchema = z.object({
   transitionId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -80,6 +107,8 @@ export const interactionTransitionGateSchema = z.object({
   observedDeltaSummary: z.string().min(1).optional(),
   compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
   relationalNavigation: desktopRelationalNavigationSchema.optional(),
+  workflowState: workflowTransitionSnapshotSchema.optional(),
+  workflowPostconditionAssessment: workflowPostconditionAssessmentSchema.optional(),
   semanticLandingAssessment: desktopCompactSemanticLandingAssessmentSchema.optional(),
   postActionClassification: postActionObservationClassificationSchema.optional(),
   movementDeltaWitness: z
@@ -107,9 +136,27 @@ export interface PendingInteractionTransitionGateInput {
   createdAt: string;
   sourceObservation?: DesktopObservationPacket;
   providerReportedCursorPosition?: DesktopPoint;
+  workflowStateClaim?: DesktopWorkflowStateClaim;
   protectedObservables: string[];
   expectedEvidenceAfterAction: string[];
   residue: string[];
+}
+
+function workflowTransitionSnapshot(claim: DesktopWorkflowStateClaim) {
+  return workflowTransitionSnapshotSchema.parse({
+    workflowStateClaimId: claim.workflowStateClaimId,
+    workflowGoal: claim.workflowGoal,
+    workflowStep: claim.workflowStep,
+    intendedElementTarget: claim.intendedElementTarget,
+    intendedActionMeaning: claim.intendedActionMeaning,
+    actionRole: claim.actionRole,
+    requiredPrecondition: claim.requiredPrecondition,
+    preconditionStatus: claim.preconditionStatus,
+    committedStateEvidence: claim.committedStateEvidence,
+    transientStateRisk: claim.transientStateRisk,
+    expectedPostcondition: claim.expectedPostcondition,
+    postconditionContradiction: claim.postconditionContradiction
+  });
 }
 
 export function createPendingInteractionTransitionGate(
@@ -134,7 +181,97 @@ export function createPendingInteractionTransitionGate(
     expectedEvidenceAfterAction: input.expectedEvidenceAfterAction,
     compactRelationalClaim: input.action.compactRelationalClaim,
     relationalNavigation: input.action.relationalNavigation,
+    workflowState:
+      input.workflowStateClaim === undefined
+        ? undefined
+        : workflowTransitionSnapshot(input.workflowStateClaim),
     residue: input.residue
+  });
+}
+
+export function applyWorkflowPostconditionAssessment(
+  gate: InteractionTransitionGate,
+  claim: DesktopWorkflowStateClaim,
+  assessedAt: string
+): InteractionTransitionGate {
+  const postconditionStatus =
+    claim.postconditionStatus === "satisfied" ||
+    claim.postconditionStatus === "contradicted" ||
+    claim.postconditionStatus === "inconclusive"
+      ? claim.postconditionStatus
+      : "inconclusive";
+  const postActionClassification =
+    postconditionStatus === "satisfied"
+      ? classification({
+          kind: "expected_delta",
+          confidence: "high",
+          disposition: "complete",
+          reason: "Workflow postcondition assessment satisfied the expected committed state.",
+          evidence: [
+            "workflow_postcondition_satisfied",
+            `expectedPostcondition: ${claim.expectedPostcondition}`,
+            `committedStateEvidence: ${claim.committedStateEvidence}`
+          ],
+          residue: [
+            "The agent declared the follow-up screenshot satisfied the workflow postcondition.",
+            "This is a workflow-state claim; the server did not inspect pixels."
+          ]
+        })
+      : postconditionStatus === "contradicted"
+        ? classification({
+            kind: "wrong_target",
+            confidence: "high",
+            disposition: "repair_allowed",
+            reason: "Workflow postcondition assessment contradicted the expected committed state.",
+            evidence: [
+              "workflow_postcondition_contradicted",
+              `expectedPostcondition: ${claim.expectedPostcondition}`,
+              `postconditionContradiction: ${claim.postconditionContradiction}`,
+              `currentContradiction: ${claim.currentContradiction ?? "none"}`
+            ],
+            residue: [
+              "The action may have hit the right element, but the workflow postcondition indicates the wrong app state.",
+              "A bounded repair path may restore the required workflow state inside the licensed scope."
+            ]
+          })
+        : classification({
+            kind: "repair_needed",
+            confidence: "medium",
+            disposition: "repair_allowed",
+            reason: "Workflow postcondition assessment was inconclusive.",
+            evidence: [
+              "workflow_postcondition_inconclusive",
+              `expectedPostcondition: ${claim.expectedPostcondition}`,
+              `committedStateEvidence: ${claim.committedStateEvidence}`
+            ],
+            residue: [
+              "The follow-up screenshot did not provide enough workflow-state evidence to claim progress.",
+              "A bounded repair or fresh observation may be needed."
+            ]
+          });
+
+  return interactionTransitionGateSchema.parse({
+    ...gate,
+    status: "audited",
+    updatedAt: assessedAt,
+    workflowPostconditionAssessment: {
+      workflowStateClaimId: claim.workflowStateClaimId,
+      postconditionStatus,
+      expectedPostcondition: claim.expectedPostcondition,
+      postconditionContradiction: claim.postconditionContradiction,
+      currentContradiction: claim.currentContradiction,
+      committedStateEvidence: claim.committedStateEvidence,
+      missingConfirmation: claim.missingConfirmation,
+      assessedAt
+    },
+    postActionClassification,
+    observedDeltaSummary:
+      `Workflow postcondition assessment: ${postconditionStatus}. ${claim.expectedPostcondition}`,
+    residue: [
+      ...gate.residue,
+      `Workflow postcondition assessment: ${postconditionStatus}.`,
+      ...postActionClassification.residue
+    ]
   });
 }
 

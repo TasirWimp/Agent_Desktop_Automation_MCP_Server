@@ -140,7 +140,7 @@ describe("runGovernedManualProbe", () => {
     expect(result.clickBlock).toMatchObject({
       attempted: true,
       isError: true,
-      status: "blocked"
+      status: "block"
     });
     expect(result.clickBlock?.residue).toEqual(
       expect.arrayContaining([

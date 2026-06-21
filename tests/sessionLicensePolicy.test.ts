@@ -7,6 +7,7 @@ import {
   type DesktopPerceptionDigest,
   type DesktopSessionActionType,
   type DesktopSessionAuditEvent,
+  type DesktopWorkflowStateClaim,
   desktopActionPacketSchema,
   desktopInteractionSessionLicenseSchema,
   desktopObservationPacketSchema,
@@ -153,6 +154,10 @@ function digestIdFor(observationId: string, intendedTarget: string): string {
   return `digest-${observationId}-${intendedTarget.toLowerCase().replace(/[^a-z0-9]+/gu, "-")}`;
 }
 
+function workflowStateClaimIdFor(observationId: string, intendedTarget: string): string {
+  return `workflow-${observationId}-${intendedTarget.toLowerCase().replace(/[^a-z0-9]+/gu, "-")}`;
+}
+
 function perceptionDigestFixture(
   observation: DesktopObservationPacket,
   intendedTarget = "Submit button",
@@ -173,6 +178,39 @@ function perceptionDigestFixture(
     staleCarryoverReviewed: true,
     currentEvidence: "The current screenshot shows the target row/control.",
     createdAt: "2026-05-27T10:00:01.800Z",
+    sourceObservationFrameHashes: observation.frames.map((frame) => frame.sha256),
+    status: "accepted",
+    ...overrides
+  };
+}
+
+function workflowStateClaimFixture(
+  observation: DesktopObservationPacket,
+  perceptionDigestId: string,
+  intendedTarget = "Submit button",
+  overrides: Partial<DesktopWorkflowStateClaim> = {}
+): DesktopWorkflowStateClaim {
+  return {
+    workflowStateClaimId: workflowStateClaimIdFor(observation.observationId, intendedTarget),
+    sessionId: observation.sessionId,
+    observationId: observation.observationId,
+    perceptionDigestId,
+    targetScope: observation.targetScope,
+    workflowGoal: "Run the generated app UI test scenario.",
+    workflowStep: "Submit the generated app form.",
+    intendedElementTarget: intendedTarget,
+    intendedActionMeaning: "click the committed Submit action",
+    actionRole: "execute_committed_action",
+    requiredPrecondition: "Submit is the committed next workflow action.",
+    preconditionStatus: "satisfied",
+    committedStateEvidence: "The current screenshot shows Submit as the committed next action.",
+    transientStateRisk: "none",
+    missingConfirmation: null,
+    expectedPostcondition: "The submit action changes the app state.",
+    postconditionContradiction: "A different workflow state changes.",
+    currentContradiction: null,
+    staleCarryoverReviewed: true,
+    createdAt: "2026-05-27T10:00:01.900Z",
     sourceObservationFrameHashes: observation.frames.map((frame) => frame.sha256),
     status: "accepted",
     ...overrides
@@ -230,6 +268,11 @@ function actionFixture(
       preActionObservationId === undefined
         ? undefined
         : digestIdFor(preActionObservationId, intendedSemanticTarget),
+    workflowStateClaimId:
+      preActionObservationId === undefined ||
+      (actionType !== "click" && actionType !== "type_text")
+        ? undefined
+        : workflowStateClaimIdFor(preActionObservationId, intendedSemanticTarget),
     input: {
       point: {
         x: 320,
@@ -289,6 +332,26 @@ function contextFor(action: DesktopActionPacket, phase: "preflight" | "completio
               action.intendedSemanticTarget ?? "Submit button",
               {
                 perceptionDigestId: action.perceptionDigestId
+              }
+            )
+          ],
+    workflowStateClaims:
+      preActionObservation === undefined ||
+      action.perceptionDigestId === undefined ||
+      action.workflowStateClaimId === undefined
+        ? []
+        : [
+            workflowStateClaimFixture(
+              preActionObservation,
+              action.perceptionDigestId,
+              action.intendedSemanticTarget ?? "Submit button",
+              {
+                workflowStateClaimId: action.workflowStateClaimId,
+                actionRole: action.actionType === "type_text" ? "text_entry" : "execute_committed_action",
+                intendedActionMeaning:
+                  action.actionType === "type_text"
+                    ? "type generated test input into the committed field"
+                    : "click the committed Submit action"
               }
             )
           ],

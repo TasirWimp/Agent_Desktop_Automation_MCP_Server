@@ -139,6 +139,43 @@ async function submitDigest(
   return structured.perceptionDigestId as string;
 }
 
+async function submitWorkflowStateClaim(
+  client: Client,
+  observationId: string,
+  perceptionDigestId: string,
+  intendedTarget = "Name input"
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_workflow_state_claim",
+    arguments: {
+      sessionId: "session-repair-001",
+      observationId,
+      perceptionDigestId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      workflowGoal: "Run the generated app UI test scenario.",
+      workflowStep: `Enter generated test input into ${intendedTarget}.`,
+      intendedElementTarget: intendedTarget,
+      intendedActionMeaning: `type generated test input into ${intendedTarget}`,
+      actionRole: "text_entry",
+      requiredPrecondition: `${intendedTarget} is focused or ready for generated input.`,
+      preconditionStatus: "satisfied",
+      committedStateEvidence: `The current screenshot shows ${intendedTarget} as ready for input.`,
+      transientStateRisk: "none",
+      missingConfirmation: null,
+      expectedPostcondition: `${intendedTarget} reflects generated test input length.`,
+      postconditionContradiction: "Another field receives the text.",
+      currentContradiction: null,
+      staleCarryoverReviewed: true
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.workflowStateClaimId as string;
+}
+
 const startArguments = {
   sessionId: "session-repair-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -219,6 +256,11 @@ async function startObserveClickAndPostObserve(client: Client) {
     client,
     beforeObservation.observationId as string
   );
+  const beforeWorkflowStateClaimId = await submitWorkflowStateClaim(
+    client,
+    beforeObservation.observationId as string,
+    beforeDigestId
+  );
   const clickResult = await client.callTool({
     name: "desktop_type_text",
     arguments: {
@@ -229,6 +271,7 @@ async function startObserveClickAndPostObserve(client: Client) {
       },
       preActionObservationId: beforeObservation.observationId,
       perceptionDigestId: beforeDigestId,
+      workflowStateClaimId: beforeWorkflowStateClaimId,
       text: "generated input",
       intendedSemanticTarget: "Name input",
       compactRelationalClaim: compactClaim(beforeObservation.observationId as string)
@@ -370,6 +413,11 @@ describe("post-action observation and repair-loop classification", () => {
         client,
         firstObservation.observationId as string
       );
+      const firstWorkflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        firstObservation.observationId as string,
+        firstDigestId
+      );
       const firstClickResult = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -380,6 +428,7 @@ describe("post-action observation and repair-loop classification", () => {
           },
           preActionObservationId: firstObservation.observationId,
           perceptionDigestId: firstDigestId,
+          workflowStateClaimId: firstWorkflowStateClaimId,
           text: "first input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim(firstObservation.observationId as string)
@@ -405,6 +454,11 @@ describe("post-action observation and repair-loop classification", () => {
         client,
         firstPostObservation.observationId as string
       );
+      const firstPostWorkflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        firstPostObservation.observationId as string,
+        firstPostDigestId
+      );
 
       expect(sessionStore.requireActiveSession("session-repair-001").repairAttemptCount).toBe(1);
 
@@ -418,6 +472,7 @@ describe("post-action observation and repair-loop classification", () => {
           },
           preActionObservationId: firstPostObservation.observationId,
           perceptionDigestId: firstPostDigestId,
+          workflowStateClaimId: firstPostWorkflowStateClaimId,
           text: "second input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim(firstPostObservation.observationId as string)

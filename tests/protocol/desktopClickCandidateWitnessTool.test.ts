@@ -93,6 +93,44 @@ async function submitDigest(
   return structured.perceptionDigestId as string;
 }
 
+async function submitWorkflowStateClaim(
+  client: Client,
+  observationId: string,
+  perceptionDigestId: string,
+  overrides: Record<string, unknown> = {}
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_workflow_state_claim",
+    arguments: {
+      sessionId: "session-click-candidate-001",
+      observationId,
+      perceptionDigestId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      workflowGoal: "Run the generated app UI test scenario.",
+      workflowStep: "Submit the generated app form.",
+      intendedElementTarget: "Submit button",
+      intendedActionMeaning: "click Submit after committed workflow state is ready",
+      actionRole: "execute_committed_action",
+      requiredPrecondition: "The Submit button is the committed next workflow action.",
+      preconditionStatus: "satisfied",
+      committedStateEvidence: "The current screenshot shows Submit as the committed next action.",
+      transientStateRisk: "none",
+      missingConfirmation: null,
+      expectedPostcondition: "The submit action changes the generated app state.",
+      postconditionContradiction: "A different control or workflow state changes.",
+      currentContradiction: null,
+      staleCarryoverReviewed: true,
+      ...overrides
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.workflowStateClaimId as string;
+}
+
 async function submitSupportedAssessment(
   client: Client,
   actionId: string,
@@ -224,12 +262,18 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     try {
       await startAndObserve(client);
       const digestId = await submitDigest(client, "observation-fixed-2");
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId
+      );
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
           perceptionDigestId: digestId,
+          workflowStateClaimId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
@@ -286,13 +330,104 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     }
   });
 
+  it("requires a workflow-state claim before click-candidate readiness", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 320,
+            y: 180
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("workflow_state_invalid");
+      expect(structured.clickCandidateWitness).toMatchObject({
+        readyForClickRequest: false,
+        workflowStateEvidence: {
+          workflowStateClaimId: undefined,
+          observationMatches: false
+        }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks committed-action candidates when workflow precondition is not satisfied", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const digestId = await submitDigest(client, "observation-fixed-2");
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId,
+        {
+          preconditionStatus: "not_satisfied",
+          transientStateRisk: "present",
+          missingConfirmation: "click the Submit row first"
+        }
+      );
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: "observation-fixed-2",
+          perceptionDigestId: digestId,
+          workflowStateClaimId,
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 320,
+            y: 180
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("workflow_precondition_not_ready");
+      expect(structured.clickCandidateWitness).toMatchObject({
+        readyForClickRequest: false,
+        workflowStateEvidence: {
+          preconditionStatus: "not_satisfied",
+          transientStateRisk: "present"
+        }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("uses audited movement evidence when evaluating a post-movement click candidate", async () => {
     const { client, server } = await createConnectedClient();
 
     try {
       await startAndObserve(client);
       const initialDigestId = await submitDigest(client, "observation-fixed-2");
-      await client.callTool({
+      const moveResult = await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
           sessionId: "session-click-candidate-001",
@@ -310,7 +445,9 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
-      await client.callTool({
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const observeResult = await client.callTool({
         name: "desktop_observe",
         arguments: {
           sessionId: "session-click-candidate-001",
@@ -319,19 +456,30 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
             value: "Generated Test App"
           },
           includeImages: true,
-          transitionActionId: "action-fixed-4"
+          transitionActionId: moveActionId
         }
       });
-      const followUpDigestId = await submitDigest(client, "observation-fixed-8");
-      await submitSupportedAssessment(client, "action-fixed-4", followUpDigestId);
+      const followUpObservation = parseStructuredContent(observeResult).observation as Record<
+        string,
+        unknown
+      >;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const followUpDigestId = await submitDigest(client, followUpObservationId);
+      await submitSupportedAssessment(client, moveActionId, followUpDigestId);
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        followUpObservationId,
+        followUpDigestId
+      );
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
-          observationId: "observation-fixed-8",
+          observationId: followUpObservationId,
           perceptionDigestId: followUpDigestId,
-          movementActionId: "action-fixed-4",
+          workflowStateClaimId,
+          movementActionId: moveActionId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
@@ -360,16 +508,106 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         }
       });
       expect(structured.auditEvent).toMatchObject({
-        actionId: "action-fixed-4",
-        observationId: "observation-fixed-8"
+        actionId: moveActionId,
+        observationId: followUpObservationId
       });
       expect(structured.hoverTargetWitness).toMatchObject({
-        sourceMoveActionId: "action-fixed-4",
-        followUpObservationId: "observation-fixed-8",
+        sourceMoveActionId: moveActionId,
+        followUpObservationId,
         visualConfirmation: {
           status: "confirmed",
           coordinateEvidenceOnlyIsInsufficient: true
         }
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("allows commit-precondition candidates for missing workflow confirmation", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const initialDigestId = await submitDigest(client, "observation-fixed-2");
+      const moveResult = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: "observation-fixed-2",
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialDigestId,
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim("observation-fixed-2")
+        }
+      });
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const observeResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: moveActionId
+        }
+      });
+      const followUpObservation = parseStructuredContent(observeResult).observation as Record<
+        string,
+        unknown
+      >;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const followUpDigestId = await submitDigest(client, followUpObservationId);
+      await submitSupportedAssessment(client, moveActionId, followUpDigestId);
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        followUpObservationId,
+        followUpDigestId,
+        {
+          actionRole: "commit_precondition",
+          preconditionStatus: "not_satisfied",
+          transientStateRisk: "present",
+          missingConfirmation: "click Submit row to commit the workflow state",
+          intendedActionMeaning: "click Submit row to commit the workflow precondition"
+        }
+      );
+
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: followUpObservationId,
+          perceptionDigestId: followUpDigestId,
+          workflowStateClaimId,
+          movementActionId: moveActionId,
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 120,
+            y: 80
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("candidate_ready");
+      expect(structured.hoverTargetWitness).toMatchObject({
+        workflowActionRole: "commit_precondition"
       });
     } finally {
       await client.close();
@@ -383,7 +621,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     try {
       await startAndObserve(client);
       const initialDigestId = await submitDigest(client, "observation-fixed-2");
-      await client.callTool({
+      const moveResult = await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
           sessionId: "session-click-candidate-001",
@@ -400,7 +638,9 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
-      await client.callTool({
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const observeResult = await client.callTool({
         name: "desktop_observe",
         arguments: {
           sessionId: "session-click-candidate-001",
@@ -409,21 +649,35 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
             value: "Generated Test App"
           },
           includeImages: true,
-          transitionActionId: "action-fixed-4"
+          transitionActionId: moveActionId
         }
       });
-      const followUpDigestId = await submitDigest(client, "observation-fixed-8", {
+      const followUpObservation = parseStructuredContent(observeResult).observation as Record<
+        string,
+        unknown
+      >;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const followUpDigestId = await submitDigest(client, followUpObservationId, {
         intendedTarget: "The Submit control"
       });
-      await submitSupportedAssessment(client, "action-fixed-4", followUpDigestId);
+      await submitSupportedAssessment(client, moveActionId, followUpDigestId);
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        followUpObservationId,
+        followUpDigestId,
+        {
+          intendedElementTarget: "Submit target"
+        }
+      );
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
         arguments: {
           sessionId: "session-click-candidate-001",
-          observationId: "observation-fixed-8",
+          observationId: followUpObservationId,
           perceptionDigestId: followUpDigestId,
-          movementActionId: "action-fixed-4",
+          workflowStateClaimId,
+          movementActionId: moveActionId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"
@@ -458,7 +712,12 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     try {
       await startAndObserve(client);
       const digestId = await submitDigest(client, "observation-fixed-2");
-      await client.callTool({
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId
+      );
+      const moveResult = await client.callTool({
         name: "desktop_move_mouse",
         arguments: {
           sessionId: "session-click-candidate-001",
@@ -475,6 +734,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           compactRelationalClaim: compactClaim("observation-fixed-2")
         }
       });
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
@@ -482,7 +742,8 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           sessionId: "session-click-candidate-001",
           observationId: "observation-fixed-2",
           perceptionDigestId: digestId,
-          movementActionId: "action-fixed-4",
+          workflowStateClaimId,
+          movementActionId: moveAction.actionId,
           targetScope: {
             kind: "window_title",
             value: "Generated Test App"

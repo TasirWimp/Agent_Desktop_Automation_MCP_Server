@@ -7,6 +7,7 @@ import {
   type DesktopSessionActionPolicyContext,
   type DesktopSessionAuditEvent,
   type DesktopSessionStopCondition,
+  type DesktopWorkflowStateClaim,
   desktopActionPacketSchema,
   desktopAppScopeBindingSchema,
   desktopInteractionSessionLicenseSchema,
@@ -14,6 +15,7 @@ import {
   desktopPerceptionDigestSchema,
   desktopSessionAuditEventSchema,
   desktopSessionStopConditionSchema,
+  desktopWorkflowStateClaimSchema,
   evaluateSessionStartPolicy
 } from "../policy/sessionLicensePolicy.js";
 import {
@@ -37,6 +39,7 @@ export type SessionStoreErrorCode =
   | "audit_event_already_exists"
   | "observation_already_exists"
   | "perception_digest_already_exists"
+  | "workflow_state_claim_already_exists"
   | "action_already_exists"
   | "transition_gate_already_exists"
   | "transition_gate_not_found"
@@ -65,6 +68,7 @@ export interface DesktopSessionSnapshot {
   auditEvents: DesktopSessionAuditEvent[];
   observations: DesktopObservationPacket[];
   perceptionDigests: DesktopPerceptionDigest[];
+  workflowStateClaims: DesktopWorkflowStateClaim[];
   actions: DesktopActionPacket[];
   transitionGates: InteractionTransitionGate[];
   hoverTargetWitnesses: HoverTargetWitness[];
@@ -93,6 +97,7 @@ interface DesktopSessionEntry {
   auditEvents: DesktopSessionAuditEvent[];
   observations: Map<string, DesktopObservationPacket>;
   perceptionDigests: Map<string, DesktopPerceptionDigest>;
+  workflowStateClaims: Map<string, DesktopWorkflowStateClaim>;
   actions: Map<string, DesktopActionPacket>;
   transitionGates: Map<string, InteractionTransitionGate>;
   hoverTargetWitnesses: Map<string, HoverTargetWitness>;
@@ -130,6 +135,7 @@ function snapshotFromEntry(entry: DesktopSessionEntry): DesktopSessionSnapshot {
     auditEvents: clone(entry.auditEvents),
     observations: clone([...entry.observations.values()]),
     perceptionDigests: clone([...entry.perceptionDigests.values()]),
+    workflowStateClaims: clone([...entry.workflowStateClaims.values()]),
     actions: clone([...entry.actions.values()]),
     transitionGates: clone([...entry.transitionGates.values()]),
     hoverTargetWitnesses: clone([...entry.hoverTargetWitnesses.values()]),
@@ -173,6 +179,7 @@ export class InMemoryDesktopSessionStore {
       auditEvents: [],
       observations: new Map(),
       perceptionDigests: new Map(),
+      workflowStateClaims: new Map(),
       actions: new Map(),
       transitionGates: new Map(),
       hoverTargetWitnesses: new Map(),
@@ -301,6 +308,36 @@ export class InMemoryDesktopSessionStore {
 
   listPerceptionDigests(sessionId: string): DesktopPerceptionDigest[] {
     return clone([...this.requireEntry(sessionId).perceptionDigests.values()]);
+  }
+
+  recordWorkflowStateClaim(
+    claimInput: DesktopWorkflowStateClaim
+  ): DesktopWorkflowStateClaim {
+    const claim = desktopWorkflowStateClaimSchema.parse(claimInput);
+    const entry = this.requireActiveEntry(claim.sessionId);
+
+    if (entry.workflowStateClaims.has(claim.workflowStateClaimId)) {
+      throw new SessionStoreError(
+        "workflow_state_claim_already_exists",
+        `Workflow state claim ${claim.workflowStateClaimId} already exists.`
+      );
+    }
+
+    entry.workflowStateClaims.set(claim.workflowStateClaimId, clone(claim));
+
+    return clone(claim);
+  }
+
+  getWorkflowStateClaim(
+    sessionId: string,
+    workflowStateClaimId: string
+  ): DesktopWorkflowStateClaim | undefined {
+    const claim = this.requireEntry(sessionId).workflowStateClaims.get(workflowStateClaimId);
+    return claim === undefined ? undefined : clone(claim);
+  }
+
+  listWorkflowStateClaims(sessionId: string): DesktopWorkflowStateClaim[] {
+    return clone([...this.requireEntry(sessionId).workflowStateClaims.values()]);
   }
 
   bindAppScope(bindingInput: DesktopAppScopeBinding): DesktopAppScopeBinding {
@@ -505,6 +542,7 @@ export class InMemoryDesktopSessionStore {
       auditEvents: clone(entry.auditEvents),
       observations: clone([...entry.observations.values()]),
       perceptionDigests: clone([...entry.perceptionDigests.values()]),
+      workflowStateClaims: clone([...entry.workflowStateClaims.values()]),
       boundAppScope:
         entry.boundAppScope === undefined ? undefined : clone(entry.boundAppScope),
       now: options.now

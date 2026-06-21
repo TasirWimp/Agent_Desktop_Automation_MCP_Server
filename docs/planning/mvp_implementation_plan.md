@@ -148,6 +148,7 @@ Extracted implementation slices:
 - ADMCP-022 Post-Action Observation And Repair Loop - implemented.
 - ADMCP-024 Compact Relational Navigation Enforcement And App Catalog Bootstrap - implemented.
 - ADMCP-025 Fresh Perception Digest Enforcement - implemented.
+- ADMCP-026 Workflow-State Claims Above Element Targeting - implemented.
 - ADMCP-023 Governed UI Test Cycle Runner For Local Apps - planned.
 
 Acceptance gate before app-scoped real click, typing, or durable OS mutation:
@@ -1235,6 +1236,31 @@ Delivered behavior:
 - Allows `relative_probe` movement from uncertain/changed digest state as bounded repair, while click/type and normal movement require visible, non-contradicted current target evidence.
 - Lets older hover witnesses support a click only when the latest digest revalidates the same target and the current cursor/candidate evidence still matches.
 - Updates governed manual/navigation probe runners to submit perception digests before movement and transition assessment.
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+
+### ADMCP-026 Workflow-State Claims Above Element Targeting
+
+Goal: Prevent correct-element/wrong-workflow actions by requiring an agent-authored committed workflow-state claim above relational element targeting.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Adds `desktop_submit_workflow_state_claim`.
+- Stores workflow-state claims in session state and audit logs without server-side image analysis, OCR, or app-specific workflow code.
+- Requires `workflowStateClaimId` for `desktop_evaluate_click_candidate`, `desktop_click`, and `desktop_type_text`; `desktop_move_mouse` remains unchanged.
+- Enforces latest-observation binding, current perception-digest binding, frame-hash binding, scope/target match, freshness, stale-carryover review, workflow role, precondition status, transient-state risk, and contradiction checks.
+- Allows `commit_precondition` and `repair` click candidates from unmet or uncertain workflow state only when the claim names the missing confirmation.
+- Requires `execute_committed_action` and `text_entry` paths to declare satisfied committed workflow state before click/type execution.
+- Records workflow postcondition assessments on transition gates as satisfied, contradicted, or inconclusive workflow outcomes without double-counting repair attempts already consumed by the same transition observation.
+- Documents the Mod Organizer/BodySlide pattern: dropdown highlight is transient state and can justify committing the selection row, but Run requires a later claim that BodySlide is the committed executable selection.
 
 Verification:
 

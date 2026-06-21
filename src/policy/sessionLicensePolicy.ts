@@ -593,6 +593,75 @@ export type DesktopPerceptionDigest = z.infer<
   typeof desktopPerceptionDigestSchema
 >;
 
+export const desktopWorkflowActionRoles = [
+  "probe",
+  "commit_precondition",
+  "execute_committed_action",
+  "text_entry",
+  "repair",
+  "not_applicable"
+] as const;
+
+export const desktopWorkflowPreconditionStatuses = [
+  "satisfied",
+  "not_satisfied",
+  "uncertain",
+  "not_applicable"
+] as const;
+
+export const desktopWorkflowTransientStateRisks = [
+  "none",
+  "possible",
+  "present",
+  "uncertain"
+] as const;
+
+export const desktopWorkflowPostconditionStatuses = [
+  "satisfied",
+  "contradicted",
+  "inconclusive",
+  "not_applicable"
+] as const;
+
+export const desktopSubmitWorkflowStateClaimInputSchema = z.object({
+  sessionId: z.string().min(1),
+  observationId: z.string().min(1),
+  perceptionDigestId: z.string().min(1),
+  targetScope: desktopInteractionScopeSchema,
+  workflowGoal: z.string().min(1).max(2000),
+  workflowStep: z.string().min(1).max(2000),
+  intendedElementTarget: z.string().min(1).max(1000),
+  intendedActionMeaning: z.string().min(1).max(2000),
+  actionRole: z.enum(desktopWorkflowActionRoles),
+  requiredPrecondition: z.string().min(1).max(2000),
+  preconditionStatus: z.enum(desktopWorkflowPreconditionStatuses),
+  committedStateEvidence: z.string().min(1).max(2000),
+  transientStateRisk: z.enum(desktopWorkflowTransientStateRisks),
+  missingConfirmation: z.string().min(1).max(2000).nullable(),
+  expectedPostcondition: z.string().min(1).max(2000),
+  postconditionContradiction: z.string().min(1).max(2000),
+  currentContradiction: z.string().min(1).max(2000).nullable(),
+  transitionActionId: z.string().min(1).optional(),
+  postconditionStatus: z.enum(desktopWorkflowPostconditionStatuses).optional(),
+  staleCarryoverReviewed: z.literal(true)
+});
+
+export type DesktopSubmitWorkflowStateClaimInput = z.infer<
+  typeof desktopSubmitWorkflowStateClaimInputSchema
+>;
+
+export const desktopWorkflowStateClaimSchema =
+  desktopSubmitWorkflowStateClaimInputSchema.extend({
+    workflowStateClaimId: z.string().min(1),
+    createdAt: z.string().min(1),
+    sourceObservationFrameHashes: z.array(z.string().min(1)).min(1),
+    status: z.literal("accepted")
+  });
+
+export type DesktopWorkflowStateClaim = z.infer<
+  typeof desktopWorkflowStateClaimSchema
+>;
+
 export const desktopAppScopeBindingSchema = z.object({
   bindingId: z.string().min(1),
   sessionId: z.string().min(1),
@@ -633,13 +702,14 @@ export const desktopActionPacketSchema = z
     actionType: z.enum(desktopSessionActionTypes),
     requestedAt: z.string().min(1),
     targetScope: desktopInteractionScopeSchema,
-    preActionObservationId: z.string().min(1).optional(),
-    postActionObservationId: z.string().min(1).optional(),
-    intendedSemanticTarget: z.string().min(1).optional(),
-    perceptionDigestId: z.string().min(1).optional(),
-    input: desktopActionInputSchema,
-    compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
-    relationalNavigation: desktopRelationalNavigationSchema.optional(),
+  preActionObservationId: z.string().min(1).optional(),
+  postActionObservationId: z.string().min(1).optional(),
+  intendedSemanticTarget: z.string().min(1).optional(),
+  perceptionDigestId: z.string().min(1).optional(),
+  workflowStateClaimId: z.string().min(1).optional(),
+  input: desktopActionInputSchema,
+  compactRelationalClaim: desktopCompactRelationalClaimSchema.optional(),
+  relationalNavigation: desktopRelationalNavigationSchema.optional(),
     preActionNavigationCheck: desktopPreActionNavigationCheckSchema.optional(),
     risk: desktopActionRiskSchema,
     residue: z.array(z.string())
@@ -739,6 +809,7 @@ export const desktopSessionAuditEventTypes = [
   "session_started",
   "observation_recorded",
   "perception_digest_recorded",
+  "workflow_state_claim_recorded",
   "action_requested",
   "action_allowed",
   "action_blocked",
@@ -788,6 +859,11 @@ export const desktopSessionStopConditionTypes = [
   "perception_digest_target_not_visible",
   "perception_digest_anchor_not_visible",
   "perception_digest_contradicted",
+  "missing_workflow_state_claim",
+  "stale_workflow_state_claim",
+  "workflow_state_claim_mismatch",
+  "workflow_precondition_not_satisfied",
+  "workflow_state_contradicted",
   "missing_relational_navigation",
   "invalid_point_provenance",
   "missing_pre_action_navigation_check",
@@ -841,6 +917,7 @@ export interface DesktopSessionActionPolicyContext {
   auditEvents: DesktopSessionAuditEvent[];
   observations: DesktopObservationPacket[];
   perceptionDigests: DesktopPerceptionDigest[];
+  workflowStateClaims: DesktopWorkflowStateClaim[];
   boundAppScope?: DesktopAppScopeBinding;
   now: string;
 }
@@ -1055,6 +1132,15 @@ function findPerceptionDigest(
   );
 }
 
+function findWorkflowStateClaim(
+  workflowStateClaims: DesktopWorkflowStateClaim[],
+  workflowStateClaimId: string | undefined
+): DesktopWorkflowStateClaim | undefined {
+  return workflowStateClaims.find(
+    (claim) => claim.workflowStateClaimId === workflowStateClaimId
+  );
+}
+
 function latestObservationId(
   observations: DesktopObservationPacket[]
 ): string | undefined {
@@ -1091,6 +1177,35 @@ function perceptionDigestFrameHashesMatch(
   return (
     digest.sourceObservationFrameHashes.length === observationHashes.length &&
     digest.sourceObservationFrameHashes.every(
+      (hash, index) => hash === observationHashes[index]
+    )
+  );
+}
+
+function workflowStateClaimFresh(
+  license: DesktopInteractionSessionLicense,
+  claim: DesktopWorkflowStateClaim,
+  action: DesktopActionPacket
+): boolean {
+  const createdMs = Date.parse(claim.createdAt);
+  const requestedMs = Date.parse(action.requestedAt);
+
+  if (Number.isNaN(createdMs) || Number.isNaN(requestedMs)) {
+    return true;
+  }
+
+  return requestedMs - createdMs <= license.observationCadence.maxObservationGapMs;
+}
+
+function workflowStateClaimFrameHashesMatch(
+  claim: DesktopWorkflowStateClaim,
+  observation: DesktopObservationPacket
+): boolean {
+  const observationHashes = observation.frames.map((frame) => frame.sha256);
+
+  return (
+    claim.sourceObservationFrameHashes.length === observationHashes.length &&
+    claim.sourceObservationFrameHashes.every(
       (hash, index) => hash === observationHashes[index]
     )
   );
@@ -1312,6 +1427,255 @@ function perceptionDigestStopConditionForAction(
         ]
       ),
       auditTag: "perception_digest_contradicted"
+    };
+  }
+
+  return undefined;
+}
+
+function workflowStateClaimReadinessIssue(
+  claim: DesktopWorkflowStateClaim,
+  actionType: DesktopSessionActionType
+): string | undefined {
+  if (claim.currentContradiction !== null) {
+    return `Workflow currentContradiction is ${formatNullableStringForAudit(claim.currentContradiction)}.`;
+  }
+
+  if (claim.actionRole === "probe") {
+    return "Workflow actionRole probe cannot support click or typing execution.";
+  }
+
+  if (claim.actionRole === "execute_committed_action" || claim.actionRole === "text_entry") {
+    if (claim.preconditionStatus !== "satisfied") {
+      return `Workflow preconditionStatus is ${claim.preconditionStatus}; ${claim.actionRole} requires satisfied.`;
+    }
+
+    if (claim.transientStateRisk !== "none" && claim.transientStateRisk !== "possible") {
+      return `Workflow transientStateRisk is ${claim.transientStateRisk}; committed execution requires none or possible.`;
+    }
+  }
+
+  if (claim.actionRole === "commit_precondition" || claim.actionRole === "repair") {
+    if (
+      (claim.preconditionStatus === "not_satisfied" ||
+        claim.preconditionStatus === "uncertain") &&
+      claim.missingConfirmation === null
+    ) {
+      return "Workflow missingConfirmation is required when committing or repairing an unmet/uncertain precondition.";
+    }
+  }
+
+  if (claim.actionRole === "not_applicable") {
+    if (
+      claim.preconditionStatus !== "not_applicable" &&
+      claim.preconditionStatus !== "satisfied"
+    ) {
+      return `Workflow preconditionStatus is ${claim.preconditionStatus}; not_applicable role requires not_applicable or satisfied.`;
+    }
+
+    if (claim.transientStateRisk !== "none" && claim.transientStateRisk !== "possible") {
+      return `Workflow transientStateRisk is ${claim.transientStateRisk}; not_applicable action requires none or possible.`;
+    }
+  }
+
+  if (
+    actionType === "type_text" &&
+    claim.actionRole !== "text_entry" &&
+    claim.actionRole !== "not_applicable"
+  ) {
+    return `desktop_type_text requires workflow actionRole text_entry or not_applicable, not ${claim.actionRole}.`;
+  }
+
+  return undefined;
+}
+
+function workflowStateClaimStopConditionForAction(
+  license: DesktopInteractionSessionLicense,
+  action: DesktopActionPacket,
+  preActionObservation: DesktopObservationPacket,
+  context: DesktopSessionActionPolicyContext
+): { stop: DesktopSessionStopCondition; auditTag: string } | undefined {
+  if (action.actionType !== "click" && action.actionType !== "type_text") {
+    return undefined;
+  }
+
+  if (action.workflowStateClaimId === undefined) {
+    return {
+      stop: stopCondition(
+        "missing_workflow_state_claim",
+        license.sessionId,
+        "Click and typing actions must reference a fresh workflow-state claim.",
+        action.actionId,
+        [
+          "Call desktop_submit_workflow_state_claim after the fresh perception digest.",
+          "Workflow state claims prove committed UI workflow readiness; element targeting alone is not enough."
+        ]
+      ),
+      auditTag: "missing_workflow_state_claim"
+    };
+  }
+
+  const claim = findWorkflowStateClaim(
+    context.workflowStateClaims,
+    action.workflowStateClaimId
+  );
+
+  if (claim === undefined) {
+    return {
+      stop: stopCondition(
+        "missing_workflow_state_claim",
+        license.sessionId,
+        "The referenced workflow-state claim does not exist in the session context.",
+        action.actionId,
+        [`workflowStateClaimId: ${action.workflowStateClaimId}.`]
+      ),
+      auditTag: "missing_workflow_state_claim"
+    };
+  }
+
+  if (claim.sessionId !== license.sessionId) {
+    return {
+      stop: stopCondition(
+        "invalid_session",
+        license.sessionId,
+        "The referenced workflow-state claim belongs to a different session.",
+        action.actionId
+      ),
+      auditTag: "workflow_state_claim_session_mismatch"
+    };
+  }
+
+  if (claim.observationId !== preActionObservation.observationId) {
+    return {
+      stop: stopCondition(
+        "workflow_state_claim_mismatch",
+        license.sessionId,
+        "The workflow-state claim must be bound to the same observation as the action pre-action observation.",
+        action.actionId,
+        [
+          `Action preActionObservationId: ${preActionObservation.observationId}.`,
+          `Workflow claim observationId: ${claim.observationId}.`
+        ]
+      ),
+      auditTag: "workflow_state_claim_observation_mismatch"
+    };
+  }
+
+  const latest = latestObservationId(context.observations);
+
+  if (latest !== claim.observationId) {
+    return {
+      stop: stopCondition(
+        "stale_workflow_state_claim",
+        license.sessionId,
+        "The workflow-state claim is not bound to the latest recorded observation.",
+        action.actionId,
+        [
+          `Latest observationId: ${latest ?? "none"}.`,
+          `Workflow claim observationId: ${claim.observationId}.`,
+          "A newer desktop_observe invalidates previous workflow claims for future click/type actions."
+        ]
+      ),
+      auditTag: "workflow_state_claim_not_latest"
+    };
+  }
+
+  if (!workflowStateClaimFresh(license, claim, action)) {
+    return {
+      stop: stopCondition(
+        "stale_workflow_state_claim",
+        license.sessionId,
+        "The workflow-state claim is older than the session observation cadence allows.",
+        action.actionId
+      ),
+      auditTag: "stale_workflow_state_claim"
+    };
+  }
+
+  if (claim.perceptionDigestId !== action.perceptionDigestId) {
+    return {
+      stop: stopCondition(
+        "workflow_state_claim_mismatch",
+        license.sessionId,
+        "The workflow-state claim must reference the same perception digest as the action.",
+        action.actionId,
+        [
+          `Action perceptionDigestId: ${action.perceptionDigestId ?? "missing"}.`,
+          `Workflow claim perceptionDigestId: ${claim.perceptionDigestId}.`
+        ]
+      ),
+      auditTag: "workflow_state_claim_digest_mismatch"
+    };
+  }
+
+  if (!desktopInteractionScopesMatch(claim.targetScope, action.targetScope)) {
+    return {
+      stop: stopCondition(
+        "workflow_state_claim_mismatch",
+        license.sessionId,
+        "The workflow-state claim target scope does not match the action target scope.",
+        action.actionId
+      ),
+      auditTag: "workflow_state_claim_scope_mismatch"
+    };
+  }
+
+  const intendedTarget = intendedTargetForAction(action);
+
+  if (
+    intendedTarget !== undefined &&
+    !semanticTargetsEquivalent(claim.intendedElementTarget, intendedTarget)
+  ) {
+    return {
+      stop: stopCondition(
+        "workflow_state_claim_mismatch",
+        license.sessionId,
+        "The workflow-state claim intended element target does not match the action target.",
+        action.actionId,
+        [
+          `Action target: ${intendedTarget}.`,
+          `Workflow target: ${claim.intendedElementTarget}.`,
+          `Action target canonical: ${semanticTargetCanonicalForm(intendedTarget)}.`,
+          `Workflow target canonical: ${semanticTargetCanonicalForm(claim.intendedElementTarget)}.`
+        ]
+      ),
+      auditTag: "workflow_state_claim_target_mismatch"
+    };
+  }
+
+  if (!workflowStateClaimFrameHashesMatch(claim, preActionObservation)) {
+    return {
+      stop: stopCondition(
+        "workflow_state_claim_mismatch",
+        license.sessionId,
+        "The workflow-state claim frame hashes do not match the referenced observation.",
+        action.actionId
+      ),
+      auditTag: "workflow_state_claim_frame_hash_mismatch"
+    };
+  }
+
+  const readinessIssue = workflowStateClaimReadinessIssue(claim, action.actionType);
+
+  if (readinessIssue !== undefined) {
+    const contradicted = claim.currentContradiction !== null;
+
+    return {
+      stop: stopCondition(
+        contradicted ? "workflow_state_contradicted" : "workflow_precondition_not_satisfied",
+        license.sessionId,
+        "The workflow-state claim does not support the requested action.",
+        action.actionId,
+        [
+          readinessIssue,
+          `workflowGoal: ${claim.workflowGoal}.`,
+          `workflowStep: ${claim.workflowStep}.`,
+          `actionRole: ${claim.actionRole}.`,
+          `requiredPrecondition: ${claim.requiredPrecondition}.`,
+          `committedStateEvidence: ${claim.committedStateEvidence}.`
+        ]
+      ),
+      auditTag: contradicted ? "workflow_state_contradicted" : "workflow_precondition_not_satisfied"
     };
   }
 
@@ -2164,6 +2528,25 @@ export function evaluateSessionActionPolicy(
           [stop]
         );
       }
+    }
+
+    const workflowStateIssue =
+      context.phase === "preflight"
+        ? workflowStateClaimStopConditionForAction(
+            license,
+            action,
+            preActionObservation,
+            context
+          )
+        : undefined;
+
+    if (workflowStateIssue !== undefined) {
+      return result(
+        "block",
+        [workflowStateIssue.stop.reason],
+        [...auditTags, workflowStateIssue.auditTag],
+        [workflowStateIssue.stop]
+      );
     }
   }
 

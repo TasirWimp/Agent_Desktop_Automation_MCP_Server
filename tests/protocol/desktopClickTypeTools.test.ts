@@ -87,6 +87,45 @@ async function submitDigest(
   return structured.perceptionDigestId as string;
 }
 
+async function submitWorkflowStateClaim(
+  client: Client,
+  observationId: string,
+  perceptionDigestId: string,
+  intendedTarget = "Submit button",
+  overrides: Record<string, unknown> = {}
+) {
+  const result = await client.callTool({
+    name: "desktop_submit_workflow_state_claim",
+    arguments: {
+      sessionId: "session-click-type-001",
+      observationId,
+      perceptionDigestId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      workflowGoal: "Run the generated app UI test scenario.",
+      workflowStep: `Use ${intendedTarget}.`,
+      intendedElementTarget: intendedTarget,
+      intendedActionMeaning: `use ${intendedTarget} after committed workflow state is ready`,
+      actionRole: "execute_committed_action",
+      requiredPrecondition: `${intendedTarget} is the committed next workflow action.`,
+      preconditionStatus: "satisfied",
+      committedStateEvidence: `The current screenshot shows ${intendedTarget} as the committed next action.`,
+      transientStateRisk: "none",
+      missingConfirmation: null,
+      expectedPostcondition: `${intendedTarget} changes the generated app state.`,
+      postconditionContradiction: "A different control or workflow state changes.",
+      currentContradiction: null,
+      staleCarryoverReviewed: true,
+      ...overrides
+    }
+  });
+  const structured = parseStructuredContent(result);
+
+  return structured.workflowStateClaimId as string;
+}
+
 async function prepareHoverWitness(client: Client) {
   const initialDigestId = await submitDigest(client, "observation-fixed-2");
 
@@ -121,6 +160,11 @@ async function prepareHoverWitness(client: Client) {
     }
   });
   const followUpDigestId = await submitDigest(client, "observation-fixed-8");
+  const workflowStateClaimId = await submitWorkflowStateClaim(
+    client,
+    "observation-fixed-8",
+    followUpDigestId
+  );
   await client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
@@ -144,6 +188,7 @@ async function prepareHoverWitness(client: Client) {
       sessionId: "session-click-type-001",
       observationId: "observation-fixed-8",
       perceptionDigestId: followUpDigestId,
+      workflowStateClaimId,
       movementActionId: "action-fixed-4",
       targetScope: {
         kind: "window_title",
@@ -162,6 +207,7 @@ async function prepareHoverWitness(client: Client) {
   return {
     observationId: "observation-fixed-8",
     perceptionDigestId: followUpDigestId,
+    workflowStateClaimId,
     hoverTargetWitnessId: hoverTargetWitness.witnessId as string
   };
 }
@@ -263,6 +309,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           button: "left",
           perceptionDigestId: witness.perceptionDigestId,
+          workflowStateClaimId: witness.workflowStateClaimId,
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
@@ -322,6 +369,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           button: "left",
           perceptionDigestId: witness.perceptionDigestId,
+          workflowStateClaimId: witness.workflowStateClaimId,
           intendedSemanticTarget: "The Submit control",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           compactRelationalClaim: compactClaim(
@@ -369,6 +417,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
             y: 120
           },
           perceptionDigestId: witness.perceptionDigestId,
+          workflowStateClaimId: witness.workflowStateClaimId,
           intendedSemanticTarget: "Submit button",
           hoverTargetWitnessId: witness.hoverTargetWitnessId,
           compactRelationalClaim: compactClaim(witness.observationId, "Submit button", "hover_witness")
@@ -402,6 +451,16 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
         postObservation.observationId as string,
         "Name input"
       );
+      const postObservationWorkflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        postObservation.observationId as string,
+        postObservationDigestId,
+        "Name input",
+        {
+          actionRole: "text_entry",
+          intendedActionMeaning: "type generated test input into Name input"
+        }
+      );
 
       const typeResult = await client.callTool({
         name: "desktop_type_text",
@@ -413,6 +472,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           preActionObservationId: postObservation.observationId,
           perceptionDigestId: postObservationDigestId,
+          workflowStateClaimId: postObservationWorkflowStateClaimId,
           text: "generated input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim(postObservation.observationId as string, "Name input")
@@ -440,6 +500,16 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
     try {
       await startAndObserve(client);
       const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId,
+        "Name input",
+        {
+          actionRole: "text_entry",
+          intendedActionMeaning: "type generated test input into Name input"
+        }
+      );
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -450,6 +520,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           preActionObservationId: "observation-fixed-2",
           perceptionDigestId: digestId,
+          workflowStateClaimId,
           text: "generated input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
@@ -460,7 +531,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
 
       expect(result.isError).not.toBe(true);
       expect(action).toMatchObject({
-        actionId: "action-fixed-4",
+        actionId: expect.any(String),
         actionType: "type_text",
         input: {
           textLength: 15
@@ -473,7 +544,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
         typedTextLength: 15
       });
       expect(sessionStore.findBlockingTransitionGate("session-click-type-001")).toMatchObject({
-        actionId: "action-fixed-4"
+        actionId: action.actionId
       });
     } finally {
       await client.close();
@@ -563,6 +634,16 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
     try {
       await startAndObserve(client);
       const digestId = await submitDigest(client, "observation-fixed-2", "Name input");
+      const workflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        "observation-fixed-2",
+        digestId,
+        "Name input",
+        {
+          actionRole: "text_entry",
+          intendedActionMeaning: "type generated test input into Name input"
+        }
+      );
       await client.callTool({
         name: "desktop_type_text",
         arguments: {
@@ -573,6 +654,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
           },
           preActionObservationId: "observation-fixed-2",
           perceptionDigestId: digestId,
+          workflowStateClaimId,
           text: "first input",
           intendedSemanticTarget: "Name input",
           compactRelationalClaim: compactClaim("observation-fixed-2", "Name input")
@@ -600,7 +682,7 @@ describe("desktop_click and desktop_type_text MCP tools", () => {
         condition: "missing_post_action_observation"
       });
       expect(structured.blockingTransitionGate).toMatchObject({
-        actionId: "action-fixed-4",
+        actionId: expect.any(String),
         status: "pending_observation"
       });
       expect(sessionStore.listActions("session-click-type-001")).toHaveLength(1);
