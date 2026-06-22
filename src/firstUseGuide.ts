@@ -28,7 +28,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
     },
     requiredLoop: [
       "desktop_observe with includeImages: true",
-      "inspect the returned MCP image content block from frame dataBase64",
+      "inspect visualArtifacts[].path or the returned MCP image content block",
       "desktop_submit_perception_digest for the latest screenshot-bearing observation",
       "desktop_submit_workflow_state_claim for click/type readiness",
       "desktop_move_mouse with compact relational claim",
@@ -40,7 +40,8 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "desktop_observe with transitionActionId after the click"
     ],
     evidenceRules: [
-      "desktop_observe({ includeImages: true }) returns screenshot-bearing MCP image content blocks copied from frame dataBase64.",
+      "desktop_observe({ includeImages: true }) returns screenshot-bearing visualArtifacts[].path entries and MCP image content blocks.",
+      "Raw frame dataBase64 is omitted from normal public JSON; request includeInlineBase64: true only for compatibility/debug use.",
       "Perception digests and workflow-state claims must reference the latest screenshot-bearing observation.",
       "Any newer desktop_observe invalidates older perception digests and workflow-state claims for future actions.",
       "Coordinates are action endpoints only; they never prove that the semantic target was correct.",
@@ -90,6 +91,6 @@ export function buildDesktopSessionNextRequiredStep(
       includeImages: true
     },
     instruction:
-      "Inspect the returned MCP image content block before submitting desktop_submit_perception_digest for the latest screenshot-bearing observation."
+      "Inspect visualArtifacts[].path or the returned MCP image content block before submitting desktop_submit_perception_digest for the latest screenshot-bearing observation."
   };
 }

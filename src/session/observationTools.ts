@@ -1,3 +1,7 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -7,6 +11,8 @@ import {
   isDesktopInteractionScopeAllowed,
   observedWindowIdentity,
   type DesktopAppScopeBinding,
+  type DesktopFrameArtifact,
+  type DesktopFrameVisualArtifact,
   type DesktopInteractionScope,
   type DesktopObservationPacket,
   type DesktopSessionAuditEvent,
@@ -41,6 +47,7 @@ export interface ObservationToolRuntime {
   desktopProvider: DesktopInteractionProvider;
   now: () => string;
   generateId: (prefix: string) => string;
+  visualArtifactRoot?: string;
 }
 
 const observeInputSchema = z.object({
@@ -51,8 +58,20 @@ const observeInputSchema = z.object({
   durationMs: z.number().int().nonnegative().max(5_000).default(250),
   frameFormat: z.literal("image/png").default("image/png"),
   includeImages: z.boolean().default(false),
+  includeInlineBase64: z.boolean().default(false),
   transitionActionId: z.string().min(1).optional()
 });
+
+class VisualArtifactError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly residue: string[] = []
+  ) {
+    super(message);
+    this.name = "VisualArtifactError";
+  }
+}
 
 function structuredResult(
   value: Record<string, unknown>,
@@ -94,6 +113,22 @@ function observationToolError(error: unknown) {
           message: error.message
         },
         residue: ["No desktop observation was recorded."]
+      },
+      true
+    );
+  }
+
+  if (error instanceof VisualArtifactError) {
+    return structuredResult(
+      {
+        error: {
+          code: error.code,
+          message: error.message
+        },
+        residue: [
+          ...error.residue,
+          "No desktop observation was recorded."
+        ]
       },
       true
     );
@@ -152,6 +187,146 @@ function imageContentBlocks(observation: DesktopObservationPacket): ContentBlock
       data: frame.dataBase64 as string,
       mimeType: frame.mimeType
     }));
+}
+
+function safeArtifactPathSegment(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160);
+
+  return normalized.length > 0 ? normalized : "unknown";
+}
+
+function extensionForMimeType(mimeType: DesktopFrameArtifact["mimeType"]): string {
+  return mimeType === "image/jpeg" ? "jpg" : "png";
+}
+
+function artifactRoot(runtime: ObservationToolRuntime): string {
+  return resolve(
+    runtime.visualArtifactRoot ??
+      join(tmpdir(), "agent-desktop-automation", "observations")
+  );
+}
+
+function writeVisualArtifacts(
+  observation: DesktopObservationPacket,
+  runtime: ObservationToolRuntime
+): {
+  observation: DesktopObservationPacket;
+  visualArtifacts: DesktopFrameVisualArtifact[];
+  residue: string[];
+} {
+  const root = artifactRoot(runtime);
+  const directory = join(
+    root,
+    safeArtifactPathSegment(observation.sessionId),
+    safeArtifactPathSegment(observation.observationId)
+  );
+  const visualArtifacts: DesktopFrameVisualArtifact[] = [];
+
+  try {
+    mkdirSync(directory, { recursive: true });
+  } catch (error: unknown) {
+    throw new VisualArtifactError(
+      "visual_artifact_write_failed",
+      error instanceof Error
+        ? `Failed to create observation visual artifact directory: ${error.message}`
+        : "Failed to create observation visual artifact directory.",
+      [`Artifact directory: ${directory}`]
+    );
+  }
+
+  const frames = observation.frames.map((frame) => {
+    if (frame.dataBase64 === undefined || frame.dataBase64.length === 0) {
+      throw new VisualArtifactError(
+        "visual_artifact_payload_missing",
+        "Cannot write a visual artifact because a captured frame has no image payload.",
+        [
+          `Observation: ${observation.observationId}.`,
+          `Frame index: ${frame.index}.`
+        ]
+      );
+    }
+
+    const bytes = Buffer.from(frame.dataBase64, "base64");
+    const filename = `frame-${frame.index}-${frame.sha256.slice(0, 16)}.${extensionForMimeType(frame.mimeType)}`;
+    const path = join(directory, filename);
+    const visualArtifact: DesktopFrameVisualArtifact = {
+      kind: "local_file",
+      path,
+      fileUri: pathToFileURL(path).href,
+      mimeType: frame.mimeType,
+      sha256: frame.sha256,
+      byteLength: bytes.byteLength
+    };
+
+    try {
+      writeFileSync(path, bytes);
+    } catch (error: unknown) {
+      throw new VisualArtifactError(
+        "visual_artifact_write_failed",
+        error instanceof Error
+          ? `Failed to write observation visual artifact: ${error.message}`
+          : "Failed to write observation visual artifact.",
+        [`Artifact path: ${path}`]
+      );
+    }
+
+    visualArtifacts.push(visualArtifact);
+
+    return {
+      ...frame,
+      visualArtifact
+    };
+  });
+
+  return {
+    observation: {
+      ...observation,
+      frames,
+      residue: [
+        ...observation.residue,
+        `Visual observation artifacts were written under ${directory}.`,
+        "Visual artifacts are capture outputs only; the server did not inspect or interpret pixels."
+      ]
+    },
+    visualArtifacts,
+    residue: [
+      `Wrote ${visualArtifacts.length} visual observation artifact(s).`,
+      "Inspect visualArtifacts[].path or the MCP image content block before submitting perception or workflow claims."
+    ]
+  };
+}
+
+function visualArtifactsForObservation(
+  observation: DesktopObservationPacket
+): DesktopFrameVisualArtifact[] {
+  return observation.frames
+    .map((frame) => frame.visualArtifact)
+    .filter((artifact): artifact is DesktopFrameVisualArtifact => artifact !== undefined);
+}
+
+function publicFrame(
+  frame: DesktopFrameArtifact,
+  includeInlineBase64: boolean
+): DesktopFrameArtifact {
+  if (includeInlineBase64) {
+    return frame;
+  }
+
+  const { dataBase64: _dataBase64, ...publicFrameArtifact } = frame;
+
+  return publicFrameArtifact;
+}
+
+function publicObservation(
+  observation: DesktopObservationPacket,
+  includeInlineBase64: boolean
+): DesktopObservationPacket {
+  return {
+    ...observation,
+    frames: observation.frames.map((frame) =>
+      publicFrame(frame, includeInlineBase64)
+    )
+  };
 }
 
 function blockedObserveResult(
@@ -412,7 +587,7 @@ export function registerObservationTools(
           providerResult.targetScope,
           providerResult.activeWindow
         );
-        const observation: DesktopObservationPacket = {
+        const baseObservation: DesktopObservationPacket = {
           observationId: runtime.generateId("observation"),
           sessionId: input.sessionId,
           observedAt: providerResult.observedAt,
@@ -440,14 +615,14 @@ export function registerObservationTools(
           const appScopeBindingResult =
             existingAppScopeBinding === undefined
               ? createAppScopeBindingFromObservation({
-                  bindingId: `app-scope-binding-${observation.observationId}`,
+                  bindingId: `app-scope-binding-${baseObservation.observationId}`,
                   sessionId: input.sessionId,
                   licensedScope: session.license.licensedAppScope.scope,
-                  observation,
+                  observation: baseObservation,
                   boundAt: runtime.now(),
                   strictActiveWindowMatch
                 })
-              : observationMatchesAppScopeBinding(existingAppScopeBinding, observation);
+              : observationMatchesAppScopeBinding(existingAppScopeBinding, baseObservation);
 
           if (!appScopeBindingResult.matches) {
             const stopCondition: DesktopSessionStopCondition = {
@@ -503,7 +678,7 @@ export function registerObservationTools(
               stopCondition,
               scopeExitAuditEvent,
               existingAppScopeBinding,
-              observation,
+              baseObservation,
               appScopeBindingResult.residue,
               scopeExitTransitionGate,
               postActionAuditEvent
@@ -518,18 +693,18 @@ export function registerObservationTools(
           if (createdBinding !== undefined) {
             appScopeBinding = desktopAppScopeBindingSchema.parse(createdBinding);
           } else if (existingAppScopeBinding !== undefined) {
-            const identity = observedWindowIdentity(observation.activeWindow);
+            const identity = observedWindowIdentity(baseObservation.activeWindow);
 
             appScopeBinding = desktopAppScopeBindingSchema.parse({
               ...existingAppScopeBinding,
-              bindingId: `app-scope-binding-${observation.observationId}`,
+              bindingId: `app-scope-binding-${baseObservation.observationId}`,
               boundAt: runtime.now(),
-              observationId: observation.observationId,
-              activeWindow: observation.activeWindow,
+              observationId: baseObservation.observationId,
+              activeWindow: baseObservation.activeWindow,
               observedWindowIdentity: identity,
               boundScope:
                 identity === undefined
-                  ? observation.targetScope
+                  ? baseObservation.targetScope
                   : {
                       kind: "active_window",
                       value: identity
@@ -541,6 +716,15 @@ export function registerObservationTools(
             });
           }
         }
+        const artifactResult =
+          input.includeImages
+            ? writeVisualArtifacts(baseObservation, runtime)
+            : {
+                observation: baseObservation,
+                visualArtifacts: [] as DesktopFrameVisualArtifact[],
+                residue: [] as string[]
+              };
+        const observation = artifactResult.observation;
         const auditEvent: DesktopSessionAuditEvent = {
           eventId: runtime.generateId("event"),
           sessionId: input.sessionId,
@@ -632,11 +816,14 @@ export function registerObservationTools(
           runtime.sessionStore.appendAuditEvent(postActionAuditEvent);
         }
 
+        const visualArtifacts = visualArtifactsForObservation(recordedObservation);
+
         return structuredResult(
           {
             sessionId: input.sessionId,
             status: "observed",
-            observation: recordedObservation,
+            observation: publicObservation(recordedObservation, input.includeInlineBase64),
+            visualArtifacts,
             auditEvent,
             appScopeBinding: recordedAppScopeBinding,
             appScopeBindingAuditEvent,
@@ -646,7 +833,8 @@ export function registerObservationTools(
             providerCapabilities,
             residue: [
               "Observation was recorded in session state and audit log.",
-              "No mouse movement, click, typing, OCR, localization, or background polling occurred."
+              "No mouse movement, click, typing, OCR, localization, or background polling occurred.",
+              ...artifactResult.residue
             ]
           },
           false,

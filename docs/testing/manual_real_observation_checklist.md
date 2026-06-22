@@ -47,7 +47,7 @@ $env:ADMCP_ENABLE_REAL_TYPING = "true"
 6. Start a session with `visibleContentAcknowledged: true` and confirm the response includes `nextRequiredStep.tool: "desktop_observe"` with `includeImages: true`.
 7. Use an allowed `window_title`, `process_name`, or `active_window` scope that matches the active test window.
 8. Call `desktop_observe` with bounded values, such as `mode: "single_frame"`, `maxFrames: 1`, and `durationMs: 0`.
-9. Confirm the returned observation includes active-window metadata, active-window-relative cursor position when available, and one PNG frame artifact/image content block.
+9. Confirm the returned observation includes active-window metadata, active-window-relative cursor position when available, one `visualArtifacts[].path` PNG artifact, and one PNG image content block.
 10. Repeat with a mismatched `window_title` and confirm the tool returns a controlled `scope_mismatch` error and records no observation.
 11. Confirm no mouse, click, or typing action is executed by the observation-only gate.
 

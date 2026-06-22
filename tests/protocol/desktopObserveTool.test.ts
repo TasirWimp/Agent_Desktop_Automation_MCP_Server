@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
@@ -6,11 +10,16 @@ import { InMemoryDesktopSessionStore } from "../../src/session/sessionStore.js";
 
 const fixedNow = "2026-05-27T10:00:00.000Z";
 
-async function createConnectedClient() {
+async function createConnectedClient(
+  options: {
+    visualArtifactRoot?: string;
+  } = {}
+) {
   const sessionStore = new InMemoryDesktopSessionStore();
   let idCounter = 0;
   const server = createServer({
     sessionStore,
+    visualArtifactRoot: options.visualArtifactRoot,
     now: () => fixedNow,
     generateId: (prefix) => `${prefix}-fixed-${++idCounter}`
   });
@@ -120,6 +129,7 @@ describe("desktop_observe MCP tool", () => {
         desktopClickTool: true,
         desktopTypeTextTool: true,
         postActionRepairClassification: true,
+        observationVisualArtifacts: true,
         realDesktopObservation: false,
         realDesktopMutation: false,
         desktopMouseKeyboardTools: false,
@@ -135,11 +145,11 @@ describe("desktop_observe MCP tool", () => {
           },
           requiredLoop: expect.arrayContaining([
             "desktop_observe with includeImages: true",
-            "inspect the returned MCP image content block from frame dataBase64",
+            "inspect visualArtifacts[].path or the returned MCP image content block",
             "desktop_submit_perception_digest for the latest screenshot-bearing observation"
           ]),
           evidenceRules: expect.arrayContaining([
-            expect.stringContaining("MCP image content blocks"),
+            expect.stringContaining("visualArtifacts[].path"),
             expect.stringContaining("latest screenshot-bearing observation"),
             expect.stringContaining("newer desktop_observe invalidates older"),
             expect.stringContaining("Coordinates are action endpoints only")
@@ -321,8 +331,8 @@ describe("desktop_observe MCP tool", () => {
     }
   });
 
-  it("returns optional MCP image blocks for inline mock frames", async () => {
-    const { client, server } = await createConnectedClient();
+  it("returns visual artifacts and MCP image blocks for inline mock frames", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
 
     try {
       await client.callTool({
@@ -341,6 +351,17 @@ describe("desktop_observe MCP tool", () => {
           includeImages: true
         }
       });
+      const structured = parseStructuredContent(result);
+      const textPayload = parseJsonText(result);
+      const observation = structured.observation as Record<string, unknown>;
+      const textObservation = textPayload.observation as Record<string, unknown>;
+      const frames = observation.frames as Record<string, unknown>[];
+      const textFrames = textObservation.frames as Record<string, unknown>[];
+      const visualArtifacts = structured.visualArtifacts as Record<string, unknown>[];
+      const artifact = frames[0]?.visualArtifact as Record<string, unknown>;
+      const artifactPath = artifact.path as string;
+      const artifactBytes = readFileSync(artifactPath);
+      const artifactHash = createHash("sha256").update(artifactBytes).digest("hex");
 
       expect(result.isError).not.toBe(true);
       expect(result.content).toEqual(
@@ -351,6 +372,98 @@ describe("desktop_observe MCP tool", () => {
           })
         ])
       );
+      expect(frames[0]?.dataBase64).toBeUndefined();
+      expect(textFrames[0]?.dataBase64).toBeUndefined();
+      expect(artifact).toMatchObject({
+        kind: "local_file",
+        mimeType: "image/png",
+        sha256: expect.any(String),
+        byteLength: expect.any(Number)
+      });
+      expect(artifact.fileUri).toEqual(expect.stringContaining("file:"));
+      expect(existsSync(artifactPath)).toBe(true);
+      expect(artifactHash).toBe(artifact.sha256);
+      expect(visualArtifacts).toEqual([artifact]);
+      expect(
+        sessionStore.listObservations("session-observe-001")[0]?.frames[0]?.dataBase64
+      ).toEqual(expect.any(String));
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("restores public inline frame base64 only when includeInlineBase64 is true", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: startArguments
+      });
+      const result = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          mode: "single_frame",
+          includeImages: true,
+          includeInlineBase64: true
+        }
+      });
+      const structured = parseStructuredContent(result);
+      const observation = structured.observation as Record<string, unknown>;
+      const frames = observation.frames as Record<string, unknown>[];
+
+      expect(result.isError).not.toBe(true);
+      expect(frames[0]?.dataBase64).toEqual(expect.any(String));
+      expect(frames[0]?.visualArtifact).toMatchObject({
+        kind: "local_file",
+        path: expect.any(String)
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not record an observation when visual artifact writing fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "admcp-artifact-failure-"));
+    const artifactRootFile = join(root, "not-a-directory");
+
+    writeFileSync(artifactRootFile, "not a directory");
+
+    const { client, server, sessionStore } = await createConnectedClient({
+      visualArtifactRoot: artifactRootFile
+    });
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: startArguments
+      });
+      const result = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          mode: "single_frame",
+          includeImages: true
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(structured.error).toMatchObject({
+        code: "visual_artifact_write_failed"
+      });
+      expect(sessionStore.listObservations("session-observe-001")).toHaveLength(0);
     } finally {
       await client.close();
       await server.close();

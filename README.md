@@ -71,7 +71,7 @@ npm run dev
 
 With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
-For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect the returned MCP image content block before authoring a perception digest.
+For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect `visualArtifacts[].path` or the returned MCP image content block before authoring a perception digest. Normal observe JSON omits raw `frames[].dataBase64`; pass `includeInlineBase64: true` only for compatibility/debug use.
 
 The required click path is:
 

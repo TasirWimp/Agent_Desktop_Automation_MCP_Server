@@ -32,6 +32,7 @@ export interface CreateServerOptions {
   sessionStore?: InMemoryDesktopSessionStore;
   desktopProvider?: DesktopInteractionProvider;
   applicationCatalog?: DesktopApplicationCatalog;
+  visualArtifactRoot?: string;
   now?: () => string;
   generateId?: (prefix: string) => string;
 }
@@ -98,6 +99,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           freshPerceptionDigest: true,
           workflowStateClaims: true,
           firstUseGuide: true,
+          observationVisualArtifacts: true,
           compactRelationalClaims: true,
           semanticLandingAssessment: true,
           desktopOpenApplicationTool: true,
@@ -209,7 +211,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     sessionStore,
     desktopProvider,
     now,
-    generateId
+    generateId,
+    visualArtifactRoot: options.visualArtifactRoot
   });
 
   registerPerceptionDigestTools(server, {

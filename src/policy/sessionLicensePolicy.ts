@@ -527,6 +527,19 @@ export type DesktopCompactSemanticLandingAssessment = z.infer<
   typeof desktopCompactSemanticLandingAssessmentSchema
 >;
 
+export const desktopFrameVisualArtifactSchema = z.object({
+  kind: z.literal("local_file"),
+  path: z.string().min(1),
+  fileUri: z.string().min(1),
+  mimeType: z.enum(["image/png", "image/jpeg"]),
+  sha256: z.string().min(1),
+  byteLength: z.number().int().nonnegative()
+});
+
+export type DesktopFrameVisualArtifact = z.infer<
+  typeof desktopFrameVisualArtifactSchema
+>;
+
 export const desktopFrameArtifactSchema = z.object({
   index: z.number().int().nonnegative(),
   capturedAt: z.string().min(1),
@@ -548,6 +561,7 @@ export const desktopFrameArtifactSchema = z.object({
       residue: z.array(z.string())
     })
     .optional(),
+  visualArtifact: desktopFrameVisualArtifactSchema.optional(),
   dataBase64: z.string().optional()
 });
 

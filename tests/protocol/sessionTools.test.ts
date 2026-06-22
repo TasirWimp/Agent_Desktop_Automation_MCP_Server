@@ -148,7 +148,7 @@ describe("session MCP tools", () => {
           },
           includeImages: true
         },
-        instruction: expect.stringContaining("Inspect the returned MCP image content block")
+        instruction: expect.stringContaining("Inspect visualArtifacts[].path")
       });
       expect(sessionStore.listAuditEvents("session-protocol-001")).toHaveLength(1);
       expect(sessionStore.listAuditEvents("session-protocol-001")[0]).toMatchObject({

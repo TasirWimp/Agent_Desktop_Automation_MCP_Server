@@ -637,6 +637,18 @@ function summarizeFrame(
     byteLength: numberField(frame, "byteLength", 0),
     sha256: stringField(frame, "sha256")
   };
+  const visualArtifact =
+    frame.visualArtifact === undefined
+      ? undefined
+      : asRecord(frame.visualArtifact, "visualArtifact");
+  const visualArtifactPath =
+    visualArtifact === undefined ? undefined : stringField(visualArtifact, "path");
+
+  if (includeImages && visualArtifactPath !== undefined) {
+    summary.imagePath = visualArtifactPath;
+    return summary;
+  }
+
   const dataBase64 = typeof frame.dataBase64 === "string" ? frame.dataBase64 : undefined;
 
   if (includeImages && dataBase64 !== undefined) {

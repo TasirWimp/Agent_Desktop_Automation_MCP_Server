@@ -22,7 +22,7 @@ Available MCP tools:
 
 Default server behavior is mock-only. By default, no tool captures the real desktop, moves the real mouse, clicks the real desktop, types into the real desktop, launches real apps, or controls the OS. `desktop_observe`, `desktop_move_mouse`, `desktop_click`, `desktop_type_text`, and `desktop_open_application` are backed by deterministic mock/simulated provider behavior unless the server is started with the relevant Windows real provider gates enabled.
 
-First-time clients should call `desktop_first_use_guide` before starting a session, or read the same guide from `desktop_capabilities.usageGuidance.firstUseGuide`. The guide is also summarized by `desktop_start_interaction_session.nextRequiredStep`, which points to `desktop_observe({ includeImages: true })`. The client must inspect the returned MCP image content block before authoring a perception digest; the server does not analyze screenshots.
+First-time clients should call `desktop_first_use_guide` before starting a session, or read the same guide from `desktop_capabilities.usageGuidance.firstUseGuide`. The guide is also summarized by `desktop_start_interaction_session.nextRequiredStep`, which points to `desktop_observe({ includeImages: true })`. The client must inspect `visualArtifacts[].path` or the returned MCP image content block before authoring a perception digest; the server does not analyze screenshots.
 
 Catalog app bootstrap:
 
@@ -91,7 +91,7 @@ Use the session tools to create a bounded task license, record mock observation 
 8. Keep `mode: "frame_session"` unless a single-frame witness is explicitly enough for the test.
 9. Keep `maxFrames` and `durationMs` bounded. The current tool caps requests at 12 frames and 5000 ms.
 10. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
-11. After any screenshot-bearing observation that will support an action or assessment, inspect the returned MCP image content block and call `desktop_submit_perception_digest`.
+11. After any screenshot-bearing observation that will support an action or assessment, inspect `visualArtifacts[].path` or the returned MCP image content block and call `desktop_submit_perception_digest`.
     - The digest is agent-authored; the server does not analyze the screenshot.
     - The digest must be for the latest observation. A newer `desktop_observe` invalidates previous digests for future actions.
     - Use `targetVisibility: "visible"` and no contradiction only when the current screenshot actually supports that claim.

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
@@ -565,6 +567,56 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
       expect(frames[0]?.dataBase64).toBeUndefined();
       expect(backend.captureCount).toBe(1);
       expect(sessionStore.listObservations("session-real-observe-001")).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("returns visual artifacts for real-provider image observations without public base64 by default", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await client.callTool({
+        name: "desktop_start_interaction_session",
+        arguments: startArguments
+      });
+      const result = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-real-observe-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          mode: "single_frame",
+          includeImages: true
+        }
+      });
+      const structured = parseStructuredContent(result);
+      const observation = structured.observation as Record<string, unknown>;
+      const frames = observation.frames as Record<string, unknown>[];
+      const visualArtifacts = structured.visualArtifacts as Record<string, unknown>[];
+      const artifact = frames[0]?.visualArtifact as Record<string, unknown>;
+      const artifactPath = artifact.path as string;
+      const artifactBytes = readFileSync(artifactPath);
+
+      expect(result.isError).not.toBe(true);
+      expect(frames[0]?.dataBase64).toBeUndefined();
+      expect(artifact).toMatchObject({
+        kind: "local_file",
+        mimeType: "image/png",
+        sha256: expect.any(String),
+        byteLength: expect.any(Number)
+      });
+      expect(existsSync(artifactPath)).toBe(true);
+      expect(createHash("sha256").update(artifactBytes).digest("hex")).toBe(
+        artifact.sha256
+      );
+      expect(visualArtifacts).toEqual([artifact]);
+      expect(
+        sessionStore.listObservations("session-real-observe-001")[0]?.frames[0]?.dataBase64
+      ).toEqual(expect.any(String));
     } finally {
       await client.close();
       await server.close();
