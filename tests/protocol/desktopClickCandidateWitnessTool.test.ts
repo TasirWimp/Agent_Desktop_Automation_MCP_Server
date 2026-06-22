@@ -527,6 +527,105 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
     }
   });
 
+  it("revalidates an older workflow claim across audited hover movement", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const initialObserveResult = await startAndObserve(client);
+      const initialObservation = parseStructuredContent(initialObserveResult)
+        .observation as Record<string, unknown>;
+      const initialObservationId = initialObservation.observationId as string;
+      const initialDigestId = await submitDigest(client, initialObservationId);
+      const olderWorkflowStateClaimId = await submitWorkflowStateClaim(
+        client,
+        initialObservationId,
+        initialDigestId
+      );
+      const moveResult = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          preActionObservationId: initialObservationId,
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialDigestId,
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim(initialObservationId)
+        }
+      });
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const followUpResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true,
+          transitionActionId: moveActionId
+        }
+      });
+      const followUpObservation = parseStructuredContent(followUpResult)
+        .observation as Record<string, unknown>;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const followUpDigestId = await submitDigest(client, followUpObservationId);
+
+      await submitSupportedAssessment(client, moveActionId, followUpDigestId);
+
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: followUpObservationId,
+          perceptionDigestId: followUpDigestId,
+          workflowStateClaimId: olderWorkflowStateClaimId,
+          movementActionId: moveActionId,
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 120,
+            y: 80
+          }
+        }
+      });
+      const structured = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(structured.status).toBe("candidate_ready");
+      expect(structured.clickCandidateWitness).toMatchObject({
+        workflowStateEvidence: {
+          workflowStateClaimId: olderWorkflowStateClaimId,
+          observationMatches: false,
+          perceptionDigestMatches: false,
+          revalidatedByLatestObservation: true,
+          interveningActionIds: [moveActionId]
+        },
+        movementEvidence: {
+          followUpObservationMatches: true,
+          semanticLandingSupported: true
+        }
+      });
+      expect(structured.hoverTargetWitness).toMatchObject({
+        workflowStateClaimId: olderWorkflowStateClaimId,
+        workflowActionRole: "execute_committed_action"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("allows an older supported movement when latest digest and workflow revalidate it", async () => {
     const { client, server } = await createConnectedClient();
 

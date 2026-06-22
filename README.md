@@ -11,6 +11,7 @@ The current server exposes:
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
 - `desktop_open_application` - opens only a catalog allowlisted application ID or alias; no arbitrary executable paths or arguments.
 - `desktop_observe` - records a bounded observation frame session for an active interaction session.
+- `desktop_submit_interaction_evidence` - preferred compact mini-agent evidence helper; records a perception digest plus optional workflow claim, transition assessment, and click-candidate witness without observing or mutating the desktop.
 - `desktop_submit_perception_digest` - records an agent-authored digest for the latest screenshot-bearing observation; the server validates freshness/provenance, not pixels.
 - `desktop_move_mouse` - runs a bounded relational movement probe inside an active interaction session and requires follow-up observation plus semantic landing assessment.
 - `desktop_submit_transition_assessment` - records whether a follow-up screenshot supports, contradicts, or cannot conclude the stored relational movement claim.
@@ -23,6 +24,8 @@ The current server exposes:
 Real desktop capture and pointer movement are disabled by default. The default provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch real apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
 The codebase also defines policy contracts for licensed desktop interaction sessions. In that model, a user grants a bounded task license, low-risk actions stay inside the session scope, every action is audited, and state-changing actions such as mouse movement, clicking, and typing require a fresh perception digest, relational evidence, and follow-up observation. Coordinates are endpoints only; they are not proof that the semantic target was correct.
+
+Architecturally, ADMCP is a CRPM-compatible witness-bound navigation runtime: the agent inspects the current visual artifact and authors scene/workflow claims, while the server carries the global path through scope, freshness, transition gates, residue, and next required re-entry steps. The public protocol keeps operational names instead of requiring CRPM vocabulary from automation agents.
 
 Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. Real clicking and real typing additionally require their explicit Windows provider gates.
 
@@ -47,7 +50,7 @@ $env:ADMCP_ENABLE_REAL_MOUSE_MOVEMENT = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a screenshot-bearing fresh pre-action observation, `desktop_submit_perception_digest` for that observation, compact or full relational navigation evidence, scope validation, audit logging, a post-movement observation, a fresh digest for the follow-up observation, and `desktop_submit_transition_assessment` before click readiness. Cursor landing is telemetry only. After a supported semantic landing assessment, `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
+With that gate enabled, `desktop_move_mouse` may move the real cursor inside the scoped active-window capture frame only. It still requires an active session, a screenshot-bearing fresh pre-action observation, `desktop_submit_interaction_evidence` or `desktop_submit_perception_digest` for that observation, compact or full relational navigation evidence, scope validation, audit logging, a post-movement observation, a fresh follow-up evidence submission, and semantic landing assessment before click readiness. Cursor landing is telemetry only. After a supported semantic landing assessment, the interaction evidence helper or `desktop_evaluate_click_candidate` can record whether the current cursor/frame/scope evidence is target-ready for an app-scoped click request. It does not click.
 
 Real clicking is a separate app-scoped gate:
 
@@ -71,13 +74,15 @@ npm run dev
 
 With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
-For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect `visualArtifacts[].path` or the returned MCP image content block before authoring a perception digest. Normal observe JSON omits raw `frames[].dataBase64`; pass `includeInlineBase64: true` only for compatibility/debug use.
+For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect `visualArtifacts[].path` or the returned MCP image content block before calling `desktop_submit_interaction_evidence`. Normal observe JSON omits raw `frames[].dataBase64`; pass `includeInlineBase64: true` only for compatibility/debug use.
 
-The required click path is:
+The preferred compact click path is:
 
 ```text
-observe -> inspect returned image -> perception digest -> workflow claim -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest/workflow -> observe
+observe -> inspect visual artifact -> submit_interaction_evidence -> compact relational move -> observe transition -> submit_interaction_evidence with transition/candidate evidence -> click with returned digest/workflow/witness -> observe
 ```
+
+Strict/debug clients may still use the expanded sequence: `observe -> perception digest -> workflow claim -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click -> observe`.
 
 Compact API clients should still prefer JSON `null` for `contradictionToPriorClaim` when no contradiction is visible. For smaller agents, exact safe sentinel strings such as `"none"`, `"null"`, `"n/a"`, `"not applicable"`, and `"no contradiction observed"` are normalized to `null` at digest recording. Semantic target checks compare conservative canonical forms, so generic UI wording may vary, such as `Run button on the right` versus `Run control on right`; distinct targets such as `Run button` versus `Delete button` remain mismatches.
 

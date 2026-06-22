@@ -103,6 +103,7 @@ describe("session MCP tools", () => {
           "desktop_end_interaction_session",
           "desktop_session_audit_log",
           "desktop_first_use_guide",
+          "desktop_submit_interaction_evidence",
           "desktop_observe",
           "desktop_move_mouse",
           "desktop_click",

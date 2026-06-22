@@ -153,6 +153,40 @@ describe("desktop_submit_perception_digest MCP tool", () => {
     }
   });
 
+  it("allows corrected same-observation same-target digests with distinct opaque IDs", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      await startAndObserve(client);
+      const firstResult = await client.callTool({
+        name: "desktop_submit_perception_digest",
+        arguments: digestArguments("observation-fixed-2")
+      });
+      const secondResult = await client.callTool({
+        name: "desktop_submit_perception_digest",
+        arguments: {
+          ...digestArguments("observation-fixed-2"),
+          currentEvidence: "Corrected evidence after re-inspecting the same screenshot."
+        }
+      });
+      const first = parseStructuredContent(firstResult);
+      const second = parseStructuredContent(secondResult);
+
+      expect(firstResult.isError).not.toBe(true);
+      expect(secondResult.isError).not.toBe(true);
+      expect(first.perceptionDigestId).toEqual(expect.stringMatching(/^perception-digest-/u));
+      expect(second.perceptionDigestId).toEqual(expect.stringMatching(/^perception-digest-/u));
+      expect(second.perceptionDigestId).not.toBe(first.perceptionDigestId);
+      expect(sessionStore.listPerceptionDigests("session-digest-001")).toHaveLength(2);
+      expect(sessionStore.listPerceptionDigests("session-digest-001")[1]).toMatchObject({
+        currentEvidence: "Corrected evidence after re-inspecting the same screenshot."
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("stores exact no-contradiction sentinel strings as JSON null", async () => {
     const { client, server, sessionStore } = await createConnectedClient();
 

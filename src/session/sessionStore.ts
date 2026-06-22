@@ -543,6 +543,9 @@ export class InMemoryDesktopSessionStore {
       observations: clone([...entry.observations.values()]),
       perceptionDigests: clone([...entry.perceptionDigests.values()]),
       workflowStateClaims: clone([...entry.workflowStateClaims.values()]),
+      actions: clone([...entry.actions.values()]),
+      transitionGates: clone([...entry.transitionGates.values()]),
+      stopConditions: clone(entry.stopConditions),
       boundAppScope:
         entry.boundAppScope === undefined ? undefined : clone(entry.boundAppScope),
       now: options.now

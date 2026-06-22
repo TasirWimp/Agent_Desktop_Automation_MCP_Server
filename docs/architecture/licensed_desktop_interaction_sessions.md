@@ -19,6 +19,20 @@ This is different from brittle coordinate clicking:
 
 For desktop RGB automation, frame sequences are a primary witness channel. A single screenshot does not license action by itself, but bounded frame sequences are the observation substrate for later semantic localization, cursor tracking, hover deltas, intersection stability, and post-action verification.
 
+## CRPM Compatibility
+
+The session model is a CRPM-compatible governed re-entry loop without requiring CRPM vocabulary in public tool inputs. The server carries the global path structurally: it records the current session window, witness artifacts, interaction evidence, transition gates, residue, and next required re-entry step. The agent carries the lived local interpretation: it inspects the latest screenshot artifact, declares the target/workflow meaning, and updates that claim after each observed transition.
+
+In this mapping:
+
+- `desktop_observe` creates the current witness surface,
+- `desktop_submit_interaction_evidence` records a reviewed carrier for the next action,
+- `desktop_move_mouse`, `desktop_click`, and `desktop_type_text` create transition edges that must be observed,
+- transition assessment and workflow postcondition claims decide whether the route still carries, requires repair, or must stop,
+- click readiness is only provisional landfall inside the licensed app scope until a follow-up observation confirms the expected workflow state.
+
+The compatibility constraint is operational: do not collapse the loop into raw coordinate clicking, hidden model memory, or server-side visual interpretation. The server should keep the path recoverable; the agent should keep the current witness interpretation fresh.
+
 ## Session License
 
 A `desktop_interaction_session` defines the task boundary before low-risk actions are allowed:
@@ -147,7 +161,7 @@ Clicking is licensed by:
 - audit logging,
 - post-action verification.
 
-`desktop_evaluate_click_candidate` is the current non-executing witness gate for click targeting. It can run after a fresh observation, fresh perception digest, and fresh workflow-state claim, and should usually run after `observe -> perception digest -> workflow state claim -> move_mouse -> observe transitionActionId -> perception digest -> desktop_submit_transition_assessment -> workflow state claim -> desktop_evaluate_click_candidate` when movement was used as a probe. It evaluates whether the current session has enough scope, frame, cursor, supported semantic landing, no-contradiction, digest, committed workflow-state, and risk evidence to request a future app-scoped click. It records audit residue and a hover target witness when ready, and never executes a click. A ready candidate is evidence for targeting quality and workflow readiness, not permission to click outside the licensed app-under-test model.
+`desktop_submit_interaction_evidence` is the preferred operational evidence helper for click targeting. It can record the fresh perception digest, workflow-state claim, follow-up transition assessment, and click-candidate witness after the client has inspected the latest visual artifact. The compact path is `observe -> inspect visual artifact -> submit_interaction_evidence -> move_mouse -> observe transitionActionId -> submit_interaction_evidence with transition/candidate evidence`. Strict/debug clients can still call `desktop_evaluate_click_candidate` directly after fresh perception/workflow evidence and supported semantic landing assessment. Candidate evaluation checks whether the current session has enough scope, frame, cursor, supported semantic landing, no-contradiction, digest, committed workflow-state or bounded workflow revalidation, and risk evidence to request a future app-scoped click. It records audit residue and a hover target witness when ready, and never executes a click. A ready candidate is evidence for targeting quality and workflow readiness, not permission to click outside the licensed app-under-test model.
 
 Workflow-state claims sit above element targeting. They are still client-authored evidence, not server image analysis. The server only enforces freshness, observation/digest/frame binding, scope, target equivalence, and role/precondition rules. For example, an open Mod Organizer dropdown with the BodySlide row highlighted can support a `commit_precondition` click on the BodySlide row, but it cannot support an `execute_committed_action` click on Run until a later observation and workflow claim state that BodySlide is the committed selection.
 

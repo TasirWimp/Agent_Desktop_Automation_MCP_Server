@@ -29,21 +29,20 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
     requiredLoop: [
       "desktop_observe with includeImages: true",
       "inspect visualArtifacts[].path or the returned MCP image content block",
-      "desktop_submit_perception_digest for the latest screenshot-bearing observation",
-      "desktop_submit_workflow_state_claim for click/type readiness",
-      "desktop_move_mouse with compact relational claim",
+      "desktop_submit_interaction_evidence with perception evidence and optional workflow/candidate/transition evidence",
+      "desktop_move_mouse, desktop_click, or desktop_type_text with compact relational claim and returned evidence ids",
       "desktop_observe with transitionActionId",
-      "desktop_submit_perception_digest for the follow-up observation",
-      "desktop_submit_transition_assessment for semantic landing",
-      "desktop_evaluate_click_candidate",
-      "desktop_click with the latest digest, workflow claim, and hover witness",
-      "desktop_observe with transitionActionId after the click"
+      "desktop_submit_interaction_evidence for the follow-up observation and transition assessment",
+      "continue, repair, or stop based on nextRequiredStep"
     ],
     evidenceRules: [
       "desktop_observe({ includeImages: true }) returns screenshot-bearing visualArtifacts[].path entries and MCP image content blocks.",
       "Raw frame dataBase64 is omitted from normal public JSON; request includeInlineBase64: true only for compatibility/debug use.",
-      "Perception digests and workflow-state claims must reference the latest screenshot-bearing observation.",
-      "Any newer desktop_observe invalidates older perception digests and workflow-state claims for future actions.",
+      "desktop_submit_interaction_evidence is the preferred compact path; strict/debug clients may still call digest, workflow, transition assessment, and click-candidate tools separately.",
+      "Perception digests must reference the latest screenshot-bearing observation.",
+      "Any newer desktop_observe invalidates older perception digests for future actions.",
+      "Workflow-state claims normally bind to the latest screenshot-bearing observation; older workflow claims may only be revalidated across observation-only and audited move-only hover/probe changes.",
+      "The server is a witness/path governor, not a visual meaning authority; the client must author current perception and workflow claims from the inspected artifact.",
       "Coordinates are action endpoints only; they never prove that the semantic target was correct.",
       "Supported semantic landing requires the follow-up screenshot to support the stored relation, candidate, rejected alternative, and expected evidence."
     ],
@@ -58,8 +57,8 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "The server performs no OCR or screenshot analysis; the client authors perception and workflow claims from the returned image."
     ],
     commonFailureRecovery: [
-      "If a digest or workflow claim is stale, call desktop_observe with includeImages: true and submit fresh claims.",
-      "If click-candidate readiness fails on workflow state, submit a current workflow-state claim for the same target and digest.",
+      "If a digest is stale, call desktop_observe with includeImages: true and submit desktop_submit_interaction_evidence for the latest observation.",
+      "If click-candidate readiness fails on workflow state, submit workflow evidence through desktop_submit_interaction_evidence or reuse an older workflowStateClaimId only when bounded revalidation applies.",
       "If scope_exit appears, bring the intended app back to the foreground before continuing or start a new bounded session."
     ],
     sourceDocs: [
@@ -70,6 +69,10 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       {
         path: "docs/process/codex_desktop_interaction_reentry.md",
         description: "Operational re-entry workflow for Codex desktop interaction sessions."
+      },
+      {
+        path: "docs/architecture/safety_model.md",
+        description: "Safety model, CRPM-compatible witness-bound runtime, and protected invariants."
       },
       {
         path: "docs/testing/manual_real_observation_checklist.md",
@@ -91,6 +94,6 @@ export function buildDesktopSessionNextRequiredStep(
       includeImages: true
     },
     instruction:
-      "Inspect visualArtifacts[].path or the returned MCP image content block before submitting desktop_submit_perception_digest for the latest screenshot-bearing observation."
+      "Inspect visualArtifacts[].path or the returned MCP image content block before submitting desktop_submit_interaction_evidence for the latest screenshot-bearing observation."
   };
 }

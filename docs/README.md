@@ -15,6 +15,10 @@ Key architecture documents:
 - `architecture/safety_model.md` - current action classes, blocked risks, and confirmation posture.
 - `architecture/licensed_desktop_interaction_sessions.md` - planned task-scoped desktop agency model for bounded observe-act-observe loops.
 
+Architecture compatibility note:
+
+- ADMCP is documented as a CRPM-compatible witness-bound navigation runtime while keeping public MCP tool contracts in repo-local operational vocabulary.
+
 Key planning documents:
 
 - `planning/mvp_implementation_plan.md` - current implementation slices and sequencing.

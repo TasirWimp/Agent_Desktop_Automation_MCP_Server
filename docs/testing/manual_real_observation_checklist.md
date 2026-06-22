@@ -60,7 +60,7 @@ Run these only after the user has granted a bounded session license for pointer 
 3. Confirm `provider.supportsClick`, `provider.supportsTyping`, `provider.realDesktopMutation`, and `capabilities.executeDesktopActions` are `false`.
 4. Start a session whose allowed actions include `observe` and `move_mouse`, but not `click` or `type_text`.
 5. Call `desktop_observe` and note the returned observation id, active-window bounds, and cursor position.
-6. Call `desktop_submit_perception_digest` for the screenshot-bearing observation, then call `desktop_move_mouse` with a point inside the active-window capture frame, the observation id as `preActionObservationId`, and the returned `perceptionDigestId`.
+6. Inspect `visualArtifacts[].path`, call `desktop_submit_interaction_evidence` for the screenshot-bearing observation, then call `desktop_move_mouse` with a point inside the active-window capture frame, the observation id as `preActionObservationId`, and the returned `perceptionDigestId`.
 7. Confirm the result has `executed: true`, `simulated: false`, `requiresPostActionObservation: true`, and a pending transition gate.
 8. Call `desktop_observe` with `transitionActionId` set to the movement action id.
 9. Confirm the follow-up observation audits the transition gate and that the cursor position has changed as expected.
@@ -76,7 +76,7 @@ Run these only after the user has granted a bounded session license for clicking
 3. Confirm `capabilities.closedLoopClickExecution` is `false`; ADMCP-022 repair classification is implemented, but ADMCP-023 runner orchestration is not.
 4. Start a session whose allowed actions include `observe` and `click`, with `licensedAppScope` set to the reversible app-under-test.
 5. Call `desktop_observe` and confirm it records `boundAppScope`.
-6. Call `desktop_submit_perception_digest` for the screenshot-bearing observation, then call `desktop_click` with a point inside the active-window capture frame, the observation id as `preActionObservationId`, and the returned `perceptionDigestId`.
+6. Inspect `visualArtifacts[].path`, then use the compact path: `desktop_submit_interaction_evidence` for perception/workflow evidence, relational move, follow-up `desktop_observe`, `desktop_submit_interaction_evidence` with transition assessment and click-candidate evidence, then `desktop_click` with the returned `perceptionDigestId`, `workflowStateClaimId`, and `hoverTargetWitnessId`.
 7. Confirm the result has `executed: true`, `simulated: false`, `requiresPostActionObservation: true`, and a pending transition gate.
 8. Call `desktop_observe` with `transitionActionId` set to the click action id.
 9. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
@@ -94,7 +94,7 @@ Run these only after the user has granted a bounded session license for typing g
 3. Start a session whose allowed actions include `observe` and `type_text`, with `licensedAppScope` set to the reversible app-under-test.
 4. Call `desktop_observe` and confirm it records `boundAppScope`.
 5. Ensure focus is in a reversible test input field inside the bound app.
-6. Call `desktop_submit_perception_digest` for the screenshot-bearing observation, then call `desktop_type_text` with generated test input, `sensitivityClassification: "test_input"`, the observation id as `preActionObservationId`, and the returned `perceptionDigestId`.
+6. Inspect `visualArtifacts[].path`, call `desktop_submit_interaction_evidence` with perception and workflow evidence for the target input, then call `desktop_type_text` with generated test input, `sensitivityClassification: "test_input"`, the observation id as `preActionObservationId`, and the returned `perceptionDigestId` and `workflowStateClaimId`.
 7. Confirm the result has `executed: true`, `simulated: false`, `typedTextLength` equal to the generated input length, `requiresPostActionObservation: true`, and a pending transition gate.
 8. Confirm the returned action and audit events record text length/classification but not raw text content.
 9. Call `desktop_observe` with `transitionActionId` set to the typing action id.
@@ -111,7 +111,7 @@ Extend the pointer-movement check with these witness assertions:
 2. Confirm cursor witness metadata states whether the native cursor and high-contrast cursor witness marker were rendered into the returned frame and whether the frame is raw or cursor-annotated.
 3. If the cursor is visible and inside the active-window frame, confirm the returned screenshot visibly includes the cursor.
 4. If the cursor is not rendered, confirm the result explains why, such as cursor outside frame, cursor hidden, provider API unavailable, or rendering failure.
-5. After `desktop_move_mouse`, call `desktop_observe` with `transitionActionId`, submit a perception digest for the follow-up observation, and then submit the transition assessment with that digest id.
+5. After `desktop_move_mouse`, call `desktop_observe` with `transitionActionId`, inspect the follow-up artifact, and submit `desktop_submit_interaction_evidence` with the follow-up perception evidence and transition assessment.
 6. Confirm the transition audit records the intended movement point, provider movement result, follow-up observed cursor point, and distance/residue.
 7. Confirm the audit records whether active-window identity and scope remained stable after movement.
 8. Confirm hover, tooltip, cursor-shape, enabled-state, or visual-change evidence is represented only when available; otherwise uncertainty residue must be explicit.

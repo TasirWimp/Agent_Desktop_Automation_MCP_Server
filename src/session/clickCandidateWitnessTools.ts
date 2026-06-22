@@ -7,6 +7,7 @@ import {
   desktopInteractionScopesMatch,
   desktopPointSchema,
   desktopRectangleSchema,
+  evaluateWorkflowStateClaimRevalidation,
   formatNullableStringForAudit,
   isDesktopInteractionScopeAllowed,
   semanticTargetCanonicalForm,
@@ -79,7 +80,7 @@ const clickCandidateRiskInputSchema = z
   })
   .default(lowRisk);
 
-const clickCandidateWitnessInputSchema = z.object({
+export const clickCandidateWitnessInputSchema = z.object({
   sessionId: z.string().min(1),
   observationId: z.string().min(1),
   perceptionDigestId: z.string().min(1),
@@ -93,6 +94,7 @@ const clickCandidateWitnessInputSchema = z.object({
 });
 
 type ClickCandidateWitnessInput = z.infer<typeof clickCandidateWitnessInputSchema>;
+export type DesktopClickCandidateWitnessInput = ClickCandidateWitnessInput;
 
 interface ClickCandidateEvaluation {
   status: ClickCandidateWitnessStatus;
@@ -150,6 +152,7 @@ interface ClickCandidateEvaluation {
     workflowStateClaimId?: string;
     observationMatches: boolean;
     latestObservationMatches: boolean;
+    revalidatedByLatestObservation?: boolean;
     fresh: boolean;
     maxAgeMs?: number;
     scopeMatches: boolean;
@@ -170,6 +173,8 @@ interface ClickCandidateEvaluation {
     currentContradiction?: string | null;
     expectedPostcondition?: string;
     postconditionContradiction?: string;
+    revalidationResidue?: string[];
+    interveningActionIds?: string[];
   };
   movementEvidence?: {
     actionType: string;
@@ -515,6 +520,9 @@ function buildResidue(input: {
   perceptionDigestReadyIssue?: string;
   workflowStateTargetMatches?: boolean;
   workflowStateReadyIssue?: string;
+  workflowStateRevalidatedByLatestObservation?: boolean;
+  workflowStateRevalidationResidue?: string[];
+  workflowStateRevalidationReason?: string;
   movementGate?: InteractionTransitionGate;
   movementRevalidatedByLatestObservation?: boolean;
   perceptionDigest?: DesktopPerceptionDigest;
@@ -528,6 +536,9 @@ function buildResidue(input: {
 
   if (input.status === "candidate_ready") {
     residue.push("Candidate has enough current session, scope, frame, cursor, and risk evidence for a future app-scoped click request.");
+    if (input.workflowStateRevalidatedByLatestObservation === true) {
+      residue.push("Older workflow-state claim was revalidated by the latest observation, perception digest, intervening movement audit, target, and scope.");
+    }
     if (input.movementRevalidatedByLatestObservation === true) {
       residue.push("Older supported movement was revalidated by the latest observation, perception digest, workflow claim, cursor proximity, target, scope, and candidate point.");
     }
@@ -556,8 +567,16 @@ function buildResidue(input: {
     }
   } else if (input.status === "workflow_state_invalid") {
     residue.push("Workflow-state claim does not match the current observation, target, scope, perception digest, or frame hashes.");
+    residue.push("nextRequiredStep: call desktop_submit_interaction_evidence with workflow evidence for the current observation, or reuse an older workflow claim only when no click/type/app-launch/scope-exit/risk/wrong-target action occurred since it.");
+    if (input.workflowStateRevalidationReason !== undefined) {
+      residue.push(`Workflow revalidation failed: ${input.workflowStateRevalidationReason}`);
+    }
   } else if (input.status === "workflow_state_not_current") {
     residue.push("Workflow-state claim is stale or not bound to the latest recorded observation.");
+    residue.push("nextRequiredStep: call desktop_submit_interaction_evidence with workflow evidence for the latest observation.");
+    if (input.workflowStateRevalidationReason !== undefined) {
+      residue.push(`Workflow revalidation failed: ${input.workflowStateRevalidationReason}`);
+    }
   } else if (input.status === "workflow_precondition_not_ready") {
     residue.push("Workflow-state claim does not show that the app workflow is ready for this click candidate.");
     if (input.workflowStateReadyIssue !== undefined) {
@@ -642,6 +661,17 @@ function buildResidue(input: {
       residue.push(
         `Workflow target canonical: ${semanticTargetCanonicalForm(input.workflowStateClaim.intendedElementTarget)}.`
       );
+    }
+
+    if (input.workflowStateRevalidatedByLatestObservation === true) {
+      residue.push("Workflow evidence used bounded revalidation instead of requiring the workflow claim to be bound to the hover follow-up observation.");
+    }
+
+    if (
+      input.workflowStateRevalidationResidue !== undefined &&
+      input.workflowStateRevalidationResidue.length > 0
+    ) {
+      residue.push(...input.workflowStateRevalidationResidue);
     }
   }
 
@@ -853,6 +883,48 @@ function evaluateClickCandidate(
   const workflowStateReadinessIssue = workflowStateReadyIssue(workflowStateClaim);
   const workflowStateReady =
     workflowStateClaim !== undefined && workflowStateReadinessIssue === undefined;
+  const workflowStateDirectlyCurrent =
+    workflowStateClaim !== undefined &&
+    workflowStateObservationMatches &&
+    workflowStateLatest &&
+    workflowStateFresh &&
+    workflowStateScopeMatches &&
+    workflowStateTargetMatches &&
+    workflowStatePerceptionDigestMatches &&
+    workflowStateHashesMatch &&
+    workflowStateReady;
+  const workflowStateRevalidation =
+    workflowStateClaim === undefined || workflowStateDirectlyCurrent
+      ? undefined
+      : evaluateWorkflowStateClaimRevalidation({
+          license: session.license,
+          actionId: `click-candidate-${input.observationId}`,
+          actionType: "click",
+          requestedAt: now,
+          targetScope: input.targetScope,
+          intendedTarget: input.intendedSemanticTarget,
+          preActionObservation: observation,
+          currentPerceptionDigest: perceptionDigest,
+          workflowStateClaim,
+          context: {
+            phase: "preflight",
+            actionCountSoFar: session.actionCount,
+            repairAttemptCount: session.repairAttemptCount,
+            auditEvents: session.auditEvents,
+            observations: session.observations,
+            perceptionDigests: session.perceptionDigests,
+            workflowStateClaims: session.workflowStateClaims,
+            actions: session.actions,
+            transitionGates: session.transitionGates,
+            stopConditions: session.stopConditions,
+            boundAppScope: session.boundAppScope,
+            now
+          }
+        });
+  const workflowStateRevalidatedByLatestObservation =
+    workflowStateRevalidation?.ok === true;
+  const workflowStateAccepted =
+    workflowStateDirectlyCurrent || workflowStateRevalidatedByLatestObservation;
   const activeWindowIdentity = observedWindowIdentity(observation.activeWindow);
   const activeWindowBound =
     isActiveWindowBound(input.targetScope) && isActiveWindowBound(observation.targetScope);
@@ -904,14 +976,7 @@ function evaluateClickCandidate(
     perceptionDigestHashesMatch &&
     perceptionDigestReady &&
     workflowStateClaim !== undefined &&
-    workflowStateObservationMatches &&
-    workflowStateLatest &&
-    workflowStateFresh &&
-    workflowStateScopeMatches &&
-    workflowStateTargetMatches &&
-    workflowStatePerceptionDigestMatches &&
-    workflowStateHashesMatch &&
-    workflowStateReady &&
+    workflowStateAccepted &&
     candidateAlignedWithCursor &&
     candidatePointMatchesMovement;
   const movementEvidence = movementEvidenceFor(movementGate, observation.observationId, {
@@ -949,13 +1014,21 @@ function evaluateClickCandidate(
     perceptionDigestFrameHashesMatch: perceptionDigestHashesMatch,
     perceptionDigestReady,
     workflowStateFound: workflowStateClaim !== undefined,
-    workflowStateObservationMatches,
-    workflowStateLatest,
-    workflowStateFresh,
-    workflowStateScopeMatches,
-    workflowStateTargetMatches,
-    workflowStatePerceptionDigestMatches,
-    workflowStateFrameHashesMatch: workflowStateHashesMatch,
+    workflowStateObservationMatches:
+      workflowStateObservationMatches || workflowStateRevalidatedByLatestObservation,
+    workflowStateLatest:
+      workflowStateLatest || workflowStateRevalidatedByLatestObservation,
+    workflowStateFresh:
+      workflowStateFresh || workflowStateRevalidatedByLatestObservation,
+    workflowStateScopeMatches:
+      workflowStateScopeMatches || workflowStateRevalidatedByLatestObservation,
+    workflowStateTargetMatches:
+      workflowStateTargetMatches || workflowStateRevalidatedByLatestObservation,
+    workflowStatePerceptionDigestMatches:
+      workflowStatePerceptionDigestMatches ||
+      workflowStateRevalidatedByLatestObservation,
+    workflowStateFrameHashesMatch:
+      workflowStateHashesMatch || workflowStateRevalidatedByLatestObservation,
     workflowStateReady
   });
   const residue = buildResidue({
@@ -971,6 +1044,9 @@ function evaluateClickCandidate(
     perceptionDigestReadyIssue: perceptionDigestReadyIssue(perceptionDigest),
     workflowStateTargetMatches,
     workflowStateReadyIssue: workflowStateReadinessIssue,
+    workflowStateRevalidatedByLatestObservation,
+    workflowStateRevalidationResidue: workflowStateRevalidation?.residue,
+    workflowStateRevalidationReason: workflowStateRevalidation?.reason,
     movementGate,
     movementRevalidatedByLatestObservation,
     perceptionDigest,
@@ -1083,6 +1159,7 @@ function evaluateClickCandidate(
       workflowStateClaimId: input.workflowStateClaimId,
       observationMatches: workflowStateObservationMatches,
       latestObservationMatches: workflowStateLatest,
+      revalidatedByLatestObservation: workflowStateRevalidatedByLatestObservation,
       fresh: workflowStateFresh,
       maxAgeMs: workflowStateClaimMaxAgeMs,
       scopeMatches: workflowStateScopeMatches,
@@ -1105,7 +1182,9 @@ function evaluateClickCandidate(
       missingConfirmation: workflowStateClaim?.missingConfirmation,
       currentContradiction: workflowStateClaim?.currentContradiction,
       expectedPostcondition: workflowStateClaim?.expectedPostcondition,
-      postconditionContradiction: workflowStateClaim?.postconditionContradiction
+      postconditionContradiction: workflowStateClaim?.postconditionContradiction,
+      revalidationResidue: workflowStateRevalidation?.residue,
+      interveningActionIds: workflowStateRevalidation?.interveningActionIds
     },
     movementEvidence,
     hoverTargetWitness,
@@ -1114,6 +1193,123 @@ function evaluateClickCandidate(
     wouldExecuteClick: false,
     realClickExecutionAvailable: false,
     residue
+  };
+}
+
+export type ClickCandidateRecordResult =
+  | {
+      ok: true;
+      sessionId: string;
+      status: ClickCandidateWitnessStatus;
+      clickCandidateWitness: ClickCandidateEvaluation & {
+        hoverTargetWitness?: HoverTargetWitness;
+      };
+      hoverTargetWitness?: HoverTargetWitness;
+      auditEvent: DesktopSessionAuditEvent;
+      providerCapabilities: {
+        providerKind: string;
+        supportsClick: boolean;
+        realDesktopMutation: boolean;
+      };
+      residue: string[];
+    }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+      };
+      residue: string[];
+    };
+
+export function evaluateAndRecordClickCandidate(
+  runtime: ClickCandidateWitnessRuntime,
+  input: unknown
+): ClickCandidateRecordResult {
+  const parsedInput = clickCandidateWitnessInputSchema.parse(input);
+  const session = runtime.sessionStore.requireActiveSession(parsedInput.sessionId);
+  const observation = runtime.sessionStore.getObservation(
+    parsedInput.sessionId,
+    parsedInput.observationId
+  );
+
+  if (observation === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: "observation_not_found",
+        message: `Observation ${parsedInput.observationId} does not exist in session ${parsedInput.sessionId}.`
+      },
+      residue: ["No click candidate was evaluated and no desktop action occurred."]
+    };
+  }
+
+  const movementGate =
+    parsedInput.movementActionId === undefined
+      ? undefined
+      : runtime.sessionStore.requireTransitionGate(
+          parsedInput.sessionId,
+          parsedInput.movementActionId
+        );
+  const perceptionDigest = runtime.sessionStore.getPerceptionDigest(
+    parsedInput.sessionId,
+    parsedInput.perceptionDigestId
+  );
+  const workflowStateClaim =
+    parsedInput.workflowStateClaimId === undefined
+      ? undefined
+      : runtime.sessionStore.getWorkflowStateClaim(
+          parsedInput.sessionId,
+          parsedInput.workflowStateClaimId
+        );
+  const providerCapabilities = runtime.desktopProvider.getCapabilities();
+  const evaluation = evaluateClickCandidate(
+    session,
+    observation,
+    movementGate,
+    perceptionDigest,
+    workflowStateClaim,
+    parsedInput,
+    runtime.now()
+  );
+  const hoverTargetWitness =
+    evaluation.hoverTargetWitness === undefined
+      ? undefined
+      : runtime.sessionStore.recordHoverTargetWitness(
+          evaluation.hoverTargetWitness
+        );
+  const auditEvent: DesktopSessionAuditEvent = {
+    eventId: runtime.generateId("event"),
+    sessionId: parsedInput.sessionId,
+    eventType: "click_candidate_evaluated",
+    occurredAt: runtime.now(),
+    observationId: parsedInput.observationId,
+    actionId: parsedInput.movementActionId,
+    summary: `Click candidate witness gate result: ${evaluation.status}.`,
+    residue: evaluation.residue
+  };
+
+  runtime.sessionStore.appendAuditEvent(auditEvent);
+
+  return {
+    ok: true,
+    sessionId: parsedInput.sessionId,
+    status: evaluation.status,
+    clickCandidateWitness: {
+      ...evaluation,
+      hoverTargetWitness
+    },
+    hoverTargetWitness,
+    auditEvent,
+    providerCapabilities: {
+      providerKind: providerCapabilities.providerKind,
+      supportsClick: providerCapabilities.supportsClick,
+      realDesktopMutation: providerCapabilities.realDesktopMutation
+    },
+    residue: [
+      "Click candidate was evaluated and recorded in the session audit log.",
+      "No click, mouse movement, typing, OS capture, or OS mutation occurred."
+    ]
   };
 }
 

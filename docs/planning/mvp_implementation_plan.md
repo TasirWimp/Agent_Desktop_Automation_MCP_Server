@@ -1201,7 +1201,7 @@ Implemented files:
 - `tests/governedManualProbeRunner.test.ts`
 - `tests/governedNavigationProbeRunner.test.ts`
 
-Required operational loop:
+Strict/debug operational loop before the ADMCP-027 helper:
 
 ```text
 observe -> perception digest -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest -> observe
@@ -1261,6 +1261,32 @@ Delivered behavior:
 - Requires `execute_committed_action` and `text_entry` paths to declare satisfied committed workflow state before click/type execution.
 - Records workflow postcondition assessments on transition gates as satisfied, contradicted, or inconclusive workflow outcomes without double-counting repair attempts already consumed by the same transition observation.
 - Documents the Mod Organizer/BodySlide pattern: dropdown highlight is transient state and can justify committing the selection row, but Run requires a later claim that BodySlide is the committed executable selection.
+
+Verification:
+
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+
+### ADMCP-027 Operational Fast Path Evidence Helper
+
+Goal: Make the existing safety model operationally usable for smaller agents by reducing evidence-submission tool chatter without loosening relational, perception, workflow, scope, transition, or provider gates.
+
+Status:
+
+- Implemented.
+
+Delivered behavior:
+
+- Adds `desktop_submit_interaction_evidence` as the preferred mini-agent path.
+- Records a fresh perception digest for the latest screenshot-bearing observation and can also record a workflow-state claim, semantic transition assessment, and click-candidate witness in the same call.
+- Keeps existing strict/debug tools available: `desktop_submit_perception_digest`, `desktop_submit_workflow_state_claim`, `desktop_submit_transition_assessment`, and `desktop_evaluate_click_candidate`.
+- Uses explicit evidence modes: `new_target`, `same_target`, and `repair_target`, so normal retargeting is not reported as stale contradiction.
+- Changes perception digest IDs from deterministic observation/target slugs to opaque generated IDs, allowing corrected same-observation same-target submissions while preserving older digests for audit.
+- Adds bounded workflow-claim revalidation for click-candidate evaluation and click/type action policy. A prior workflow claim may be reused only when current observation/digest revalidate the same target and scope, only observations or audited non-contradicted `move_mouse` probes occurred since the claim, and no click, type, app launch, file operation, scope exit, risk prompt, wrong-target, or repair-needed transition occurred.
+- Preserves click strictness: current digest, current cursor proximity, hover witness, app-scope binding, point matching, relational `hover_witness` provenance, and post-click observation are still required.
+- Adds actionable `nextRequiredStep` output to the helper and richer candidate residue for workflow revalidation failures.
+- Updates the first-use guide, README, re-entry workflow, safety model, test strategy, and manual checklist to prefer `observe -> inspect visual artifact -> submit_interaction_evidence -> action -> observe`.
 
 Verification:
 

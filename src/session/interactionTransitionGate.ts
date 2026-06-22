@@ -299,7 +299,7 @@ export function auditInteractionTransitionGate(
       "Follow-up observation included frame evidence.",
       ...(movementDeltaWitness?.residue ?? []),
       "Cursor landing is recorded as telemetry only.",
-      "Submit desktop_submit_transition_assessment before using this movement as click-candidate evidence."
+      "Submit desktop_submit_interaction_evidence with transitionAssessment, or strict desktop_submit_transition_assessment, before using this movement as click-candidate evidence."
     ];
 
     return interactionTransitionGateSchema.parse({

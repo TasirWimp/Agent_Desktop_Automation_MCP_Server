@@ -63,12 +63,16 @@ const sessionAuditLogInputSchema = z.object({
   sessionId: z.string().min(1)
 });
 
-const submitTransitionAssessmentInputSchema = z.object({
+export const submitTransitionAssessmentInputSchema = z.object({
   sessionId: z.string().min(1),
   actionId: z.string().min(1),
   perceptionDigestId: z.string().min(1),
   assessment: desktopCompactSemanticLandingAssessmentSchema
 });
+
+export type SubmitTransitionAssessmentInput = z.infer<
+  typeof submitTransitionAssessmentInputSchema
+>;
 
 function structuredResult(value: Record<string, unknown>, isError = false) {
   return {
@@ -417,6 +421,165 @@ function classifyAndAccountForAssessment(
   return {
     transitionGate: gate,
     stopCondition: stopConditionForAssessment(sessionId, gate)
+  };
+}
+
+export type TransitionAssessmentRecordResult =
+  | {
+      ok: true;
+      sessionId: string;
+      status: InteractionTransitionGate["status"];
+      transitionGate: InteractionTransitionGate;
+      perceptionDigest: DesktopPerceptionDigest;
+      postActionStopCondition?: DesktopSessionStopCondition;
+      auditEvent: DesktopSessionAuditEvent;
+      residue: string[];
+    }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+      };
+      transitionGate?: InteractionTransitionGate;
+      perceptionDigest?: DesktopPerceptionDigest;
+      residue: string[];
+    };
+
+export function recordTransitionAssessment(
+  runtime: SessionToolRuntime,
+  input: unknown
+): TransitionAssessmentRecordResult {
+  const parsedInput = submitTransitionAssessmentInputSchema.parse(input);
+
+  runtime.sessionStore.requireActiveSession(parsedInput.sessionId);
+  const transitionGate = runtime.sessionStore.requireTransitionGate(
+    parsedInput.sessionId,
+    parsedInput.actionId
+  );
+
+  if (transitionGate.status !== "observed") {
+    return {
+      ok: false,
+      error: {
+        code: "transition_not_observed",
+        message:
+          "The referenced transition gate must be observed before a semantic landing assessment can be submitted."
+      },
+      transitionGate,
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  if (
+    transitionGate.compactRelationalClaim === undefined &&
+    transitionGate.relationalNavigation === undefined
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "transition_assessment_not_applicable",
+        message:
+          "The referenced transition gate is not claim-bound and does not accept semantic landing assessment."
+      },
+      transitionGate,
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  if (transitionGate.followUpObservationId === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: "transition_follow_up_missing",
+        message:
+          "The referenced transition gate has no follow-up observation id."
+      },
+      transitionGate,
+      residue: ["No transition assessment was recorded."]
+    };
+  }
+
+  const session = runtime.sessionStore.requireActiveSession(parsedInput.sessionId);
+  const followUpObservation = runtime.sessionStore.getObservation(
+    parsedInput.sessionId,
+    transitionGate.followUpObservationId
+  );
+  const perceptionDigest = runtime.sessionStore.getPerceptionDigest(
+    parsedInput.sessionId,
+    parsedInput.perceptionDigestId
+  );
+  const digestValidation = validateTransitionAssessmentDigest({
+    digest: perceptionDigest,
+    transitionGate,
+    followUpObservation,
+    latestObservationId: latestObservationId(
+      runtime.sessionStore.listObservations(parsedInput.sessionId)
+    ),
+    now: runtime.now(),
+    sessionLicense: session.license,
+    assessmentOutcome: parsedInput.assessment.outcome
+  });
+
+  if (!digestValidation.ok) {
+    return {
+      ok: false,
+      error: {
+        code: digestValidation.code,
+        message: digestValidation.message
+      },
+      transitionGate,
+      perceptionDigest,
+      residue: digestValidation.residue
+    };
+  }
+
+  const assessedGate = applyCompactSemanticLandingAssessment(
+    transitionGate,
+    parsedInput.assessment,
+    runtime.now()
+  );
+  const transitionAuditResult = classifyAndAccountForAssessment(
+    runtime,
+    parsedInput.sessionId,
+    assessedGate
+  );
+  const updatedTransitionGate = runtime.sessionStore.updateTransitionGate(
+    transitionAuditResult.transitionGate
+  );
+  const postActionStopCondition = transitionAuditResult.stopCondition;
+
+  if (postActionStopCondition !== undefined) {
+    runtime.sessionStore.appendStopCondition(postActionStopCondition);
+  }
+
+  const auditEvent: DesktopSessionAuditEvent = {
+    eventId: runtime.generateId("event"),
+    sessionId: parsedInput.sessionId,
+    eventType: "transition_assessed",
+    occurredAt: runtime.now(),
+    actionId: updatedTransitionGate.actionId,
+    observationId: updatedTransitionGate.followUpObservationId,
+    summary:
+      `Transition assessment classified as ${updatedTransitionGate.postActionClassification?.kind ?? "observed"} with status ${updatedTransitionGate.status}.`,
+    residue: updatedTransitionGate.residue
+  };
+
+  runtime.sessionStore.appendAuditEvent(auditEvent);
+
+  return {
+    ok: true,
+    sessionId: parsedInput.sessionId,
+    status: updatedTransitionGate.status,
+    transitionGate: updatedTransitionGate,
+    perceptionDigest: digestValidation.perceptionDigest,
+    postActionStopCondition,
+    auditEvent,
+    residue: [
+      "Transition assessment was recorded in session state and audit log.",
+      "The assessment is the agent's semantic comparison against the follow-up screenshot.",
+      "Cursor coordinates and backend movement success remain telemetry only."
+    ]
   };
 }
 

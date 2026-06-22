@@ -46,7 +46,7 @@ observation_i
 
 This is the desktop-interaction analogue of a governed navigation transition: the system starts from a declared witness, performs a bounded licensed move, observes what changed, records residue, and only then decides whether the next non-observe action is licensed.
 
-Use repo-local names for the implementation. Do not import a broad CRPM or discourse-topology schema into this repo yet. The useful local object is an `interaction transition gate`, not a general theory object.
+The implementation is CRPM-compatible at the architecture level, but it must use repo-local names in public tool contracts. The useful local object is an `interaction transition gate`, not a general theory object. CRPM terms such as witness, carrier, transition edge, residue, and landfall can guide audit/documentation language when they clarify why the loop is protected; they should not become required mini-agent input vocabulary.
 
 An interaction transition gate should record:
 

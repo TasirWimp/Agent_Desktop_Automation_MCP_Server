@@ -25,4 +25,5 @@ Thumbs.db
 
 # Local MCP/client scratch
 .mcp-local/
+.tmp/
 tmp/

@@ -136,6 +136,7 @@ describe("desktop_observe MCP tool", () => {
         executeDesktopActions: false,
         tieredEvidenceFreshness: true,
         hoverWitnessRevalidation: true,
+        interactionEvidenceHelper: true,
         firstUseGuide: true
       });
       expect(structured.usageGuidance).toMatchObject({
@@ -146,12 +147,13 @@ describe("desktop_observe MCP tool", () => {
           requiredLoop: expect.arrayContaining([
             "desktop_observe with includeImages: true",
             "inspect visualArtifacts[].path or the returned MCP image content block",
-            "desktop_submit_perception_digest for the latest screenshot-bearing observation"
+            "desktop_submit_interaction_evidence with perception evidence and optional workflow/candidate/transition evidence"
           ]),
           evidenceRules: expect.arrayContaining([
             expect.stringContaining("visualArtifacts[].path"),
             expect.stringContaining("latest screenshot-bearing observation"),
             expect.stringContaining("newer desktop_observe invalidates older"),
+            expect.stringContaining("witness/path governor"),
             expect.stringContaining("Coordinates are action endpoints only")
           ]),
           scopeRules: expect.arrayContaining([
@@ -209,6 +211,9 @@ describe("desktop_observe MCP tool", () => {
         expect.arrayContaining([
           expect.objectContaining({
             path: "docs/process/codex_desktop_interaction_reentry.md"
+          }),
+          expect.objectContaining({
+            path: "docs/architecture/safety_model.md"
           })
         ])
       );

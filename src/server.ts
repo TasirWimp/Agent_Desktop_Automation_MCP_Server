@@ -19,6 +19,7 @@ import { createDefaultDesktopProvider } from "./providers/defaultDesktopProvider
 import { registerActionTools } from "./session/actionTools.js";
 import { registerApplicationBootstrapTools } from "./session/applicationBootstrapTools.js";
 import { registerClickCandidateWitnessTools } from "./session/clickCandidateWitnessTools.js";
+import { registerInteractionEvidenceTools } from "./session/interactionEvidenceTools.js";
 import { registerObservationTools } from "./session/observationTools.js";
 import { registerPerceptionDigestTools } from "./session/perceptionDigestTools.js";
 import { InMemoryDesktopSessionStore } from "./session/sessionStore.js";
@@ -98,6 +99,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           clickCandidateWitnessGate: true,
           freshPerceptionDigest: true,
           workflowStateClaims: true,
+          interactionEvidenceHelper: true,
           firstUseGuide: true,
           observationVisualArtifacts: true,
           compactRelationalClaims: true,
@@ -217,11 +219,19 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
 
   registerPerceptionDigestTools(server, {
     sessionStore,
-    now
+    now,
+    generateId
   });
 
   registerWorkflowStateTools(server, {
     sessionStore,
+    now,
+    generateId
+  });
+
+  registerInteractionEvidenceTools(server, {
+    sessionStore,
+    desktopProvider,
     now,
     generateId
   });

@@ -484,7 +484,7 @@ function validateClickHoverTargetWitness(
       reason: "desktop_click requires hoverTargetWitnessId from desktop_evaluate_click_candidate.",
       residue: [
         "Click requests require a supported semantic landing assessment and hover witness.",
-        "Run observe -> semantic landing assessment -> desktop_evaluate_click_candidate before clicking."
+        "Run desktop_submit_interaction_evidence with transitionAssessment and clickCandidate, or use the strict desktop_evaluate_click_candidate path, before clicking."
       ]
     };
   }
@@ -520,7 +520,7 @@ function validateClickHoverTargetWitness(
         `hoverWitnessMaxAgeMs: ${desktopEvidenceFreshnessMaxAgeMs(session.license, "hover_witness")}.`,
         `hoverTargetWitness.createdAt: ${hoverTargetWitness.createdAt}.`,
         `click.requestedAt: ${action.requestedAt}.`,
-        "Run desktop_evaluate_click_candidate again with the latest observation, digest, and workflow claim."
+        "Run desktop_submit_interaction_evidence again with the latest observation, digest, and workflow evidence."
       ]
     };
   }
@@ -608,10 +608,10 @@ function validateClickHoverTargetWitness(
     return {
       ok: false,
       hoverTargetWitness,
-      reason: "Click request must include a current workflow-state claim.",
+      reason: "Click request must include workflow-state evidence.",
       residue: [
         `workflowStateClaimId: ${action.workflowStateClaimId ?? "missing"}.`,
-        "The workflow claim revalidates committed app state before the click."
+        "The workflow claim revalidates committed app state before the click; provide it from desktop_submit_interaction_evidence or the strict workflow-state tool."
       ]
     };
   }
@@ -622,7 +622,7 @@ function validateClickHoverTargetWitness(
       hoverTargetWitness,
       reason: "Hover target witness has no workflow-state evidence.",
       residue: [
-        "Run desktop_evaluate_click_candidate with workflowStateClaimId before clicking."
+        "Run desktop_submit_interaction_evidence with workflow evidence and clickCandidate, or run desktop_evaluate_click_candidate with workflowStateClaimId before clicking."
       ]
     };
   }

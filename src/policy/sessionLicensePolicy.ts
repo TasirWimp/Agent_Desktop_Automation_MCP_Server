@@ -1002,6 +1002,22 @@ export interface DesktopSessionPolicyResult {
   residue: string[];
 }
 
+export interface DesktopActionPolicyTransitionGate {
+  actionId: string;
+  actionType: string;
+  status: string;
+  followUpObservationId?: string;
+  semanticLandingAssessment?: DesktopCompactSemanticLandingAssessment;
+  postActionClassification?: {
+    kind: string;
+  };
+  movementDeltaWitness?: {
+    cursorObserved: boolean;
+    scopeStable: boolean;
+  };
+  residue: string[];
+}
+
 export interface DesktopSessionActionPolicyContext {
   phase: "preflight" | "completion";
   actionCountSoFar: number;
@@ -1010,6 +1026,9 @@ export interface DesktopSessionActionPolicyContext {
   observations: DesktopObservationPacket[];
   perceptionDigests: DesktopPerceptionDigest[];
   workflowStateClaims: DesktopWorkflowStateClaim[];
+  actions: DesktopActionPacket[];
+  transitionGates: DesktopActionPolicyTransitionGate[];
+  stopConditions: DesktopSessionStopCondition[];
   boundAppScope?: DesktopAppScopeBinding;
   now: string;
 }
@@ -1321,7 +1340,7 @@ function perceptionDigestStopConditionForAction(
         "Every state-changing action must reference a fresh perception digest for the latest screenshot-bearing observation.",
         action.actionId,
         [
-          "Call desktop_submit_perception_digest after desktop_observe and pass perceptionDigestId to the action.",
+          "Call desktop_submit_interaction_evidence after desktop_observe and pass perceptionDigestId to the action.",
           "The digest is agent-authored; the server validates freshness and provenance, not pixels."
         ]
       ),
@@ -1568,6 +1587,444 @@ function workflowStateClaimReadinessIssue(
   return undefined;
 }
 
+export interface DesktopWorkflowStateRevalidationResult {
+  ok: boolean;
+  residue: string[];
+  interveningActionIds: string[];
+  reason?: string;
+}
+
+function observationIndex(
+  observations: DesktopObservationPacket[],
+  observationId: string
+): number {
+  return observations.findIndex(
+    (observation) => observation.observationId === observationId
+  );
+}
+
+function perceptionDigestSupportsCurrentAction(
+  digest: DesktopPerceptionDigest
+): string | undefined {
+  if (digest.targetVisibility !== "visible") {
+    return `Current digest targetVisibility is ${digest.targetVisibility}.`;
+  }
+
+  if (digest.anchorVisibility === "not_visible") {
+    return "Current digest anchorVisibility is not_visible.";
+  }
+
+  if (
+    digest.continuityWithPriorClaim !== "consistent" &&
+    digest.continuityWithPriorClaim !== "not_applicable"
+  ) {
+    return `Current digest continuityWithPriorClaim is ${digest.continuityWithPriorClaim}.`;
+  }
+
+  if (digest.contradictionToPriorClaim !== null) {
+    return `Current digest contradictionToPriorClaim is ${formatNullableStringForAudit(digest.contradictionToPriorClaim)}.`;
+  }
+
+  return undefined;
+}
+
+function transitionGateBlocksWorkflowRevalidation(
+  gate: DesktopActionPolicyTransitionGate | undefined
+): string | undefined {
+  if (gate === undefined) {
+    return "Intervening movement has no transition gate.";
+  }
+
+  if (gate.actionType !== "move_mouse") {
+    return `Intervening transition actionType is ${gate.actionType}.`;
+  }
+
+  if (gate.status !== "audited") {
+    return `Intervening movement transition status is ${gate.status}, not audited.`;
+  }
+
+  const blockingClassificationKinds = new Set([
+    "wrong_target",
+    "scope_exit",
+    "risk_prompt",
+    "uninterpretable_state",
+    "repair_needed"
+  ]);
+
+  if (
+    gate.postActionClassification !== undefined &&
+    blockingClassificationKinds.has(gate.postActionClassification.kind)
+  ) {
+    return `Intervening movement transition classified as ${gate.postActionClassification.kind}.`;
+  }
+
+  if (gate.semanticLandingAssessment === undefined) {
+    return "Intervening movement has no semantic landing assessment.";
+  }
+
+  if (gate.semanticLandingAssessment.outcome === "contradicted") {
+    return "Intervening movement semantic landing was contradicted.";
+  }
+
+  if (gate.movementDeltaWitness?.cursorObserved === false) {
+    return "Intervening movement did not retain cursor observation evidence.";
+  }
+
+  if (gate.movementDeltaWitness?.scopeStable === false) {
+    return "Intervening movement did not retain stable scope evidence.";
+  }
+
+  return undefined;
+}
+
+export function evaluateWorkflowStateClaimRevalidation(input: {
+  license: DesktopInteractionSessionLicense;
+  actionId: string;
+  actionType: DesktopSessionActionType;
+  requestedAt: string;
+  targetScope: DesktopInteractionScope;
+  intendedTarget?: string;
+  preActionObservation: DesktopObservationPacket;
+  currentPerceptionDigest: DesktopPerceptionDigest | undefined;
+  workflowStateClaim: DesktopWorkflowStateClaim;
+  context: DesktopSessionActionPolicyContext;
+}): DesktopWorkflowStateRevalidationResult {
+  const residue: string[] = [];
+  const interveningActionIds: string[] = [];
+  const currentDigest = input.currentPerceptionDigest;
+
+  if (input.workflowStateClaim.sessionId !== input.license.sessionId) {
+    return {
+      ok: false,
+      reason: "Workflow claim belongs to a different session.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  if (currentDigest === undefined) {
+    return {
+      ok: false,
+      reason: "Current perception digest is missing.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  if (currentDigest.observationId !== input.preActionObservation.observationId) {
+    return {
+      ok: false,
+      reason: "Current perception digest is not bound to the action pre-action observation.",
+      residue: [
+        `Action preActionObservationId: ${input.preActionObservation.observationId}.`,
+        `Digest observationId: ${currentDigest.observationId}.`
+      ],
+      interveningActionIds
+    };
+  }
+
+  const latest = latestObservationId(input.context.observations);
+
+  if (latest !== input.preActionObservation.observationId) {
+    return {
+      ok: false,
+      reason: "Action pre-action observation is not the latest recorded observation.",
+      residue: [
+        `Latest observationId: ${latest ?? "none"}.`,
+        `Action preActionObservationId: ${input.preActionObservation.observationId}.`
+      ],
+      interveningActionIds
+    };
+  }
+
+  if (!perceptionDigestFresh(input.license, currentDigest, {
+    actionId: input.actionId,
+    sessionId: input.license.sessionId,
+    actionType: input.actionType,
+    requestedAt: input.requestedAt,
+    targetScope: input.targetScope,
+    preActionObservationId: input.preActionObservation.observationId,
+    intendedSemanticTarget: input.intendedTarget,
+    perceptionDigestId: currentDigest.perceptionDigestId,
+    workflowStateClaimId: input.workflowStateClaim.workflowStateClaimId,
+    input: {},
+    risk: {
+      credentialExposure: false,
+      destructive: false,
+      externalEffect: false,
+      systemChange: false,
+      recoverability: "high"
+    },
+    residue: []
+  })) {
+    return {
+      ok: false,
+      reason: "Current perception digest is stale.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  if (!desktopInteractionScopesMatch(currentDigest.targetScope, input.targetScope)) {
+    return {
+      ok: false,
+      reason: "Current perception digest scope does not match the requested action scope.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  if (!desktopInteractionScopesMatch(input.workflowStateClaim.targetScope, input.targetScope)) {
+    return {
+      ok: false,
+      reason: "Workflow claim scope does not match the requested action scope.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  const intendedTarget = input.intendedTarget;
+
+  if (
+    intendedTarget !== undefined &&
+    !semanticTargetsEquivalent(currentDigest.intendedTarget, intendedTarget)
+  ) {
+    return {
+      ok: false,
+      reason: "Current perception digest target does not match the requested action target.",
+      residue: [
+        `Action target: ${intendedTarget}.`,
+        `Digest target: ${currentDigest.intendedTarget}.`,
+        `Action target canonical: ${semanticTargetCanonicalForm(intendedTarget)}.`,
+        `Digest target canonical: ${semanticTargetCanonicalForm(currentDigest.intendedTarget)}.`
+      ],
+      interveningActionIds
+    };
+  }
+
+  if (
+    intendedTarget !== undefined &&
+    !semanticTargetsEquivalent(input.workflowStateClaim.intendedElementTarget, intendedTarget)
+  ) {
+    return {
+      ok: false,
+      reason: "Workflow claim target does not match the requested action target.",
+      residue: [
+        `Action target: ${intendedTarget}.`,
+        `Workflow target: ${input.workflowStateClaim.intendedElementTarget}.`,
+        `Action target canonical: ${semanticTargetCanonicalForm(intendedTarget)}.`,
+        `Workflow target canonical: ${semanticTargetCanonicalForm(input.workflowStateClaim.intendedElementTarget)}.`
+      ],
+      interveningActionIds
+    };
+  }
+
+  if (
+    !semanticTargetsEquivalent(
+      currentDigest.intendedTarget,
+      input.workflowStateClaim.intendedElementTarget
+    )
+  ) {
+    return {
+      ok: false,
+      reason: "Current perception digest target does not match the workflow claim target.",
+      residue: [
+        `Digest target: ${currentDigest.intendedTarget}.`,
+        `Workflow target: ${input.workflowStateClaim.intendedElementTarget}.`,
+        `Digest target canonical: ${semanticTargetCanonicalForm(currentDigest.intendedTarget)}.`,
+        `Workflow target canonical: ${semanticTargetCanonicalForm(input.workflowStateClaim.intendedElementTarget)}.`
+      ],
+      interveningActionIds
+    };
+  }
+
+  if (!perceptionDigestFrameHashesMatch(currentDigest, input.preActionObservation)) {
+    return {
+      ok: false,
+      reason: "Current perception digest frame hashes do not match the action observation.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  const digestReadinessIssue = perceptionDigestSupportsCurrentAction(currentDigest);
+
+  if (digestReadinessIssue !== undefined) {
+    return {
+      ok: false,
+      reason: digestReadinessIssue,
+      residue,
+      interveningActionIds
+    };
+  }
+
+  if (!workflowStateClaimFresh(input.license, input.workflowStateClaim, {
+    actionId: input.actionId,
+    sessionId: input.license.sessionId,
+    actionType: input.actionType,
+    requestedAt: input.requestedAt,
+    targetScope: input.targetScope,
+    preActionObservationId: input.preActionObservation.observationId,
+    intendedSemanticTarget: intendedTarget,
+    perceptionDigestId: currentDigest.perceptionDigestId,
+    workflowStateClaimId: input.workflowStateClaim.workflowStateClaimId,
+    input: {},
+    risk: {
+      credentialExposure: false,
+      destructive: false,
+      externalEffect: false,
+      systemChange: false,
+      recoverability: "high"
+    },
+    residue: []
+  })) {
+    return {
+      ok: false,
+      reason: "Workflow claim is stale.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  const workflowClaimObservation = findObservation(
+    input.context.observations,
+    input.workflowStateClaim.observationId
+  );
+
+  if (workflowClaimObservation === undefined) {
+    return {
+      ok: false,
+      reason: "Workflow claim source observation was not found.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  if (!workflowStateClaimFrameHashesMatch(input.workflowStateClaim, workflowClaimObservation)) {
+    return {
+      ok: false,
+      reason: "Workflow claim frame hashes do not match its source observation.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  const readinessIssue = workflowStateClaimReadinessIssue(
+    input.workflowStateClaim,
+    input.actionType
+  );
+
+  if (readinessIssue !== undefined) {
+    return {
+      ok: false,
+      reason: readinessIssue,
+      residue,
+      interveningActionIds
+    };
+  }
+
+  const claimObservationIndex = observationIndex(
+    input.context.observations,
+    input.workflowStateClaim.observationId
+  );
+  const currentObservationIndex = observationIndex(
+    input.context.observations,
+    input.preActionObservation.observationId
+  );
+
+  if (claimObservationIndex < 0 || currentObservationIndex < claimObservationIndex) {
+    return {
+      ok: false,
+      reason: "Workflow claim observation is not an ancestor of the current observation.",
+      residue,
+      interveningActionIds
+    };
+  }
+
+  const observationIdsSinceClaim = new Set(
+    input.context.observations
+      .slice(claimObservationIndex, currentObservationIndex + 1)
+      .map((observation) => observation.observationId)
+  );
+  const claimCreatedMs = Date.parse(input.workflowStateClaim.createdAt);
+  const actionsSinceClaim = input.context.actions.filter((action) => {
+    if (action.actionId === input.actionId) {
+      return false;
+    }
+
+    const preActionAfterClaim =
+      action.preActionObservationId !== undefined &&
+      observationIdsSinceClaim.has(action.preActionObservationId);
+
+    if (preActionAfterClaim) {
+      return true;
+    }
+
+    const requestedMs = Date.parse(action.requestedAt);
+
+    return (
+      !Number.isNaN(claimCreatedMs) &&
+      !Number.isNaN(requestedMs) &&
+      requestedMs > claimCreatedMs
+    );
+  });
+
+  for (const action of actionsSinceClaim) {
+    interveningActionIds.push(action.actionId);
+
+    if (action.actionType !== "move_mouse") {
+      return {
+        ok: false,
+        reason: `Intervening ${action.actionType} action invalidates workflow revalidation.`,
+        residue: [`Intervening actionId: ${action.actionId}.`],
+        interveningActionIds
+      };
+    }
+
+    const gate = input.context.transitionGates.find(
+      (transitionGate) => transitionGate.actionId === action.actionId
+    );
+    const gateIssue = transitionGateBlocksWorkflowRevalidation(gate);
+
+    if (gateIssue !== undefined) {
+      return {
+        ok: false,
+        reason: gateIssue,
+        residue: [
+          `Intervening move actionId: ${action.actionId}.`,
+          ...(gate?.residue ?? [])
+        ],
+        interveningActionIds
+      };
+    }
+
+    const stopCondition = input.context.stopConditions.find(
+      (condition) => condition.actionId === action.actionId
+    );
+
+    if (stopCondition !== undefined) {
+      return {
+        ok: false,
+        reason: `Intervening action has stop condition ${stopCondition.condition}.`,
+        residue: stopCondition.residue,
+        interveningActionIds
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    residue: [
+      "Older workflow-state claim was revalidated by the latest screenshot-bearing observation and perception digest.",
+      "Only observations and audited non-contradicted mouse movement occurred since the workflow claim.",
+      `Current observationId: ${input.preActionObservation.observationId}.`,
+      `Current perceptionDigestId: ${currentDigest.perceptionDigestId}.`,
+      `WorkflowStateClaimId: ${input.workflowStateClaim.workflowStateClaimId}.`
+    ],
+    interveningActionIds
+  };
+}
+
 function workflowStateClaimStopConditionForAction(
   license: DesktopInteractionSessionLicense,
   action: DesktopActionPacket,
@@ -1586,7 +2043,7 @@ function workflowStateClaimStopConditionForAction(
         "Click and typing actions must reference a fresh workflow-state claim.",
         action.actionId,
         [
-          "Call desktop_submit_workflow_state_claim after the fresh perception digest.",
+          "Call desktop_submit_interaction_evidence with workflow evidence after inspecting the latest screenshot-bearing observation.",
           "Workflow state claims prove committed UI workflow readiness; element targeting alone is not enough."
         ]
       ),
@@ -1624,6 +2081,38 @@ function workflowStateClaimStopConditionForAction(
     };
   }
 
+  const latest = latestObservationId(context.observations);
+  const currentPerceptionDigest = findPerceptionDigest(
+    context.perceptionDigests,
+    action.perceptionDigestId
+  );
+  const claimDirectlyMatchesAction =
+    claim.observationId === preActionObservation.observationId &&
+    latest === claim.observationId &&
+    workflowStateClaimFresh(license, claim, action) &&
+    claim.perceptionDigestId === action.perceptionDigestId &&
+    desktopInteractionScopesMatch(claim.targetScope, action.targetScope) &&
+    workflowStateClaimFrameHashesMatch(claim, preActionObservation);
+
+  if (!claimDirectlyMatchesAction) {
+    const revalidation = evaluateWorkflowStateClaimRevalidation({
+      license,
+      actionId: action.actionId,
+      actionType: action.actionType,
+      requestedAt: action.requestedAt,
+      targetScope: action.targetScope,
+      intendedTarget: intendedTargetForAction(action),
+      preActionObservation,
+      currentPerceptionDigest,
+      workflowStateClaim: claim,
+      context
+    });
+
+    if (revalidation.ok) {
+      return undefined;
+    }
+  }
+
   if (claim.observationId !== preActionObservation.observationId) {
     return {
       stop: stopCondition(
@@ -1639,8 +2128,6 @@ function workflowStateClaimStopConditionForAction(
       auditTag: "workflow_state_claim_observation_mismatch"
     };
   }
-
-  const latest = latestObservationId(context.observations);
 
   if (latest !== claim.observationId) {
     return {

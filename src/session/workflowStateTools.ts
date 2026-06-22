@@ -354,6 +354,204 @@ function accountForWorkflowAssessment(
   };
 }
 
+export type WorkflowStateRecordResult =
+  | {
+      ok: true;
+      sessionId: string;
+      status: "accepted";
+      workflowStateClaim: DesktopWorkflowStateClaim;
+      workflowStateClaimId: string;
+      createdAt: string;
+      sourceObservationFrameHashes: string[];
+      transitionGate?: InteractionTransitionGate;
+      postActionStopCondition?: DesktopSessionStopCondition;
+      auditEvent: DesktopSessionAuditEvent;
+      residue: string[];
+    }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        message: string;
+      };
+      residue: string[];
+    };
+
+export function recordWorkflowStateClaim(
+  runtime: WorkflowStateToolRuntime,
+  input: unknown
+): WorkflowStateRecordResult {
+  const parsedInput = desktopSubmitWorkflowStateClaimInputSchema.parse(input);
+  const session = runtime.sessionStore.requireActiveSession(parsedInput.sessionId);
+  const observation = runtime.sessionStore.getObservation(
+    parsedInput.sessionId,
+    parsedInput.observationId
+  );
+
+  if (observation === undefined) {
+    return {
+      ok: false,
+      error: {
+        code: "observation_not_found",
+        message:
+          `Observation ${parsedInput.observationId} does not exist in session ${parsedInput.sessionId}.`
+      },
+      residue: ["No workflow-state claim was recorded."]
+    };
+  }
+
+  const perceptionDigest = runtime.sessionStore.getPerceptionDigest(
+    parsedInput.sessionId,
+    parsedInput.perceptionDigestId
+  );
+  const inputCheck = validateWorkflowClaimInputs({
+    observation,
+    latestObservationId: latestObservationId(
+      runtime.sessionStore.listObservations(parsedInput.sessionId)
+    ),
+    digest: perceptionDigest,
+    targetScope: parsedInput.targetScope,
+    intendedElementTarget: parsedInput.intendedElementTarget,
+    perceptionDigestId: parsedInput.perceptionDigestId,
+    now: runtime.now(),
+    sessionLicense: session.license
+  });
+
+  if (!inputCheck.ok) {
+    return {
+      ok: false,
+      error: {
+        code: inputCheck.code,
+        message: inputCheck.message
+      },
+      residue: inputCheck.residue
+    };
+  }
+
+  const transitionGate =
+    parsedInput.transitionActionId === undefined
+      ? undefined
+      : runtime.sessionStore.getTransitionGate(
+          parsedInput.sessionId,
+          parsedInput.transitionActionId
+        );
+  const transitionCheck = validateTransitionClaim({
+    transitionGate,
+    transitionActionId: parsedInput.transitionActionId,
+    observationId: parsedInput.observationId,
+    postconditionStatus: parsedInput.postconditionStatus
+  });
+
+  if (!transitionCheck.ok) {
+    return {
+      ok: false,
+      error: {
+        code: transitionCheck.code,
+        message: transitionCheck.message
+      },
+      residue: transitionCheck.residue
+    };
+  }
+
+  const normalizedMissingConfirmation = normalizeNoContradiction(
+    parsedInput.missingConfirmation
+  );
+  const normalizedCurrentContradiction = normalizeNoContradiction(
+    parsedInput.currentContradiction
+  );
+  const normalizationResidue = [
+    ...(parsedInput.missingConfirmation !== null && normalizedMissingConfirmation === null
+      ? [
+          `missingConfirmation sentinel ${JSON.stringify(parsedInput.missingConfirmation)} was normalized to JSON null.`
+        ]
+      : []),
+    ...(parsedInput.currentContradiction !== null && normalizedCurrentContradiction === null
+      ? [
+          `currentContradiction sentinel ${JSON.stringify(parsedInput.currentContradiction)} was normalized to JSON null.`
+        ]
+      : [])
+  ];
+  const claim: DesktopWorkflowStateClaim = {
+    ...parsedInput,
+    missingConfirmation: normalizedMissingConfirmation,
+    currentContradiction: normalizedCurrentContradiction,
+    workflowStateClaimId: runtime.generateId("workflow-state"),
+    createdAt: runtime.now(),
+    sourceObservationFrameHashes: observation.frames.map((frame) => frame.sha256),
+    status: "accepted"
+  };
+  const recordedClaim = runtime.sessionStore.recordWorkflowStateClaim(claim);
+  const alreadyAccountedRepair =
+    transitionGate !== undefined &&
+    repairDispositionRequiresAttempt(transitionGate.postActionClassification) &&
+    transitionGate.postActionClassification?.repairAttemptCount !== undefined;
+  const assessedTransitionGate =
+    transitionGate === undefined
+      ? undefined
+      : accountForWorkflowAssessment(
+          runtime,
+          parsedInput.sessionId,
+          applyWorkflowPostconditionAssessment(
+            transitionGate,
+            recordedClaim,
+            runtime.now()
+          ),
+          alreadyAccountedRepair
+        );
+
+  if (assessedTransitionGate !== undefined) {
+    runtime.sessionStore.updateTransitionGate(
+      assessedTransitionGate.transitionGate
+    );
+
+    if (assessedTransitionGate.stopCondition !== undefined) {
+      runtime.sessionStore.appendStopCondition(
+        assessedTransitionGate.stopCondition
+      );
+    }
+  }
+
+  const auditEvent: DesktopSessionAuditEvent = {
+    eventId: `event-${recordedClaim.workflowStateClaimId}`,
+    sessionId: parsedInput.sessionId,
+    eventType: "workflow_state_claim_recorded",
+    occurredAt: recordedClaim.createdAt,
+    observationId: parsedInput.observationId,
+    actionId: parsedInput.transitionActionId,
+    summary:
+      `Recorded workflow-state claim for ${parsedInput.intendedElementTarget}.`,
+    residue: [
+      "Workflow-state claim is client-authored; the server did not inspect or interpret pixels.",
+      "Claim is bound to the latest screenshot-bearing observation, perception digest, and frame hashes.",
+      `actionRole: ${recordedClaim.actionRole}.`,
+      `preconditionStatus: ${recordedClaim.preconditionStatus}.`,
+      `transientStateRisk: ${recordedClaim.transientStateRisk}.`,
+      `currentContradiction: ${formatNullableStringForAudit(recordedClaim.currentContradiction)}.`,
+      ...normalizationResidue
+    ]
+  };
+
+  runtime.sessionStore.appendAuditEvent(auditEvent);
+
+  return {
+    ok: true,
+    sessionId: parsedInput.sessionId,
+    status: "accepted",
+    workflowStateClaim: recordedClaim,
+    workflowStateClaimId: recordedClaim.workflowStateClaimId,
+    createdAt: recordedClaim.createdAt,
+    sourceObservationFrameHashes: recordedClaim.sourceObservationFrameHashes,
+    transitionGate: assessedTransitionGate?.transitionGate,
+    postActionStopCondition: assessedTransitionGate?.stopCondition,
+    auditEvent,
+    residue: [
+      "Workflow-state claim was recorded in session state and audit log.",
+      "Future click/type actions must reference this claim before any newer observation is recorded, unless bounded workflow revalidation applies across observation/move-only evidence.",
+      ...normalizationResidue
+    ]
+  };
+}
+
 export function registerWorkflowStateTools(
   server: McpServer,
   runtime: WorkflowStateToolRuntime
