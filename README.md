@@ -5,6 +5,7 @@ Policy-first TypeScript MCP server foundation for desktop automation agents.
 The current server exposes:
 
 - `desktop_capabilities` - reports runtime capabilities and safety posture.
+- `desktop_first_use_guide` - returns the compact first-use workflow, evidence rules, scope rules, and source docs for new clients.
 - `automation_policy_check` - classifies proposed desktop automation actions before execution.
 - `ui_intersection_plan` - builds read-only UI localization, intersection, and residue packets for future policy-gated click planning.
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
@@ -70,17 +71,19 @@ npm run dev
 
 With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
+For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect the returned MCP image content block before authoring a perception digest.
+
 The required click path is:
 
 ```text
-observe -> perception digest -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest -> observe
+observe -> inspect returned image -> perception digest -> workflow claim -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click with latest digest/workflow -> observe
 ```
 
 Compact API clients should still prefer JSON `null` for `contradictionToPriorClaim` when no contradiction is visible. For smaller agents, exact safe sentinel strings such as `"none"`, `"null"`, `"n/a"`, `"not applicable"`, and `"no contradiction observed"` are normalized to `null` at digest recording. Semantic target checks compare conservative canonical forms, so generic UI wording may vary, such as `Run button on the right` versus `Run control on right`; distinct targets such as `Run button` versus `Delete button` remain mismatches.
 
 Catalog app bootstrap uses `config/desktop_applications.json`. Add apps by ID and aliases there; `desktop_open_application` rejects unknown apps, path-like launch strings, and command-line argument fields.
 
-For real Windows observation or movement sessions, set `observationCadence.maxObservationGapMs` to `60000` unless the task explicitly needs a tighter freshness window. A 5s gap is often too short for the current real provider because capture, helper startup, visual reasoning, and post-action lookback can consume several seconds. This value keeps sessions bounded; it does not permit hidden polling, background capture, or stale action chains.
+For real Windows observation or movement sessions, prefer `riskLimits.maxDurationMs: 3600000`, `observationCadence.maxObservationGapMs: 180000`, and explicit `observationCadence.evidenceFreshness` tiers of 180000 ms for pre-action and click-candidate observations, and 300000 ms for perception digests, workflow-state claims, app-scope bindings, and hover witnesses. A single 5s or 60s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, workflow-state review, and post-action lookback can consume several seconds. These values keep sessions bounded; they do not permit hidden polling, background capture, stale digests, stale workflow claims, or blind action chains.
 
 ## Requirements
 

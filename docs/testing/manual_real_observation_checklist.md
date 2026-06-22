@@ -40,15 +40,16 @@ $env:ADMCP_ENABLE_REAL_TYPING = "true"
 ## Required Checks
 
 1. Call `desktop_capabilities`.
-2. Confirm `provider.providerKind` is `real`.
-3. Confirm `realDesktopObservation` is `true`.
-4. Confirm `realDesktopMouseMovement`, `realDesktopMutation`, `desktopMouseKeyboardTools`, and `executeDesktopActions` are `false` for the observation-only gate.
-5. Start a session with `visibleContentAcknowledged: true`.
-6. Use an allowed `window_title`, `process_name`, or `active_window` scope that matches the active test window.
-7. Call `desktop_observe` with bounded values, such as `mode: "single_frame"`, `maxFrames: 1`, and `durationMs: 0`.
-8. Confirm the returned observation includes active-window metadata, active-window-relative cursor position when available, and one PNG frame artifact.
-9. Repeat with a mismatched `window_title` and confirm the tool returns a controlled `scope_mismatch` error and records no observation.
-10. Confirm no mouse, click, or typing action is executed by the observation-only gate.
+2. Confirm `capabilities.firstUseGuide` is `true`, then call `desktop_first_use_guide` or inspect `usageGuidance.firstUseGuide`.
+3. Confirm `provider.providerKind` is `real`.
+4. Confirm `realDesktopObservation` is `true`.
+5. Confirm `realDesktopMouseMovement`, `realDesktopMutation`, `desktopMouseKeyboardTools`, and `executeDesktopActions` are `false` for the observation-only gate.
+6. Start a session with `visibleContentAcknowledged: true` and confirm the response includes `nextRequiredStep.tool: "desktop_observe"` with `includeImages: true`.
+7. Use an allowed `window_title`, `process_name`, or `active_window` scope that matches the active test window.
+8. Call `desktop_observe` with bounded values, such as `mode: "single_frame"`, `maxFrames: 1`, and `durationMs: 0`.
+9. Confirm the returned observation includes active-window metadata, active-window-relative cursor position when available, and one PNG frame artifact/image content block.
+10. Repeat with a mismatched `window_title` and confirm the tool returns a controlled `scope_mismatch` error and records no observation.
+11. Confirm no mouse, click, or typing action is executed by the observation-only gate.
 
 ## Optional Pointer-Movement Checks
 

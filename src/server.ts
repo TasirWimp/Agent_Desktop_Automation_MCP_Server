@@ -7,6 +7,7 @@ import {
   evaluateAutomationPolicy
 } from "./policy/automationPolicy.js";
 import type { DesktopApplicationCatalog } from "./providers/applicationCatalog.js";
+import { buildDesktopFirstUseGuide } from "./firstUseGuide.js";
 import {
   cursorObservationPacketSchema,
   intersectionSignalPacketSchema,
@@ -96,6 +97,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           clickCandidateWitnessGate: true,
           freshPerceptionDigest: true,
           workflowStateClaims: true,
+          firstUseGuide: true,
           compactRelationalClaims: true,
           semanticLandingAssessment: true,
           desktopOpenApplicationTool: true,
@@ -135,6 +137,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           credentialAccess: false
         },
         usageGuidance: {
+          firstUseGuide: buildDesktopFirstUseGuide(),
           recommendedObservationCadence: {
             realWindowsProviderMaxDurationMs: 3_600_000,
             realWindowsProviderMaxObservationGapMs: 180_000,
@@ -171,6 +174,23 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           ]
         }
       })
+  );
+
+  server.registerTool(
+    "desktop_first_use_guide",
+    {
+      title: "Desktop Automation First-Use Guide",
+      description:
+        "Return the compact first-use workflow for desktop automation clients. This is read-only and does not start a session or observe the desktop.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+      }
+    },
+    async () => jsonText(buildDesktopFirstUseGuide())
   );
 
   registerSessionTools(server, {

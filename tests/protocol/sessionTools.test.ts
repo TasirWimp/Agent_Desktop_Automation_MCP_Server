@@ -102,6 +102,7 @@ describe("session MCP tools", () => {
           "desktop_start_interaction_session",
           "desktop_end_interaction_session",
           "desktop_session_audit_log",
+          "desktop_first_use_guide",
           "desktop_observe",
           "desktop_move_mouse",
           "desktop_click",
@@ -136,6 +137,18 @@ describe("session MCP tools", () => {
           description: "Generated Test App is a local reversible UI test fixture.",
           userDeclaredReversible: true
         }
+      });
+      expect(structured.nextRequiredStep).toMatchObject({
+        tool: "desktop_observe",
+        arguments: {
+          sessionId: "session-protocol-001",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          includeImages: true
+        },
+        instruction: expect.stringContaining("Inspect the returned MCP image content block")
       });
       expect(sessionStore.listAuditEvents("session-protocol-001")).toHaveLength(1);
       expect(sessionStore.listAuditEvents("session-protocol-001")[0]).toMatchObject({

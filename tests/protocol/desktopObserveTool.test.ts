@@ -125,9 +125,29 @@ describe("desktop_observe MCP tool", () => {
         desktopMouseKeyboardTools: false,
         executeDesktopActions: false,
         tieredEvidenceFreshness: true,
-        hoverWitnessRevalidation: true
+        hoverWitnessRevalidation: true,
+        firstUseGuide: true
       });
       expect(structured.usageGuidance).toMatchObject({
+        firstUseGuide: {
+          firstCall: {
+            tool: "desktop_first_use_guide"
+          },
+          requiredLoop: expect.arrayContaining([
+            "desktop_observe with includeImages: true",
+            "inspect the returned MCP image content block from frame dataBase64",
+            "desktop_submit_perception_digest for the latest screenshot-bearing observation"
+          ]),
+          evidenceRules: expect.arrayContaining([
+            expect.stringContaining("MCP image content blocks"),
+            expect.stringContaining("latest screenshot-bearing observation"),
+            expect.stringContaining("newer desktop_observe invalidates older"),
+            expect.stringContaining("Coordinates are action endpoints only")
+          ]),
+          scopeRules: expect.arrayContaining([
+            expect.stringContaining("scope_exit means the active window drifted")
+          ])
+        },
         recommendedObservationCadence: {
           realWindowsProviderMaxDurationMs: 3_600_000,
           realWindowsProviderMaxObservationGapMs: 180_000,
@@ -140,6 +160,48 @@ describe("desktop_observe MCP tool", () => {
       expect(
         structured.usageGuidance.recommendedObservationCadence.rule
       ).toContain("observationCadence.maxObservationGapMs=180000");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("returns the compact first-use guide as a read-only tool", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const tools = await client.listTools();
+      const guideTool = tools.tools.find((tool) => tool.name === "desktop_first_use_guide");
+
+      expect(guideTool).toBeDefined();
+      expect(guideTool?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {}
+      });
+      expect(guideTool?.annotations).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false
+      });
+
+      const capabilitiesResult = await client.callTool({
+        name: "desktop_capabilities",
+        arguments: {}
+      });
+      const guideResult = await client.callTool({
+        name: "desktop_first_use_guide",
+        arguments: {}
+      });
+      const capabilities = parseJsonText(capabilitiesResult);
+      const guide = parseJsonText(guideResult);
+
+      expect(guide).toEqual(capabilities.usageGuidance.firstUseGuide);
+      expect(guide.sourceDocs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "docs/process/codex_desktop_interaction_reentry.md"
+          })
+        ])
+      );
     } finally {
       await client.close();
       await server.close();

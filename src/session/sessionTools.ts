@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { buildDesktopSessionNextRequiredStep } from "../firstUseGuide.js";
 import {
   desktopLicensedAppScopeSchema,
   desktopCompactSemanticLandingAssessmentSchema,
@@ -487,6 +488,10 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
           status: session.status,
           policy,
           session: summarizeSession(session),
+          nextRequiredStep: buildDesktopSessionNextRequiredStep(
+            sessionId,
+            input.licensedAppScope?.scope ?? input.allowedScopes[0]
+          ),
           auditEvent,
           residue: ["Session state was created. No desktop action tools are enabled in this slice."]
         });
