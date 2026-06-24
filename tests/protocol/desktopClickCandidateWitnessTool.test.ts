@@ -234,6 +234,57 @@ async function startAndObserve(client: Client, overrides: Record<string, unknown
 }
 
 describe("desktop_evaluate_click_candidate MCP tool", () => {
+  it("rejects inline transition assessment instead of silently ignoring it", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const result = await client.callTool({
+        name: "desktop_evaluate_click_candidate",
+        arguments: {
+          sessionId: "session-click-candidate-001",
+          observationId: "observation-unknown",
+          perceptionDigestId: "perception-digest-unknown",
+          targetScope: {
+            kind: "window_title",
+            value: "Generated Test App"
+          },
+          intendedSemanticTarget: "Submit button",
+          candidatePoint: {
+            x: 120,
+            y: 80
+          },
+          transitionAssessment: {
+            actionId: "action-unknown",
+            assessment: {
+              outcome: "supported",
+              relationHeld: true,
+              candidateSupported: true,
+              rejectedAlternativeAvoided: true,
+              expectedEvidenceSeen: "row/control highlights or opens target",
+              contradictionSeen: false,
+              summary: "Unsupported inline assessment should be rejected."
+            }
+          },
+          risk: {
+            credentialExposure: false,
+            destructive: false,
+            externalEffect: false,
+            systemChange: false,
+            recoverability: "high"
+          }
+        }
+      });
+      const textBlock = result.content.find((block) => block.type === "text");
+
+      expect(result.isError).toBe(true);
+      expect(textBlock?.type).toBe("text");
+      expect(textBlock?.text).toContain("transitionAssessment");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("reports the click-candidate witness gate while real click remains unavailable", async () => {
     const { client, server } = await createConnectedClient();
 

@@ -91,7 +91,7 @@ export const clickCandidateWitnessInputSchema = z.object({
   candidateBbox: desktopRectangleSchema.optional(),
   movementActionId: z.string().min(1).optional(),
   risk: clickCandidateRiskInputSchema
-});
+}).strict();
 
 type ClickCandidateWitnessInput = z.infer<typeof clickCandidateWitnessInputSchema>;
 export type DesktopClickCandidateWitnessInput = ClickCandidateWitnessInput;

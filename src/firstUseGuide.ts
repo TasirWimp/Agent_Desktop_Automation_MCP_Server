@@ -32,7 +32,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "desktop_submit_interaction_evidence with perception evidence and optional workflow/candidate/transition evidence",
       "desktop_move_mouse, desktop_click, or desktop_type_text with compact relational claim and returned evidence ids",
       "desktop_observe with transitionActionId",
-      "desktop_submit_interaction_evidence for the follow-up observation and transition assessment",
+      "desktop_submit_interaction_evidence for the follow-up observation with transitionAssessment and clickCandidate evidence",
       "continue, repair, or stop based on nextRequiredStep"
     ],
     evidenceRules: [
@@ -44,7 +44,10 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "Workflow-state claims normally bind to the latest screenshot-bearing observation; older workflow claims may only be revalidated across observation-only and audited move-only hover/probe changes.",
       "The server is a witness/path governor, not a visual meaning authority; the client must author current perception and workflow claims from the inspected artifact.",
       "Coordinates are action endpoints only; they never prove that the semantic target was correct.",
-      "Supported semantic landing requires the follow-up screenshot to support the stored relation, candidate, rejected alternative, and expected evidence."
+      "Supported semantic landing requires the follow-up screenshot to support the stored relation, candidate, rejected alternative, and expected evidence.",
+      "Click-candidate evidence must bind to movement evidence with clickCandidate.movementActionId, or with transitionAssessment.actionId in the same helper call.",
+      "desktop_click is allowed only after the helper or strict candidate evaluator returns hoverTargetWitnessId; never click from cursor proximity alone.",
+      "desktop_evaluate_click_candidate does not accept inline transitionAssessment; submit semantic landing through desktop_submit_interaction_evidence or desktop_submit_transition_assessment first."
     ],
     scopeRules: [
       "Sessions with licensedAppScope bind the app-under-test during desktop_observe.",
@@ -59,6 +62,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
     commonFailureRecovery: [
       "If a digest is stale, call desktop_observe with includeImages: true and submit desktop_submit_interaction_evidence for the latest observation.",
       "If click-candidate readiness fails on workflow state, submit workflow evidence through desktop_submit_interaction_evidence or reuse an older workflowStateClaimId only when bounded revalidation applies.",
+      "If click-candidate readiness reports missing movement evidence, resubmit with clickCandidate.movementActionId or include transitionAssessment.actionId in the same helper call.",
       "If scope_exit appears, bring the intended app back to the foreground before continuing or start a new bounded session."
     ],
     sourceDocs: [

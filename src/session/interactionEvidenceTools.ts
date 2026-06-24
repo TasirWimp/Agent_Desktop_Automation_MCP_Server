@@ -196,13 +196,31 @@ function nextRequiredStepFor(input: {
   workflowStateClaimId?: string;
   hoverTargetWitnessId?: string;
   failedStep?: string;
+  failedCode?: string;
   clickCandidateStatus?: string;
 }) {
   if (input.failedStep !== undefined) {
+    if (
+      input.failedStep === "click_candidate" &&
+      input.failedCode === "click_candidate_movement_action_required"
+    ) {
+      return {
+        tool: "desktop_submit_interaction_evidence",
+        instruction:
+          "Click candidate needs movement evidence; resubmit with clickCandidate.movementActionId or include transitionAssessment.actionId for the same movement action. Do not call desktop_click until hoverTargetWitnessId is returned.",
+        arguments: {
+          sessionId: input.sessionId,
+          observationId: input.observationId,
+          targetScope: input.targetScope,
+          intendedTarget: input.intendedTarget
+        }
+      };
+    }
+
     return {
       tool: "desktop_submit_interaction_evidence",
       instruction:
-        `Repair ${input.failedStep} for the latest screenshot-bearing observation before requesting mutation.`,
+        `Repair ${input.failedStep} for the latest screenshot-bearing observation before requesting mutation. Do not call desktop_click until hoverTargetWitnessId is returned.`,
       arguments: {
         sessionId: input.sessionId,
         observationId: input.observationId,
@@ -385,7 +403,38 @@ export function registerInteractionEvidenceTools(
         let hoverTargetWitnessId: string | undefined;
         let clickCandidateStatus: string | undefined;
 
-        if (parsedInput.workflow !== undefined) {
+        if (failures.length === 0 && parsedInput.transitionAssessment !== undefined) {
+          const existingTransitionGate = runtime.sessionStore.getTransitionGate(
+            parsedInput.sessionId,
+            parsedInput.transitionAssessment.actionId
+          );
+
+          if (existingTransitionGate?.semanticLandingAssessment !== undefined) {
+            created.transitionGate = existingTransitionGate;
+            residue.push(
+              "Existing semantic landing assessment was reused for the requested transition action."
+            );
+          } else {
+            const transitionResult = recordTransitionAssessment(runtime, {
+              sessionId: parsedInput.sessionId,
+              actionId: parsedInput.transitionAssessment.actionId,
+              perceptionDigestId,
+              assessment: parsedInput.transitionAssessment.assessment
+            });
+
+            if (transitionResult.ok) {
+              created.transitionGate = transitionResult.transitionGate;
+            } else {
+              failures.push({
+                step: "transition_assessment",
+                error: transitionResult.error,
+                residue: transitionResult.residue
+              });
+            }
+          }
+        }
+
+        if (failures.length === 0 && parsedInput.workflow !== undefined) {
           const workflowResult = recordWorkflowStateClaim(runtime, {
             ...parsedInput.workflow,
             sessionId: parsedInput.sessionId,
@@ -411,32 +460,38 @@ export function registerInteractionEvidenceTools(
           }
         }
 
-        if (failures.length === 0 && parsedInput.transitionAssessment !== undefined) {
-          const transitionResult = recordTransitionAssessment(runtime, {
-            sessionId: parsedInput.sessionId,
-            actionId: parsedInput.transitionAssessment.actionId,
-            perceptionDigestId,
-            assessment: parsedInput.transitionAssessment.assessment
-          });
+        if (failures.length === 0 && parsedInput.clickCandidate !== undefined) {
+          const movementActionId =
+            parsedInput.clickCandidate.movementActionId ??
+            parsedInput.transitionAssessment?.actionId;
 
-          if (transitionResult.ok) {
-            created.transitionGate = transitionResult.transitionGate;
-          } else {
+          if (movementActionId === undefined) {
             failures.push({
-              step: "transition_assessment",
-              error: transitionResult.error,
-              residue: transitionResult.residue
+              step: "click_candidate",
+              error: {
+                code: "click_candidate_movement_action_required",
+                message:
+                  "clickCandidate requires movementActionId or transitionAssessment.actionId to bind hover readiness to a movement gate."
+              },
+              residue: [
+                "No click candidate was evaluated.",
+                "Submit clickCandidate.movementActionId, or include transitionAssessment for the movement action in the same helper call.",
+                "Do not call desktop_click until hoverTargetWitnessId is returned."
+              ]
             });
           }
         }
 
         if (failures.length === 0 && parsedInput.clickCandidate !== undefined) {
+          const movementActionId =
+            parsedInput.clickCandidate.movementActionId ??
+            parsedInput.transitionAssessment?.actionId;
           const candidateResult = evaluateAndRecordClickCandidate(runtime, {
             sessionId: parsedInput.sessionId,
             observationId: parsedInput.observationId,
             perceptionDigestId,
             workflowStateClaimId,
-            movementActionId: parsedInput.clickCandidate.movementActionId,
+            movementActionId,
             targetScope: parsedInput.targetScope,
             intendedSemanticTarget: parsedInput.intendedTarget,
             candidatePoint: parsedInput.clickCandidate.candidatePoint,
@@ -483,6 +538,7 @@ export function registerInteractionEvidenceTools(
             workflowStateClaimId,
             hoverTargetWitnessId,
             failedStep: failures[0]?.step,
+            failedCode: failures[0]?.error.code,
             clickCandidateStatus
           }),
           residue: [

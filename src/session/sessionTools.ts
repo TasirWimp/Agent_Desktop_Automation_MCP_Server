@@ -458,13 +458,22 @@ export function recordTransitionAssessment(
     parsedInput.actionId
   );
 
-  if (transitionGate.status !== "observed") {
+  const transitionReadyForSemanticAssessment =
+    transitionGate.status === "observed" ||
+    (transitionGate.status === "audited" &&
+      transitionGate.actionType === "move_mouse" &&
+      transitionGate.followUpObservationId !== undefined &&
+      transitionGate.semanticLandingAssessment === undefined);
+
+  if (!transitionReadyForSemanticAssessment) {
     return {
       ok: false,
       error: {
         code: "transition_not_observed",
         message:
-          "The referenced transition gate must be observed before a semantic landing assessment can be submitted."
+          transitionGate.semanticLandingAssessment === undefined
+            ? "The referenced transition gate must be observed before a semantic landing assessment can be submitted."
+            : "The referenced transition gate already has a semantic landing assessment."
       },
       transitionGate,
       residue: ["No transition assessment was recorded."]
@@ -726,13 +735,22 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
           input.actionId
         );
 
-        if (transitionGate.status !== "observed") {
+        const transitionReadyForSemanticAssessment =
+          transitionGate.status === "observed" ||
+          (transitionGate.status === "audited" &&
+            transitionGate.actionType === "move_mouse" &&
+            transitionGate.followUpObservationId !== undefined &&
+            transitionGate.semanticLandingAssessment === undefined);
+
+        if (!transitionReadyForSemanticAssessment) {
           return structuredResult(
             {
               error: {
                 code: "transition_not_observed",
                 message:
-                  "The referenced transition gate must be observed before a semantic landing assessment can be submitted."
+                  transitionGate.semanticLandingAssessment === undefined
+                    ? "The referenced transition gate must be observed before a semantic landing assessment can be submitted."
+                    : "The referenced transition gate already has a semantic landing assessment."
               },
               transitionGate,
               residue: ["No transition assessment was recorded."]

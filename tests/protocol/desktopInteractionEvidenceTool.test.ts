@@ -262,4 +262,309 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
       await server.close();
     }
   });
+
+  it("records semantic landing before workflow postcondition and infers click candidate movement action", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      const initialObservation = await startAndObserve(client);
+      const initialObservationId = initialObservation.observationId as string;
+      const initialEvidenceResult = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId: initialObservationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "new_target",
+          perception: perceptionEvidence("Initial screenshot shows the Submit control.")
+        }
+      });
+      const initialEvidence = parseStructuredContent(initialEvidenceResult);
+      const moveResult = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          targetScope,
+          preActionObservationId: initialObservationId,
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialEvidence.perceptionDigestId,
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim(initialObservationId)
+        }
+      });
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const followUpResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          targetScope,
+          includeImages: true,
+          transitionActionId: moveActionId
+        }
+      });
+      const followUpObservation = parseStructuredContent(followUpResult)
+        .observation as Record<string, unknown>;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const evidenceResult = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId: followUpObservationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "same_target",
+          perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
+          transitionAssessment: {
+            actionId: moveActionId,
+            assessment: {
+              outcome: "supported",
+              relationHeld: true,
+              candidateSupported: true,
+              rejectedAlternativeAvoided: true,
+              expectedEvidenceSeen: "row/control highlights or opens target",
+              contradictionSeen: false,
+              summary: "Follow-up screenshot supports the target row/control."
+            }
+          },
+          workflow: {
+            ...workflowEvidence(),
+            transitionActionId: moveActionId,
+            postconditionStatus: "satisfied",
+            expectedPostcondition:
+              "The prior movement leaves the cursor on the Submit button, ready for click."
+          },
+          clickCandidate: {
+            candidatePoint: {
+              x: 120,
+              y: 80
+            }
+          }
+        }
+      });
+      const evidence = parseStructuredContent(evidenceResult);
+
+      expect(evidenceResult.isError).not.toBe(true);
+      expect(evidence.status).toBe("accepted");
+      expect(evidence.hoverTargetWitnessId).toEqual(expect.stringMatching(/^hover-witness-/u));
+      expect(evidence.clickCandidateStatus).toBe("candidate_ready");
+      expect(evidence.created).toMatchObject({
+        transitionGate: {
+          semanticLandingAssessment: {
+            outcome: "supported"
+          }
+        },
+        workflowTransitionGate: {
+          status: "audited",
+          workflowPostconditionAssessment: {
+            postconditionStatus: "satisfied"
+          },
+          semanticLandingAssessment: {
+            outcome: "supported"
+          }
+        },
+        hoverTargetWitness: {
+          sourceMoveActionId: moveActionId
+        }
+      });
+      expect(sessionStore.listHoverTargetWitnesses("session-interaction-evidence-001")).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("reuses recorded semantic landing when retrying after a workflow postcondition repair", async () => {
+    const { client, server, sessionStore } = await createConnectedClient();
+
+    try {
+      const initialObservation = await startAndObserve(client);
+      const initialObservationId = initialObservation.observationId as string;
+      const initialEvidenceResult = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId: initialObservationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "new_target",
+          perception: perceptionEvidence("Initial screenshot shows the Submit control.")
+        }
+      });
+      const initialEvidence = parseStructuredContent(initialEvidenceResult);
+      const moveResult = await client.callTool({
+        name: "desktop_move_mouse",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          targetScope,
+          preActionObservationId: initialObservationId,
+          point: {
+            x: 120,
+            y: 80
+          },
+          perceptionDigestId: initialEvidence.perceptionDigestId,
+          intendedSemanticTarget: "Submit button",
+          compactRelationalClaim: compactClaim(initialObservationId)
+        }
+      });
+      const moveAction = parseStructuredContent(moveResult).action as Record<string, unknown>;
+      const moveActionId = moveAction.actionId as string;
+      const followUpResult = await client.callTool({
+        name: "desktop_observe",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          targetScope,
+          includeImages: true,
+          transitionActionId: moveActionId
+        }
+      });
+      const followUpObservation = parseStructuredContent(followUpResult)
+        .observation as Record<string, unknown>;
+      const followUpObservationId = followUpObservation.observationId as string;
+      const transitionAssessment = {
+        actionId: moveActionId,
+        assessment: {
+          outcome: "supported",
+          relationHeld: true,
+          candidateSupported: true,
+          rejectedAlternativeAvoided: true,
+          expectedEvidenceSeen: "row/control highlights or opens target",
+          contradictionSeen: false,
+          summary: "Follow-up screenshot supports the target row/control."
+        }
+      };
+      const partialResult = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId: followUpObservationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "same_target",
+          perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
+          transitionAssessment,
+          workflow: {
+            ...workflowEvidence(),
+            transitionActionId: moveActionId,
+            postconditionStatus: "not_applicable"
+          },
+          clickCandidate: {
+            candidatePoint: {
+              x: 120,
+              y: 80
+            }
+          }
+        }
+      });
+      const partialEvidence = parseStructuredContent(partialResult);
+
+      expect(partialEvidence.status).toBe("partial");
+      expect(partialEvidence.failures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            step: "workflow_state_claim",
+            error: expect.objectContaining({
+              code: "workflow_postcondition_status_required"
+            })
+          })
+        ])
+      );
+      expect(partialEvidence.created).toMatchObject({
+        transitionGate: {
+          semanticLandingAssessment: {
+            outcome: "supported"
+          }
+        }
+      });
+
+      const retryResult = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId: followUpObservationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "same_target",
+          perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
+          transitionAssessment,
+          workflow: {
+            ...workflowEvidence(),
+            transitionActionId: moveActionId,
+            postconditionStatus: "satisfied"
+          },
+          clickCandidate: {
+            candidatePoint: {
+              x: 120,
+              y: 80
+            }
+          }
+        }
+      });
+      const retryEvidence = parseStructuredContent(retryResult);
+
+      expect(retryResult.isError).not.toBe(true);
+      expect(retryEvidence.status).toBe("accepted");
+      expect(retryEvidence.hoverTargetWitnessId).toEqual(expect.stringMatching(/^hover-witness-/u));
+      expect(retryEvidence.clickCandidateStatus).toBe("candidate_ready");
+      expect(retryEvidence.residue).toEqual(
+        expect.arrayContaining([
+          "Existing semantic landing assessment was reused for the requested transition action."
+        ])
+      );
+      expect(sessionStore.listHoverTargetWitnesses("session-interaction-evidence-001")).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("requires click candidate movement binding when no transition assessment can infer it", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const observation = await startAndObserve(client);
+      const observationId = observation.observationId as string;
+      const result = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "new_target",
+          perception: perceptionEvidence("Initial screenshot shows the Submit control."),
+          clickCandidate: {
+            candidatePoint: {
+              x: 120,
+              y: 80
+            }
+          }
+        }
+      });
+      const evidence = parseStructuredContent(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(evidence.status).toBe("partial");
+      expect(evidence.failures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            step: "click_candidate",
+            error: expect.objectContaining({
+              code: "click_candidate_movement_action_required"
+            })
+          })
+        ])
+      );
+      expect(evidence.nextRequiredStep).toMatchObject({
+        tool: "desktop_submit_interaction_evidence"
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
 });

@@ -84,6 +84,8 @@ observe -> inspect visual artifact -> submit_interaction_evidence -> compact rel
 
 Strict/debug clients may still use the expanded sequence: `observe -> perception digest -> workflow claim -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click -> observe`.
 
+For click readiness, `hoverTargetWitnessId` is the required click token. When submitting `clickCandidate` through `desktop_submit_interaction_evidence`, provide `clickCandidate.movementActionId`; if it is omitted, the helper can infer it only from `transitionAssessment.actionId` in the same call. The strict `desktop_evaluate_click_candidate` tool does not accept inline `transitionAssessment`; record semantic landing first through the helper or `desktop_submit_transition_assessment`.
+
 Compact API clients should still prefer JSON `null` for `contradictionToPriorClaim` when no contradiction is visible. For smaller agents, exact safe sentinel strings such as `"none"`, `"null"`, `"n/a"`, `"not applicable"`, and `"no contradiction observed"` are normalized to `null` at digest recording. Semantic target checks compare conservative canonical forms, so generic UI wording may vary, such as `Run button on the right` versus `Run control on right`; distinct targets such as `Run button` versus `Delete button` remain mismatches.
 
 Catalog app bootstrap uses `config/desktop_applications.json`. Add apps by ID and aliases there; `desktop_open_application` rejects unknown apps, path-like launch strings, and command-line argument fields.
