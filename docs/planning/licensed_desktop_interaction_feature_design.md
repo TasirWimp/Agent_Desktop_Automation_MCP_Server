@@ -883,6 +883,8 @@ Click-candidate witness evidence should be consumed by app-scoped click work as 
 
 ADMCP-023 should be implemented as a governed multi-cycle UI test carrier, not as a generic UI automation runner. The runner's purpose is to preserve orientation and residue across real app test cycles:
 
+Detailed carrier-state refinement lives in `docs/planning/admcp_023_carrier_state_design.md`. This feature design keeps the safety and session-tool boundary; the carrier-state document is the detailed ADMCP-023 design reference.
+
 ```text
 test pressure
   -> active cut
@@ -1186,14 +1188,17 @@ This blocks the default UI-runner failure mode where a sequence of actions is ex
 
 Recommended ADMCP-023 split:
 
-- ADMCP-023A Scenario Contract And Artifact Schemas: validate scenario, structured protected outcomes, tool-to-cycle-kind matrix, cycle, carrier, closure, and landfall schemas without executing desktop actions.
-- ADMCP-023B Mock Cycle Runner: run the loop against deterministic mock/provider fixtures and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts.
-- ADMCP-023C Local App Manual Runner: use real observation/click/type only behind existing gates against a user-launched reversible app-under-test.
-- ADMCP-023D Phaser/Vite Fixture Pressure Test: pressure-test pass, no-op, wrong-target, delayed-transition, and scope-exit cases in a deliberately small local fixture.
+The slice labels are normalized by `docs/planning/admcp_023_carrier_state_design.md`. Mock, local manual, and Phaser/Vite pressure-test coverage remain required, but the implementation sequence should use ADMCP-023A-E:
+
+- ADMCP-023A Scenario Contract And Carrier Schemas: validate scenario, target registry, structured protected outcomes, tool-to-cycle-kind matrix, cycle, carrier, safety report, closure, and landfall/re-entry schemas without executing desktop actions.
+- ADMCP-023B Carrier Update Library: add pure target-canonical, evidence-phase, route-carrier, residue, protected-outcome, and closure-decision functions.
+- ADMCP-023C Governed Runner Harness: compose existing MCP tools only, prefer `desktop_submit_interaction_evidence`, and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts against mock/provider fixtures.
+- ADMCP-023D Artifact And Safety Sidecar Writer: persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, audit events, closure result, and safety report without secrets, raw typed text, gated evaluators, or hidden answers.
+- ADMCP-023E Guidance Refinement: add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, and click-candidate movement binding.
 
 Implementation readiness:
 
 - ADMCP-023 planning is ready.
 - ADMCP-023A is ready after these schema constraints are preserved in code.
-- ADMCP-023B, ADMCP-023C, and ADMCP-023D remain later slices.
-- The next code change should implement ADMCP-023A only: scenario contract schema, cycle packet schema, carrier schema, closure gate schema, landfall packet schema, and schema tests. It must execute no desktop actions and must not add runner orchestration.
+- ADMCP-023B, ADMCP-023C, ADMCP-023D, and ADMCP-023E remain later slices.
+- The next code change should implement ADMCP-023A only: scenario contract schema, target registry schema, cycle packet schema, carrier schema, safety report schema, closure gate schema, landfall/re-entry packet schema, and schema tests. It must execute no desktop actions and must not add runner orchestration.
