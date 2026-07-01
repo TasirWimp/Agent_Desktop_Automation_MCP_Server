@@ -10,6 +10,7 @@ This refinement uses four input families:
 
 1. OSWorld 2.0 paper, `arXiv:2606.29537`.
    - Source-supported signal: long-horizon computer-use tasks expose failures in constraint tracking, hidden-state recovery, dynamic interaction, visual-spatial precision, asking/verification, and safety-sensitive side effects.
+   - Source-supported signal: long-horizon evaluation needs challenge-phenomenon tags, fine-grained checkpoint outcomes, explicit semantic freshness for changing sources, side-effect safety reports, behavior/failure labels, and release/provenance discipline.
 2. `xlang-ai/OSWorld-V2` GitHub repository.
    - Source-supported signal: comparable runs need pinned release/provenance manifests, gated task/evaluator separation, per-run result directories, observation/action trajectory artifacts, provider/image metadata, and explicit environment cleanup.
 3. `TasirWimp/CRPM` UI-navigation carrier documents.
@@ -54,6 +55,31 @@ ADMCP-023 should therefore make these rules runner-owned invariants:
 
 The server should still not analyze screenshots. The runner may structure, preserve, and validate the agent-authored evidence path; the agent remains responsible for inspecting visual artifacts and authoring visual claims.
 
+## OSWorld-Derived Runner Pressure
+
+OSWorld 2.0 separates several pressures that ADMCP-023 should preserve without becoming an OSWorld runner.
+
+First, scenario authors should declare challenge phenomena. These tags are not scoring labels; they tell the runner which stale-state and closure traps to expect:
+
+- `visual_spatial_precision`
+- `streaming_interaction`
+- `dynamic_environment`
+- `proactive_interaction`
+- `cross_source_reasoning`
+- `implicit_state_inference`
+- `multi_item_state_tracking`
+- `conflict_disambiguation`
+- `tutorial_following`
+- `multimodal_editing`
+
+Second, `streaming_interaction` and `dynamic_environment` must remain distinct. Streaming interaction means the visual target can move or change between observation and action; it should tighten pre-action revalidation and repair expectations. Dynamic environment means semantic task requirements can change while the agent works; it should require declared watched sources and semantic freshness checks before commit or closure.
+
+Third, protected outcomes should be checkpointed. A single binary `passed` flag hides partial progress and encourages premature closure. ADMCP-023 should represent required checkpoints, optional partial checkpoints, critical blockers, acceptable evidence, and insufficient evidence. `partial_landfall` should come from checkpoint state, not from prose confidence.
+
+Fourth, `ask` should be a first-class runner outcome. Missing evidence, conflicting evidence, unsafe ambiguity, or invalid task conditions should move the carrier to `ask` rather than forcing the agent to guess. Any user answer must be recorded as a source update and should invalidate or revalidate the affected carrier fields.
+
+Fifth, safety should be inspected independently from task completion. The safety sidecar should record side-effect risk even when the UI task appears successful.
+
 ## Non-Goals
 
 ADMCP-023 must not add:
@@ -85,6 +111,18 @@ ui_test_scenario_contract:
   scenario_id:
   scenario_revision:
   human_goal:
+  run_kind: local_exploratory | official_comparable | regression_fixture
+  challenge_phenomena:
+    - visual_spatial_precision
+    - streaming_interaction
+    - dynamic_environment
+    - proactive_interaction
+    - cross_source_reasoning
+    - implicit_state_inference
+    - multi_item_state_tracking
+    - conflict_disambiguation
+    - tutorial_following
+    - multimodal_editing
   app_under_test:
     description:
     scope:
@@ -116,6 +154,32 @@ ui_test_scenario_contract:
       forbidden_aliases: []
       target_scope:
       field_reuse_policy: exact_reuse_across_digest_workflow_transition_candidate_action
+  watched_sources:
+    - source_key:
+      source_kind: active_window | app_panel | file | document | message_channel | user_channel | external_artifact | runtime_artifact
+      authoritative_for: []
+      recheck_policy: before_commit | before_closure | after_transition | on_visible_change | not_applicable
+      semantic_freshness_window_ms:
+      stale_blocks:
+        - closure
+        - execute_committed_action
+        - type_text
+  protected_outcome_checkpoints:
+    - checkpoint_id:
+      description:
+      required_for_pass: true
+      critical_blocker: false
+      acceptable_evidence:
+        - screenshot_reference
+        - scenario_declared_visual_cue
+        - provider_delta_summary
+        - transition_classification
+        - functional_state_check
+      insufficient_when:
+        - frame_hash_delta_only
+        - cursor_position_only
+        - local_event_without_lookback
+      partial_credit_weight:
   protected_outcomes:
     - outcome_id:
       description:
@@ -131,6 +195,10 @@ ui_test_scenario_contract:
   max_cycles:
   max_actions:
   max_duration_ms:
+  verification_budget:
+    min_verification_cycles_before_pass:
+    reserved_repair_cycles:
+    ask_budget:
   observation_cadence:
     max_observation_gap_ms:
     evidence_freshness:
@@ -155,8 +223,11 @@ ui_test_scenario_contract:
       - artifact_replayable
     close_blocked_if:
       - frame_hash_delta_only
+      - required_checkpoint_unsatisfied
       - target_canonical_drift
       - stale_or_contradicted_digest
+      - watched_source_stale
+      - unresolved_ask_required
       - missing_workflow_postcondition_status
       - pending_or_unassessed_transition
       - hidden_state_unrecovered
@@ -186,6 +257,7 @@ ui_test_run_carrier:
     provider_gates:
     application_catalog_sha:
   external_provenance:
+    run_kind: local_exploratory | official_comparable | regression_fixture
     osworld_release_manifest: optional
     osworld_code_tag: optional
     website_code_tag: optional
@@ -198,6 +270,26 @@ ui_test_run_carrier:
     bound_app_scope:
     action_budget:
     time_budget:
+    verification_budget:
+    repair_budget_remaining:
+    ask_budget_remaining:
+  challenge_phenomena_status:
+    - phenomenon:
+      status: not_reached | active | handled | blocked | untested
+      evidence: []
+      residue: []
+  watched_source_status:
+    - source_key:
+      last_checked_observation_id:
+      last_checked_at:
+      semantic_freshness: current | stale | unknown | not_applicable
+      authoritative_state_summary:
+      residue: []
+  ask_state:
+    status: not_needed | ask_required | asked | answered | unresolved
+    reason:
+    user_answer_source_id:
+    carrier_fields_invalidated: []
   target_registry:
     active_target_key:
     canonical_intended_target:
@@ -217,6 +309,11 @@ ui_test_run_carrier:
       status: satisfied | unsatisfied | unresolved | contradicted
       evidence: []
       residue: []
+  checkpoint_status:
+    - checkpoint_id:
+      status: satisfied | unsatisfied | unresolved | contradicted | not_reached
+      evidence: []
+      residue: []
   route_carrier:
     ladder_level: v0_source_pressure | v1_local_event | v2_route_dynamics | v3_reentry_geometry
     status: local_event | candidate_route | carries_with_residual | placeholder_only | carrier_overpromotion_risk
@@ -230,6 +327,11 @@ ui_test_run_carrier:
     missing_expected_evidence: []
     policy_or_scope_residue: []
     target_canonical_residue: []
+    source_semantic_staleness: []
+    ask_required: []
+    checkpoint_residue: []
+    safety_side_effects: []
+    behavior_labels: []
   closure:
     status: open | repair | ask | partial_landfall | passed | stopped
     reason:
@@ -312,6 +414,27 @@ After a miss, the runner should record the contradiction with `repair_target`, o
 
 The carrier must make `repair_exit_required` explicit after a contradicted repair digest. The next normal action is blocked until the active target has a fresh clean digest id with `contradictionToPriorClaim: null`, visible target state, and consistent or not-applicable continuity.
 
+## Semantic Freshness And Ask Discipline
+
+The runner should track semantic freshness separately from screenshot freshness.
+
+```yaml
+semantic_freshness:
+  watched_source_key:
+  source_kind:
+  last_checked_at:
+  last_checked_observation_id:
+  status: current | stale | unknown | not_applicable
+  stale_blocks:
+    - closure
+    - execute_committed_action
+  residue:
+```
+
+`dynamic_environment`, `cross_source_reasoning`, `implicit_state_inference`, `multi_item_state_tracking`, and `conflict_disambiguation` scenarios should declare watched sources whenever the task can change or depend on evidence outside the current visual target. The runner should block `passed` closure when an authoritative watched source is stale or unknown.
+
+`ask` is a valid cycle decision when the missing or conflicting state cannot be resolved inside the licensed app-under-test. The runner should record the exact question, why it was necessary, the answer source, and which carrier fields were invalidated or revalidated by the answer.
+
 ## Workflow Postcondition Discipline
 
 Any workflow evidence that references `transitionActionId` must include an explicit postcondition status:
@@ -345,6 +468,25 @@ Strict/debug tools remain valid, but ADMCP-023 should treat the helper as the no
 
 The governed runner should carry the returned ids forward. A successful helper response should update the carrier with the current `perceptionDigestId`, `workflowStateClaimId`, optional `transitionActionId`, optional `clickCandidateStatus`, and optional `hoverTargetWitnessId`. A later click or type request should be assembled from this carrier state, not from free-form agent recollection.
 
+## Checkpointed Protected Outcomes
+
+ADMCP-023 should distinguish task completion from progress by evaluating checkpoint state:
+
+```yaml
+protected_outcome_checkpoint:
+  checkpoint_id:
+  outcome_id:
+  required_for_pass: true | false
+  critical_blocker: true | false
+  status: not_reached | satisfied | unsatisfied | unresolved | contradicted
+  acceptable_evidence: []
+  insufficient_when: []
+  evidence: []
+  residue: []
+```
+
+`passed` requires all required checkpoints to be satisfied and no critical blocker to be active. `partial_landfall` is allowed when meaningful checkpoints are satisfied but required checkpoints remain unresolved or residualized and no same-license probe can reduce that residue. A checkpoint may not be satisfied by `frame_hash_delta_only`, `cursor_position_only`, or a local event without lookback unless the scenario explicitly declares that evidence sufficient.
+
 ## CRPM Ladder Mapping
 
 ADMCP-023 should keep these promotion boundaries visible:
@@ -373,6 +515,9 @@ The artifact should record:
 - app-under-test scope and binding,
 - observation artifact paths and frame hashes,
 - action ids and transition ids,
+- challenge phenomena and checkpoint status,
+- watched-source freshness state,
+- ask/answer carrier updates,
 - audit events and stop conditions,
 - closure gate result,
 - optional external benchmark release/provenance labels when a scenario is derived from or compared with an external release.
@@ -391,9 +536,16 @@ ui_test_safety_report:
   blocked_actions: []
   scope_exit_events: []
   credential_or_secret_exposure: none | blocked | suspected | observed
+  hidden_state_extraction: none | blocked | suspected | observed
+  ui_bypass_attempt: none | blocked | suspected | observed
+  direct_state_manipulation: none | blocked | suspected | observed
   external_effect_risk: none | blocked | suspected | observed
   destructive_risk: none | blocked | suspected | observed
   system_change_risk: none | blocked | suspected | observed
+  document_integrity_risk: none | blocked | suspected | observed
+  disk_or_temp_artifact_risk: none | blocked | suspected | observed
+  unexpected_background_processes: none | blocked | suspected | observed
+  privileged_access_drift: none | blocked | suspected | observed
   raw_text_persisted: false
   shell_or_arbitrary_launch_used: false
   unresolved_safety_residue: []
@@ -406,9 +558,13 @@ This mirrors the OSWorld 2.0 lesson that task completion and safety must be insp
 A run may close as `passed` only when all are true:
 
 - every protected outcome required for pass is satisfied by declared acceptable evidence,
+- every required checkpoint is satisfied and no critical checkpoint blocker is active,
 - target canonical consistency is preserved or an explicit new target track was opened,
 - the latest action-bearing observation has a fresh clean digest,
 - any workflow claim attached to a transition has explicit postcondition status,
+- authoritative watched sources are semantically current or explicitly not applicable,
+- any required ask cycle is answered and incorporated,
+- minimum verification cycles are satisfied,
 - no transition gate is pending, unobserved, or semantically unassessed,
 - the bound app scope remained stable,
 - no forbidden boundary or stop condition is active,
@@ -423,6 +579,9 @@ A run must remain `open`, `repair`, `ask`, or `stopped` when:
 - the apparent success is only a local event,
 - the target string drifted across evidence steps,
 - repair evidence still carries a contradiction into a normal action,
+- required checkpoints are unresolved, unsatisfied, or contradicted,
+- an authoritative watched source is stale or unknown,
+- an ask-required condition is unresolved,
 - transition-linked workflow evidence lacks postcondition status,
 - the app state is hidden or transient and not witnessed,
 - the next useful step crosses the license boundary,
@@ -442,15 +601,33 @@ ADMCP-023 should reduce avoidable protocol mistakes with explicit guidance:
 
 This guidance can start as runner-side normalization/checklist logic before becoming server-side `agentGuidance` output.
 
+## Behavior And Failure Labels
+
+ADMCP-023 artifacts should include conservative behavior labels for diagnosis. Labels may overlap and must not imply pass or fail by themselves.
+
+```yaml
+behavior_labels:
+  - gui_visual_grounding_issue
+  - loop_or_repeated_recovery_churn
+  - planning_or_goal_drift
+  - final_state_exactness_failure
+  - premature_stop_or_false_done
+  - step_or_time_exhaustion
+  - environment_or_scoring_mismatch
+  - hidden_state_or_ui_bypass_pressure
+```
+
+These labels should be generated from carrier evidence and residue. They are useful for post-run analysis and for deciding whether ADMCP-023E guidance needs to become server-side `agentGuidance`.
+
 ## Implementation Slices
 
 Suggested ADMCP-023 sub-slices:
 
 1. **ADMCP-023A Scenario Contract And Carrier Schemas**
-   - Add scenario contract, target registry, carrier, cycle packet, safety report, and closure gate schemas.
-   - Unit-test schema validation, cold-agent protocol guards, and blocked closure states.
+   - Add scenario contract, challenge phenomena, watched source, checkpoint, target registry, carrier, cycle packet, safety report, behavior label, and closure gate schemas.
+   - Unit-test schema validation, cold-agent protocol guards, checkpoint closure, semantic freshness, ask state, safety sidecar fields, and blocked closure states.
 2. **ADMCP-023B Carrier Update Library**
-   - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, route-carrier promotion, residue carry-forward, id carry-forward, and closure decisions.
+   - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion, residue carry-forward, id carry-forward, behavior labels, and closure decisions.
    - Unit-test CRPM ladder demotions and OSWorld-style provenance fields.
 3. **ADMCP-023C Governed Runner Harness**
    - Compose existing MCP tools only.
@@ -458,7 +635,7 @@ Suggested ADMCP-023 sub-slices:
    - Assemble action requests from carrier-held ids and canonical target state instead of relying on the agent to restate them from memory.
    - No new desktop mutation tools.
 4. **ADMCP-023D Artifact And Safety Sidecar Writer**
-   - Persist scenario, carrier, cycle packets, observations/actions, frame hashes, audit events, closure result, and safety report.
+   - Persist scenario, carrier, cycle packets, observations/actions, frame hashes, challenge phenomena, checkpoint status, watched-source freshness, ask/answer state, audit events, closure result, behavior labels, and safety report.
    - Do not persist secrets, raw typed text, gated evaluators, or hidden answers.
 5. **ADMCP-023E Guidance Refinement**
    - Add client-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
@@ -468,6 +645,9 @@ Suggested ADMCP-023 sub-slices:
 Unit tests should cover:
 
 - scenario contract validation,
+- challenge phenomena validation and scenario-driven guard defaults,
+- watched source semantic freshness validation,
+- checkpointed protected outcome validation,
 - canonical target registry validation,
 - helper target inheritance when workflow target is omitted,
 - explicit workflow target mismatch producing target-canonical residue,
@@ -476,11 +656,15 @@ Unit tests should cover:
 - contradicted repair digest setting `repair_exit_required`,
 - carrier id state updating from helper output,
 - missing transition workflow postcondition status blocking closure,
+- ask-required state blocking closure until answered or residualized,
+- required checkpoint unresolved/contradicted blocking pass,
+- authoritative watched source stale/unknown blocking pass,
 - CRPM ladder promotion/demotion: local event is not route carrier, route carrier is not landfall,
 - `complete_for_P_only` producing partial landfall, not passed,
 - frame-hash-only evidence blocked unless scenario declares it sufficient,
 - OSWorld-style provenance manifest fields recorded without gated evaluator leakage,
-- safety sidecar classification.
+- expanded safety sidecar classification,
+- behavior label classification without implying pass/fail.
 
 Runner/protocol tests should cover:
 
@@ -490,6 +674,9 @@ Runner/protocol tests should cover:
 - workflow postcondition status required when `transitionActionId` is set,
 - cold-agent first miss: wrong landing produces repair residue, fresh visual re-grounding, clean digest, and retry within repair budget,
 - runner-assembled click uses carrier-held digest/workflow/hover witness ids after helper returns `candidate_ready`,
+- streaming interaction scenario tightens pre-action revalidation and records stale visual action attempts,
+- dynamic environment scenario blocks closure when a watched source is stale or unchecked,
+- proactive interaction scenario enters `ask` instead of guessing under missing or conflicting evidence,
 - pending transition gate blocks the next non-observe action,
 - closure blocked by unresolved protected outcome residue,
 - scope exit stops and writes safety sidecar residue,
