@@ -23,6 +23,7 @@ Key planning documents:
 
 - `planning/mvp_implementation_plan.md` - current implementation slices and sequencing.
 - `planning/licensed_desktop_interaction_feature_design.md` - feature extraction design for session tools, provider seams, audit, observation, and future desktop control.
+- `planning/admcp_023_carrier_state_design.md` - refined carrier-state design for the planned governed UI test cycle runner, incorporating OSWorld 2.0, CRPM UI-navigation carrier discipline, and operational agent feedback.
 
 Key process documents:
 
