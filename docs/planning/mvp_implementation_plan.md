@@ -1633,10 +1633,11 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
   - Added `src/session/uiTestCarrierUpdates.ts` with pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
   - Added unit tests for target drift, contradicted repair carryover, clean repair exit, helper id carry-forward, watched-source freshness, ask-state transitions, checkpoint/protected-outcome updates, route-carrier promotion/demotion, and premature closure labeling.
   - This slice executes no desktop action and adds no runner orchestration.
-- ADMCP-023C Governed Runner Harness.
-  - Compose existing MCP/server tool paths only, preferring `desktop_submit_interaction_evidence` as the normal consistency hub.
-  - Assemble action requests from the carrier-held canonical target and returned evidence ids instead of asking the agent to restate them from memory.
-  - Cover expected delta with protected outcome satisfied, expected delta with outcome unresolved, no-op, wrong-target, repair-needed, uninterpretable, repair-limit, and closure-gate behavior against mock/provider-backed deterministic fixtures.
+- ADMCP-023C Governed Runner Harness - implemented.
+  - Added `src/session/uiTestRunnerHarness.ts` to compose existing MCP/server tool paths only, preferring `desktop_submit_interaction_evidence` as the normal consistency hub.
+  - The harness plans `desktop_start_interaction_session`, `desktop_observe`, `desktop_submit_interaction_evidence`, `desktop_move_mouse`, `desktop_click`, `desktop_type_text`, audit-log, and end-session calls, and applies structured tool results back into carrier state through the ADMCP-023B update helpers.
+  - Added unit tests for existing-tool call planning, canonical-target evidence submission, workflow target inheritance, carrier-held id assembly for move/click/type, action/observation result updates, repair evidence carryover, partial helper failures, and wrong-target route residue.
+  - This slice executes no desktop action, exposes no new MCP tool, and adds no runner-owned desktop authority.
 - ADMCP-023D Artifact And Safety Sidecar Writer.
   - Persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint state, watched-source freshness, ask/answer state, audit events, closure result, behavior labels, and safety report.
   - Do not persist secrets, raw typed text, gated evaluators, hidden answers, or unrelated desktop artifacts.

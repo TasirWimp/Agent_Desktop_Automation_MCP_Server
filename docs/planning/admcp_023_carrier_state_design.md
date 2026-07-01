@@ -631,11 +631,12 @@ Suggested ADMCP-023 sub-slices:
    - Added pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, id carry-forward, behavior labels, protected-outcome status, and closure decisions.
    - Unit-tested target drift, repair-exit discipline, watched-source freshness, ask-state transitions, checkpoint/protected-outcome updates, local-event versus route-carrier versus landfall boundaries, and premature closure labeling.
    - This slice remains pure carrier-state logic; it does not compose MCP tools or execute desktop actions.
-3. **ADMCP-023C Governed Runner Harness**
-   - Compose existing MCP tools only.
-   - Prefer `desktop_submit_interaction_evidence` before movement and after movement.
-   - Assemble action requests from carrier-held ids and canonical target state instead of relying on the agent to restate them from memory.
-   - No new desktop mutation tools.
+3. **ADMCP-023C Governed Runner Harness** - implemented
+   - Added a pure runner harness that composes existing MCP tools only.
+   - Prefers `desktop_submit_interaction_evidence` before movement and after movement.
+   - Assembles move/click/type requests from carrier-held observation, digest, workflow, hover-witness, canonical target, and transition ids instead of relying on the agent to restate them from memory.
+   - Applies structured observe, evidence, and action results back into carrier state through the ADMCP-023B update helpers.
+   - No new desktop mutation tools, hidden polling, OCR dependency, shell execution, or real-provider authority.
 4. **ADMCP-023D Artifact And Safety Sidecar Writer**
    - Persist scenario, carrier, cycle packets, observations/actions, frame hashes, challenge phenomena, checkpoint status, watched-source freshness, ask/answer state, audit events, closure result, behavior labels, and safety report.
    - Do not persist secrets, raw typed text, gated evaluators, or hidden answers.
