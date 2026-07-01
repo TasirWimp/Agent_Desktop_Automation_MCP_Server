@@ -1638,9 +1638,10 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
   - The harness plans `desktop_start_interaction_session`, `desktop_observe`, `desktop_submit_interaction_evidence`, `desktop_move_mouse`, `desktop_click`, `desktop_type_text`, audit-log, and end-session calls, and applies structured tool results back into carrier state through the ADMCP-023B update helpers.
   - Added unit tests for existing-tool call planning, canonical-target evidence submission, workflow target inheritance, carrier-held id assembly for move/click/type, action/observation result updates, repair evidence carryover, partial helper failures, and wrong-target route residue.
   - This slice executes no desktop action, exposes no new MCP tool, and adds no runner-owned desktop authority.
-- ADMCP-023D Artifact And Safety Sidecar Writer.
-  - Persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint state, watched-source freshness, ask/answer state, audit events, closure result, behavior labels, and safety report.
-  - Do not persist secrets, raw typed text, gated evaluators, hidden answers, or unrelated desktop artifacts.
+- ADMCP-023D Artifact And Safety Sidecar Writer - implemented.
+  - Added `src/session/uiTestArtifactWriter.ts` to persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint state, watched-source freshness, ask/answer state, audit events, closure result, landfall/re-entry packet, manifest, behavior labels, and safety report.
+  - Added unit tests for replay manifest entry points, stable artifact hashes, sanitizer behavior, raw payload omission, and safety sidecar separation from task closure.
+  - The writer omits sensitive payload fields, inline image payloads, evaluator/answer authority, and desktop mutation authority.
 - ADMCP-023E Guidance Refinement.
   - Add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
   - Keep the local app manual runner and Phaser/Vite pressure fixture as acceptance tracks for the governed harness and artifact writer.

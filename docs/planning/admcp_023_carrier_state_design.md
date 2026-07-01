@@ -637,9 +637,10 @@ Suggested ADMCP-023 sub-slices:
    - Assembles move/click/type requests from carrier-held observation, digest, workflow, hover-witness, canonical target, and transition ids instead of relying on the agent to restate them from memory.
    - Applies structured observe, evidence, and action results back into carrier state through the ADMCP-023B update helpers.
    - No new desktop mutation tools, hidden polling, OCR dependency, shell execution, or real-provider authority.
-4. **ADMCP-023D Artifact And Safety Sidecar Writer**
-   - Persist scenario, carrier, cycle packets, observations/actions, frame hashes, challenge phenomena, checkpoint status, watched-source freshness, ask/answer state, audit events, closure result, behavior labels, and safety report.
-   - Do not persist secrets, raw typed text, gated evaluators, or hidden answers.
+4. **ADMCP-023D Artifact And Safety Sidecar Writer** - implemented
+   - Added a local artifact writer that persists scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint status, watched-source freshness, ask/answer state, audit events, closure result, landfall/re-entry packet, manifest, behavior labels, and safety report.
+   - Unit-tested replay manifest entry points, stable artifact hashes, sanitizer behavior, raw payload omission, and safety sidecar separation from task closure.
+   - Does not persist sensitive payload fields, inline image payloads, evaluator/answer authority, or desktop mutation authority.
 5. **ADMCP-023E Guidance Refinement**
    - Add client-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
 
