@@ -23,6 +23,10 @@ import {
   type InteractionTransitionGate
 } from "./interactionTransitionGate.js";
 import {
+  buildDesktopAgentGuidance,
+  guidanceCodeForToolError
+} from "./agentGuidance.js";
+import {
   InMemoryDesktopSessionStore,
   SessionStoreError
 } from "./sessionStore.js";
@@ -616,6 +620,16 @@ export function registerWorkflowStateTools(
                 code: inputCheck.code,
                 message: inputCheck.message
               },
+              agentGuidance: buildDesktopAgentGuidance({
+                code:
+                  guidanceCodeForToolError(inputCheck.code) ??
+                  "workflow_state_revalidation_required",
+                sessionId: input.sessionId,
+                observationId: input.observationId,
+                targetScope: input.targetScope,
+                intendedTarget: input.intendedElementTarget,
+                perceptionDigestId: input.perceptionDigestId
+              }),
               residue: inputCheck.residue
             },
             true
@@ -643,6 +657,17 @@ export function registerWorkflowStateTools(
                 code: transitionCheck.code,
                 message: transitionCheck.message
               },
+              agentGuidance: buildDesktopAgentGuidance({
+                code:
+                  guidanceCodeForToolError(transitionCheck.code) ??
+                  "closed_loop_landing_assessment_required",
+                sessionId: input.sessionId,
+                observationId: input.observationId,
+                targetScope: input.targetScope,
+                intendedTarget: input.intendedElementTarget,
+                perceptionDigestId: input.perceptionDigestId,
+                transitionActionId: input.transitionActionId
+              }),
               residue: transitionCheck.residue
             },
             true

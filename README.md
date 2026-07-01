@@ -76,6 +76,8 @@ With that gate enabled, `desktop_type_text` may type generated test input inside
 
 For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect `visualArtifacts[].path` or the returned MCP image content block before calling `desktop_submit_interaction_evidence`. Normal observe JSON omits raw `frames[].dataBase64`; pass `includeInlineBase64: true` only for compatibility/debug use.
 
+Policy blocks and partial helper results may include `agentGuidance`. This guidance names the missing requirement, gives the next tool shape, and points to the relevant docs for target-string drift, repair digest carryover, missing workflow postcondition status, click-candidate movement binding, stale perception evidence, and scope rebinds. It is advisory recovery output; it does not bypass policy.
+
 The preferred compact click path is:
 
 ```text

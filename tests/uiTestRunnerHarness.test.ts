@@ -340,6 +340,10 @@ describe("ADMCP-023C runner harness planning", () => {
     expect(plan.status === "blocked" ? plan.behaviorLabels : []).toContain(
       "target_string_drift"
     );
+    expect(plan.status === "blocked" ? plan.agentGuidance : undefined).toMatchObject({
+      code: "target_canonical_drift",
+      immediateAction: expect.stringContaining("exact helper intendedTarget")
+    });
   });
 
   it("plans movement from carrier-held observation and digest ids while overriding stale claim ids", () => {
@@ -413,6 +417,46 @@ describe("ADMCP-023C runner harness planning", () => {
     expect(plan.status === "blocked" ? plan.behaviorLabels : []).toContain(
       "workflow_precondition_missing"
     );
+    expect(plan.status === "blocked" ? plan.agentGuidance : undefined).toMatchObject({
+      code: "workflow_state_revalidation_required",
+      nextRequiredStep: {
+        tool: "desktop_submit_interaction_evidence"
+      }
+    });
+  });
+
+  it("blocks click without hover witness with closed-loop guidance", () => {
+    const carrier = carrierFixture({
+      current: {
+        targetKey: "submit-button",
+        canonicalIntendedTarget: "Submit button",
+        targetScope: {
+          kind: "window_title",
+          value: "Fixture App"
+        },
+        observationId: "obs-002",
+        perceptionDigestId: "digest-002",
+        workflowStateClaimId: "workflow-002",
+        repairExitRequired: false
+      }
+    });
+    const plan = planUiTestClick({
+      scenario: scenarioFixture(),
+      carrier,
+      point: {
+        x: 120,
+        y: 80
+      },
+      compactRelationalClaim: relationalClaim
+    });
+
+    expect(plan.status).toBe("blocked");
+    expect(plan.status === "blocked" ? plan.agentGuidance : undefined).toMatchObject({
+      code: "closed_loop_landing_assessment_required",
+      checklist: expect.arrayContaining([
+        expect.stringContaining("validate landing")
+      ])
+    });
   });
 
   it("plans click and type requests from carried evidence ids", () => {

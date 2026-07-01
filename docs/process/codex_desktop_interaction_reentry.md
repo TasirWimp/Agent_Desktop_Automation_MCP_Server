@@ -308,11 +308,11 @@ Recommended split:
 - ADMCP-023B: implemented carrier update library for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
 - ADMCP-023C: implemented governed runner harness that composes existing MCP tools only, assembles action requests from carrier-held ids, and applies structured tool results back into the carrier.
 - ADMCP-023D: implemented artifact and safety sidecar writer for scenario, carrier, cycle packets, observations/actions, frame hashes, audit events, closure results, landfall/re-entry packets, replay manifest, and safety reports.
-- ADMCP-023E: next guidance refinement and acceptance track slice for local manual runs plus Phaser/Vite pressure fixtures with pass, no-op, wrong-target, delayed-transition, and scope-exit cases.
+- ADMCP-023E: implemented reusable `agentGuidance` for target mismatch, repair-digest carryover, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop landing assessment.
 
 Do not add dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, arbitrary app launch, or new desktop mutation authority in ADMCP-023.
 
-Next safe code step: implement ADMCP-023E only. Guidance refinement should improve target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair instructions without adding raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
+Next safe code step: add a local manual acceptance track or fixture-driven pressure tests for the governed harness and artifact writer. Keep the slice bounded to local test assets and existing MCP tools; do not add raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
 
 ## Real Observation Manual Check
 

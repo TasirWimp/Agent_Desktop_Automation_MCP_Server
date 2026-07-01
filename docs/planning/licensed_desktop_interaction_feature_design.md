@@ -1196,11 +1196,9 @@ The slice labels are normalized by `docs/planning/admcp_023_carrier_state_design
 - ADMCP-023B Carrier Update Library: add pure target-canonical, evidence-phase, repair-exit, watched-source freshness, ask-state, checkpoint-status, route-carrier, residue, helper-id carry-forward, behavior-label, protected-outcome, and closure-decision functions.
 - ADMCP-023C Governed Runner Harness: compose existing MCP tools only, prefer `desktop_submit_interaction_evidence`, assemble action requests from carrier-held ids and canonical target state, and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts against mock/provider fixtures.
 - ADMCP-023D Artifact And Safety Sidecar Writer: persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint state, watched-source freshness, ask/answer state, audit events, closure result, behavior labels, and safety report without secrets, raw typed text, gated evaluators, or hidden answers.
-- ADMCP-023E Guidance Refinement: add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
+- ADMCP-023E Guidance Refinement: implemented reusable runner/server guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop repair after a failed landing.
 
 Implementation readiness:
 
-- ADMCP-023 planning is ready.
-- ADMCP-023A is ready after these schema constraints are preserved in code.
-- ADMCP-023B, ADMCP-023C, ADMCP-023D, and ADMCP-023E remain later slices.
-- The next code change should implement ADMCP-023A only: scenario contract schema, target registry schema, cycle packet schema, carrier schema, safety report schema, closure gate schema, landfall/re-entry packet schema, and schema tests. It must execute no desktop actions and must not add runner orchestration.
+- ADMCP-023 planning is ready and ADMCP-023A through ADMCP-023E are implemented.
+- The next code change should add a local manual acceptance track or fixture-driven pressure tests using existing MCP tools and the governed harness. It must not add desktop mutation authority, dev-server management, shell execution, hidden polling, OCR dependency, or app-launch authority.

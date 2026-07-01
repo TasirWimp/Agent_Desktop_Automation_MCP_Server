@@ -158,7 +158,8 @@ Unit tests:
 - protected outcome status updates,
 - closure-gate allow/block decisions, including pass versus partial-landfall distinction,
 - max cycle/action/time enforcement,
-- final landfall/re-entry packet shape.
+- final landfall/re-entry packet shape,
+- agent guidance for target-canonical drift, repair digest clean-exit requirements, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop landing assessment.
 
 Runner/protocol tests:
 

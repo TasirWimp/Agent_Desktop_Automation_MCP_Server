@@ -1642,9 +1642,12 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
   - Added `src/session/uiTestArtifactWriter.ts` to persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint state, watched-source freshness, ask/answer state, audit events, closure result, landfall/re-entry packet, manifest, behavior labels, and safety report.
   - Added unit tests for replay manifest entry points, stable artifact hashes, sanitizer behavior, raw payload omission, and safety sidecar separation from task closure.
   - The writer omits sensitive payload fields, inline image payloads, evaluator/answer authority, and desktop mutation authority.
-- ADMCP-023E Guidance Refinement.
-  - Add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
-  - Keep the local app manual runner and Phaser/Vite pressure fixture as acceptance tracks for the governed harness and artifact writer.
+- ADMCP-023E Guidance Refinement - implemented.
+  - Added reusable `agentGuidance` output for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop landing assessment.
+  - Wired guidance into `desktop_submit_interaction_evidence`, strict workflow-state claim failures, strict click-candidate readiness, `desktop_capabilities`, the first-use guide, and the pure ADMCP-023 runner harness.
+  - Added tests for compact-helper guidance, strict-tool guidance, capabilities/first-use guide exposure, and runner blocked-plan guidance.
+  - This slice adds no desktop mutation tool, OCR dependency, hidden polling, app launch authority, or policy bypass.
+  - Keep the local app manual runner and Phaser/Vite pressure fixture as future acceptance tracks for the governed harness and artifact writer.
 
 Acceptance criteria:
 

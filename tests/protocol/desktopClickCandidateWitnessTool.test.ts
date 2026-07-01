@@ -1123,10 +1123,17 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       expect(structured.status).toBe("perception_digest_not_visible");
       expect(structured.clickCandidateWitness).toMatchObject({
         readyForClickRequest: false,
+        agentGuidance: {
+          code: "perception_digest_current_clean_required"
+        },
         perceptionDigestEvidence: {
           targetVisibility: "not_visible",
           continuityWithPriorClaim: "changed"
         }
+      });
+      expect(structured.agentGuidance).toMatchObject({
+        code: "perception_digest_current_clean_required",
+        immediateAction: expect.stringContaining("latest visual artifact")
       });
     } finally {
       await client.close();

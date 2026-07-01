@@ -137,6 +137,7 @@ describe("desktop_observe MCP tool", () => {
         tieredEvidenceFreshness: true,
         hoverWitnessRevalidation: true,
         interactionEvidenceHelper: true,
+        agentGuidance: true,
         firstUseGuide: true
       });
       expect(structured.usageGuidance).toMatchObject({
@@ -151,6 +152,7 @@ describe("desktop_observe MCP tool", () => {
           ]),
           evidenceRules: expect.arrayContaining([
             expect.stringContaining("visualArtifacts[].path"),
+            expect.stringContaining("one canonical intendedTarget"),
             expect.stringContaining("latest screenshot-bearing observation"),
             expect.stringContaining("newer desktop_observe invalidates older"),
             expect.stringContaining("witness/path governor"),
@@ -158,6 +160,11 @@ describe("desktop_observe MCP tool", () => {
           ]),
           scopeRules: expect.arrayContaining([
             expect.stringContaining("scope_exit means the active window drifted")
+          ]),
+          commonFailureRecovery: expect.arrayContaining([
+            expect.stringContaining("fresh non-contradicted new_target or same_target"),
+            expect.stringContaining("postconditionStatus satisfied"),
+            expect.stringContaining("hoverTargetWitnessId")
           ])
         },
         recommendedObservationCadence: {

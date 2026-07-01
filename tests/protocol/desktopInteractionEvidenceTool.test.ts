@@ -151,6 +151,55 @@ function workflowEvidence() {
 }
 
 describe("desktop_submit_interaction_evidence MCP tool", () => {
+  it("returns repair guidance when clean evidence carries a contradiction", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const observation = await startAndObserve(client);
+      const observationId = observation.observationId as string;
+      const result = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "new_target",
+          perception: {
+            ...perceptionEvidence("Corrected screenshot shows the Submit control."),
+            contradictionToPriorClaim: "The prior attempt hovered the wrong row."
+          }
+        }
+      });
+      const evidence = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(evidence.error).toMatchObject({
+        code: "interaction_evidence_contradiction_present"
+      });
+      expect(evidence.agentGuidance).toMatchObject({
+        code: "repair_digest_requires_clean_exit",
+        nextRequiredStep: {
+          tool: "desktop_submit_interaction_evidence",
+          arguments: expect.objectContaining({
+            sessionId: "session-interaction-evidence-001",
+            observationId,
+            intendedTarget: "Submit button",
+            evidenceMode: "same_target"
+          })
+        },
+        sourceDocs: expect.arrayContaining([
+          expect.objectContaining({
+            path: "docs/process/codex_desktop_interaction_reentry.md"
+          })
+        ])
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("records digest, workflow, transition assessment, and click candidate without desktop mutation", async () => {
     const { client, server, sessionStore } = await createConnectedClient();
 
@@ -480,6 +529,12 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
           }
         }
       });
+      expect(partialEvidence.agentGuidance).toMatchObject({
+        code: "workflow_postcondition_status_required",
+        nextRequiredStep: {
+          tool: "desktop_submit_interaction_evidence"
+        }
+      });
 
       const retryResult = await client.callTool({
         name: "desktop_submit_interaction_evidence",
@@ -561,6 +616,12 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
       );
       expect(evidence.nextRequiredStep).toMatchObject({
         tool: "desktop_submit_interaction_evidence"
+      });
+      expect(evidence.agentGuidance).toMatchObject({
+        code: "click_candidate_movement_binding_required",
+        nextRequiredStep: {
+          tool: "desktop_submit_interaction_evidence"
+        }
       });
     } finally {
       await client.close();

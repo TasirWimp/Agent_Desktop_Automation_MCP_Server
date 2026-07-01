@@ -39,6 +39,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "desktop_observe({ includeImages: true }) returns screenshot-bearing visualArtifacts[].path entries and MCP image content blocks.",
       "Raw frame dataBase64 is omitted from normal public JSON; request includeInlineBase64: true only for compatibility/debug use.",
       "desktop_submit_interaction_evidence is the preferred compact path; strict/debug clients may still call digest, workflow, transition assessment, and click-candidate tools separately.",
+      "Use one canonical intendedTarget string across perception, workflow, transition assessment, click-candidate, click, and type; omit workflow.intendedElementTarget in the helper unless deliberately opening a different target track.",
       "Perception digests must reference the latest screenshot-bearing observation.",
       "Any newer desktop_observe invalidates older perception digests for future actions.",
       "Workflow-state claims normally bind to the latest screenshot-bearing observation; older workflow claims may only be revalidated across observation-only and audited move-only hover/probe changes.",
@@ -61,8 +62,12 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
     ],
     commonFailureRecovery: [
       "If a digest is stale, call desktop_observe with includeImages: true and submit desktop_submit_interaction_evidence for the latest observation.",
+      "If repair_target recorded a miss or contradiction, inspect the corrected observation and submit a fresh non-contradicted new_target or same_target digest before the next normal move/click/type.",
+      "If workflow target mismatch appears, reuse the exact helper intendedTarget string, omit workflow.intendedElementTarget so it inherits the helper target, or deliberately open a new target track.",
+      "If workflow evidence references transitionActionId, include postconditionStatus satisfied, contradicted, or inconclusive; do not use not_applicable for a transition postcondition.",
       "If click-candidate readiness fails on workflow state, submit workflow evidence through desktop_submit_interaction_evidence or reuse an older workflowStateClaimId only when bounded revalidation applies.",
       "If click-candidate readiness reports missing movement evidence, resubmit with clickCandidate.movementActionId or include transitionAssessment.actionId in the same helper call.",
+      "If landing was wrong or inconclusive, stay in the closed loop: observe, submit repair evidence, move, observe transition, validate semantic landing, get hoverTargetWitnessId, then click.",
       "If scope_exit appears, bring the intended app back to the foreground before continuing or start a new bounded session."
     ],
     sourceDocs: [

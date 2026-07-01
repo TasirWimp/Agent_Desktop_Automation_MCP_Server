@@ -259,8 +259,18 @@ describe("desktop_submit_workflow_state_claim MCP tool", () => {
         code: "workflow_state_claim_not_latest"
       });
       expect(mismatchResult.isError).toBe(true);
-      expect(parseStructuredContent(mismatchResult).error).toMatchObject({
+      const mismatchContent = parseStructuredContent(mismatchResult);
+      expect(mismatchContent.error).toMatchObject({
         code: "workflow_state_claim_target_mismatch"
+      });
+      expect(mismatchContent.agentGuidance).toMatchObject({
+        code: "target_canonical_drift",
+        immediateAction: expect.stringContaining("omit workflow.intendedElementTarget"),
+        sourceDocs: expect.arrayContaining([
+          expect.objectContaining({
+            path: "docs/planning/admcp_023_carrier_state_design.md"
+          })
+        ])
       });
     } finally {
       await client.close();

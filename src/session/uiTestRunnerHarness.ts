@@ -6,6 +6,13 @@ import {
   type DesktopPoint
 } from "../policy/sessionLicensePolicy.js";
 import {
+  buildDesktopAgentGuidance,
+  guidanceCodeForClickCandidateStatus,
+  guidanceCodeForToolError,
+  type DesktopAgentGuidance,
+  type DesktopAgentGuidanceCode
+} from "./agentGuidance.js";
+import {
   applyUiTestClosureDecision,
   applyUiTestEvidencePhase,
   applyUiTestInteractionEvidenceIds,
@@ -72,6 +79,7 @@ export type UiTestRunnerPlan =
         instruction: string;
         arguments: Record<string, unknown>;
       };
+      agentGuidance?: DesktopAgentGuidance;
       residue: string[];
       behaviorLabels: UiTestBehaviorLabel[];
     };
@@ -289,7 +297,8 @@ export function planUiTestSubmitInteractionEvidence(input: {
         includeImages: true
       },
       targetResolution.residue,
-      ["target_string_drift"]
+      ["target_string_drift"],
+      "target_canonical_drift"
     );
   }
 
@@ -321,7 +330,8 @@ export function planUiTestSubmitInteractionEvidence(input: {
         evidenceMode: "new_target"
       },
       ["No active carrier targetKey is set."],
-      ["target_string_drift"]
+      ["target_string_drift"],
+      "target_canonical_drift"
     );
   }
 
@@ -346,7 +356,10 @@ export function planUiTestSubmitInteractionEvidence(input: {
         evidenceMode: "new_target"
       },
       targetCheck.residue,
-      targetCheck.behaviorLabels
+      targetCheck.behaviorLabels,
+      targetCheck.behaviorLabels.includes("repair_digest_reused_as_clean")
+        ? "repair_digest_requires_clean_exit"
+        : "target_canonical_drift"
     );
   }
 
@@ -655,6 +668,13 @@ export function applyUiTestRunnerInteractionEvidenceResult(
     behaviorLabels.push(...labeled.behaviorLabels);
   }
 
+  const guidance = guidanceForInteractionEvidenceResult(call, input.result);
+  if (guidance !== undefined) {
+    residue.push(`Agent guidance: ${guidance.summary}`);
+    residue.push(`Agent guidance immediate action: ${guidance.immediateAction}`);
+    behaviorLabels.push(...guidance.behaviorLabels);
+  }
+
   return {
     carrier,
     residue: uniqueStrings(residue),
@@ -768,7 +788,8 @@ function mutationReadiness(
           sessionId: carrier.session.sessionId
         },
         target.residue,
-        ["target_string_drift"]
+        ["target_string_drift"],
+        "target_canonical_drift"
       )
     };
   }
@@ -805,7 +826,8 @@ function mutationReadiness(
           intendedTarget: target.canonicalIntendedTarget
         },
         ["Carrier current.perceptionDigestId is missing."],
-        []
+        [],
+        "perception_digest_current_clean_required"
       )
     };
   }
@@ -824,7 +846,8 @@ function mutationReadiness(
           intendedTarget: target.canonicalIntendedTarget
         },
         ["Carrier current.workflowStateClaimId is missing."],
-        ["workflow_precondition_missing"]
+        ["workflow_precondition_missing"],
+        "workflow_state_revalidation_required"
       )
     };
   }
@@ -848,7 +871,8 @@ function mutationReadiness(
           workflowStateClaimId: carrier.current.workflowStateClaimId
         },
         ["Carrier current.hoverTargetWitnessId is missing."],
-        ["gui_visual_grounding_issue"]
+        ["gui_visual_grounding_issue"],
+        "closed_loop_landing_assessment_required"
       )
     };
   }
@@ -893,8 +917,31 @@ function blockedPlan(
   instruction: string,
   args: Record<string, unknown>,
   residue: string[],
-  behaviorLabels: UiTestBehaviorLabel[]
+  behaviorLabels: UiTestBehaviorLabel[],
+  guidanceCode?: DesktopAgentGuidanceCode
 ): UiTestRunnerPlan & { status: "blocked" } {
+  const sessionId = stringFrom(args.sessionId);
+  const observationId = stringFrom(args.observationId);
+  const intendedTarget = stringFrom(args.intendedTarget);
+  const perceptionDigestId = stringFrom(args.perceptionDigestId);
+  const workflowStateClaimId = stringFrom(args.workflowStateClaimId);
+  const agentGuidance =
+    guidanceCode === undefined
+      ? undefined
+      : buildDesktopAgentGuidance({
+          code: guidanceCode,
+          sessionId,
+          observationId,
+          targetScope: isDesktopInteractionScope(args.targetScope)
+            ? args.targetScope
+            : undefined,
+          intendedTarget,
+          perceptionDigestId,
+          workflowStateClaimId,
+          movementActionId: stringFrom(args.movementActionId),
+          transitionActionId: stringFrom(args.transitionActionId)
+        });
+
   return {
     status: "blocked",
     reason,
@@ -903,6 +950,7 @@ function blockedPlan(
       instruction,
       arguments: args
     },
+    agentGuidance,
     residue,
     behaviorLabels
   };
@@ -989,6 +1037,60 @@ function behaviorLabelsForEvidenceFailures(
   return uniqueStrings(labels);
 }
 
+function guidanceForInteractionEvidenceResult(
+  call: UiTestRunnerToolCall,
+  result: Record<string, unknown>
+): DesktopAgentGuidance | undefined {
+  const guidanceCode =
+    guidanceCodeForToolError(firstFailureCode(result.failures)) ??
+    guidanceCodeForClickCandidateStatus(stringFrom(result.clickCandidateStatus));
+
+  if (guidanceCode === undefined) {
+    return undefined;
+  }
+
+  return buildDesktopAgentGuidance({
+    code: guidanceCode,
+    sessionId: stringFrom(call.arguments.sessionId),
+    observationId: stringFrom(call.arguments.observationId),
+    targetScope: isDesktopInteractionScope(call.arguments.targetScope)
+      ? call.arguments.targetScope
+      : undefined,
+    intendedTarget: stringFrom(call.arguments.intendedTarget),
+    perceptionDigestId:
+      stringFrom(result.perceptionDigestId) ??
+      stringFrom(call.arguments.perceptionDigestId),
+    workflowStateClaimId:
+      stringFrom(result.workflowStateClaimId) ??
+      stringFrom(call.arguments.workflowStateClaimId),
+    movementActionId:
+      stringFrom(nestedRecord(call.arguments, ["clickCandidate"])?.movementActionId) ??
+      stringFrom(nestedRecord(call.arguments, ["transitionAssessment"])?.actionId),
+    transitionActionId:
+      stringFrom(nestedRecord(call.arguments, ["workflow"])?.transitionActionId) ??
+      stringFrom(nestedRecord(call.arguments, ["transitionAssessment"])?.actionId)
+  });
+}
+
+function firstFailureCode(failures: unknown): string | undefined {
+  if (!Array.isArray(failures)) {
+    return undefined;
+  }
+
+  for (const failure of failures) {
+    if (!isRecord(failure)) {
+      continue;
+    }
+
+    const code = nestedString(failure, ["error", "code"]);
+    if (code !== undefined) {
+      return code;
+    }
+  }
+
+  return undefined;
+}
+
 function behaviorLabelsForActionStatus(
   status: string | undefined
 ): UiTestBehaviorLabel[] {
@@ -1001,6 +1103,10 @@ function behaviorLabelsForActionStatus(
   }
 
   return [];
+}
+
+function isDesktopInteractionScope(value: unknown): value is DesktopInteractionScope {
+  return isRecord(value) && typeof value.kind === "string";
 }
 
 function nestedString(

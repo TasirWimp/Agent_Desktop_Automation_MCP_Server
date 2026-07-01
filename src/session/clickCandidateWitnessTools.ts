@@ -22,6 +22,11 @@ import {
   type DesktopWorkflowStateClaim
 } from "../policy/sessionLicensePolicy.js";
 import type { DesktopInteractionProvider } from "../providers/desktopProvider.js";
+import {
+  buildDesktopAgentGuidance,
+  guidanceCodeForClickCandidateStatus,
+  type DesktopAgentGuidance
+} from "./agentGuidance.js";
 import type { InteractionTransitionGate } from "./interactionTransitionGate.js";
 import {
   createHoverTargetWitness,
@@ -204,6 +209,7 @@ interface ClickCandidateEvaluation {
   requiresPostClickObservation: true;
   wouldExecuteClick: false;
   realClickExecutionAvailable: false;
+  agentGuidance?: DesktopAgentGuidance;
   residue: string[];
 }
 
@@ -1031,6 +1037,20 @@ function evaluateClickCandidate(
       workflowStateHashesMatch || workflowStateRevalidatedByLatestObservation,
     workflowStateReady
   });
+  const guidanceCode = guidanceCodeForClickCandidateStatus(status);
+  const agentGuidance =
+    guidanceCode === undefined
+      ? undefined
+      : buildDesktopAgentGuidance({
+          code: guidanceCode,
+          sessionId: input.sessionId,
+          observationId: input.observationId,
+          targetScope: input.targetScope,
+          intendedTarget: input.intendedSemanticTarget,
+          perceptionDigestId: input.perceptionDigestId,
+          workflowStateClaimId: input.workflowStateClaimId,
+          movementActionId: input.movementActionId
+        });
   const residue = buildResidue({
     status,
     observation,
@@ -1192,6 +1212,7 @@ function evaluateClickCandidate(
     requiresPostClickObservation: true,
     wouldExecuteClick: false,
     realClickExecutionAvailable: false,
+    agentGuidance,
     residue
   };
 }
@@ -1211,6 +1232,7 @@ export type ClickCandidateRecordResult =
         supportsClick: boolean;
         realDesktopMutation: boolean;
       };
+      agentGuidance?: DesktopAgentGuidance;
       residue: string[];
     }
   | {
@@ -1306,6 +1328,7 @@ export function evaluateAndRecordClickCandidate(
       supportsClick: providerCapabilities.supportsClick,
       realDesktopMutation: providerCapabilities.realDesktopMutation
     },
+    agentGuidance: evaluation.agentGuidance,
     residue: [
       "Click candidate was evaluated and recorded in the session audit log.",
       "No click, mouse movement, typing, OS capture, or OS mutation occurred."
@@ -1413,6 +1436,7 @@ export function registerClickCandidateWitnessTools(
             supportsClick: providerCapabilities.supportsClick,
             realDesktopMutation: providerCapabilities.realDesktopMutation
           },
+          agentGuidance: evaluation.agentGuidance,
           residue: [
             "Click candidate was evaluated and recorded in the session audit log.",
             "No click, mouse movement, typing, OS capture, or OS mutation occurred."

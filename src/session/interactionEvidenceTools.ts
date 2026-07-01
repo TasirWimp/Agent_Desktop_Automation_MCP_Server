@@ -12,6 +12,11 @@ import {
 } from "../policy/sessionLicensePolicy.js";
 import type { DesktopInteractionProvider } from "../providers/desktopProvider.js";
 import {
+  buildDesktopAgentGuidance,
+  guidanceCodeForClickCandidateStatus,
+  guidanceCodeForToolError
+} from "./agentGuidance.js";
+import {
   evaluateAndRecordClickCandidate
 } from "./clickCandidateWitnessTools.js";
 import {
@@ -334,6 +339,13 @@ export function registerInteractionEvidenceTools(
           return structuredResult(
             {
               error: contradictionCheck.error,
+              agentGuidance: buildDesktopAgentGuidance({
+                code: "repair_digest_requires_clean_exit",
+                sessionId: parsedInput.sessionId,
+                observationId: parsedInput.observationId,
+                targetScope: parsedInput.targetScope,
+                intendedTarget: parsedInput.intendedTarget
+              }),
               residue: contradictionCheck.residue
             },
             true
@@ -383,6 +395,15 @@ export function registerInteractionEvidenceTools(
                   residue: digestResult.residue
                 }
               ],
+              agentGuidance: buildDesktopAgentGuidance({
+                code:
+                  guidanceCodeForToolError(digestResult.error.code) ??
+                  "perception_digest_current_clean_required",
+                sessionId: parsedInput.sessionId,
+                observationId: parsedInput.observationId,
+                targetScope: parsedInput.targetScope,
+                intendedTarget: parsedInput.intendedTarget
+              }),
               nextRequiredStep: nextRequiredStepFor({
                 status: "partial",
                 sessionId: parsedInput.sessionId,
@@ -517,6 +538,27 @@ export function registerInteractionEvidenceTools(
         }
 
         const status = failures.length === 0 ? "accepted" : "partial";
+        const guidanceCode =
+          guidanceCodeForToolError(failures[0]?.error.code) ??
+          guidanceCodeForClickCandidateStatus(clickCandidateStatus);
+        const agentGuidance =
+          guidanceCode === undefined
+            ? undefined
+            : buildDesktopAgentGuidance({
+                code: guidanceCode,
+                sessionId: parsedInput.sessionId,
+                observationId: parsedInput.observationId,
+                targetScope: parsedInput.targetScope,
+                intendedTarget: parsedInput.intendedTarget,
+                perceptionDigestId,
+                workflowStateClaimId,
+                movementActionId:
+                  parsedInput.clickCandidate?.movementActionId ??
+                  parsedInput.transitionAssessment?.actionId,
+                transitionActionId:
+                  parsedInput.workflow?.transitionActionId ??
+                  parsedInput.transitionAssessment?.actionId
+              });
 
         return structuredResult({
           sessionId: parsedInput.sessionId,
@@ -528,6 +570,7 @@ export function registerInteractionEvidenceTools(
           clickCandidateStatus,
           created,
           failures,
+          agentGuidance,
           nextRequiredStep: nextRequiredStepFor({
             status,
             sessionId: parsedInput.sessionId,

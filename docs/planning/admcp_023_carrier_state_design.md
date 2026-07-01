@@ -599,7 +599,7 @@ ADMCP-023 should reduce avoidable protocol mistakes with explicit guidance:
 - On first failed landing or wrong-target repair, state that the click path is closed-loop: observe, submit evidence, move, observe transition, validate landing, get hover witness, click, observe again.
 - On plausible coordinate mislocalization, do not ask the client to prove coordinates directly. Ask it to re-ground against the latest visual artifact and submit relational/semantic landing evidence.
 
-This guidance can start as runner-side normalization/checklist logic before becoming server-side `agentGuidance` output.
+This guidance is now represented as server-side and runner-side `agentGuidance` output. It remains advisory recovery metadata and does not change policy gates.
 
 ## Behavior And Failure Labels
 
@@ -617,7 +617,7 @@ behavior_labels:
   - hidden_state_or_ui_bypass_pressure
 ```
 
-These labels should be generated from carrier evidence and residue. They are useful for post-run analysis and for deciding whether ADMCP-023E guidance needs to become server-side `agentGuidance`.
+These labels should be generated from carrier evidence and residue. They are useful for post-run analysis and for deciding whether later guidance needs to become stricter policy or remain advisory `agentGuidance`.
 
 ## Implementation Slices
 
@@ -641,8 +641,10 @@ Suggested ADMCP-023 sub-slices:
    - Added a local artifact writer that persists scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, challenge phenomena, checkpoint status, watched-source freshness, ask/answer state, audit events, closure result, landfall/re-entry packet, manifest, behavior labels, and safety report.
    - Unit-tested replay manifest entry points, stable artifact hashes, sanitizer behavior, raw payload omission, and safety sidecar separation from task closure.
    - Does not persist sensitive payload fields, inline image payloads, evaluator/answer authority, or desktop mutation authority.
-5. **ADMCP-023E Guidance Refinement**
-   - Add client-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
+5. **ADMCP-023E Guidance Refinement** - implemented
+   - Added reusable `agentGuidance` packets for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop landing assessment.
+   - Exposed guidance through the compact interaction-evidence helper, strict workflow-state claim failures, strict click-candidate readiness, capabilities/first-use guidance, and the pure runner harness.
+   - Unit-tested the cold-agent traps without adding desktop mutation, hidden polling, OCR dependency, app launch authority, or policy bypass.
 
 ## Test Requirements
 
