@@ -310,11 +310,16 @@ Recommended split:
 - ADMCP-023D: implemented artifact and safety sidecar writer for scenario, carrier, cycle packets, observations/actions, frame hashes, audit events, closure results, landfall/re-entry packets, replay manifest, and safety reports.
 - ADMCP-023E: implemented reusable `agentGuidance` for target mismatch, repair-digest carryover, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop landing assessment.
 - ADMCP-023F: implemented OSWorld-inspired synthetic pressure fixture tests for challenge-family behavior without copying gated benchmark tasks/evaluators or adding desktop authority.
-- ADMCP-023G: planned executable local fixture e2e using the actual MCP server process, with automated mock-provider mode and opt-in Windows real-provider manual mode.
+- ADMCP-023G: implemented executable local fixture e2e using the actual MCP server process, with automated mock-provider mode and opt-in Windows real-provider manual mode.
 
 Do not add dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, arbitrary app launch, or new desktop mutation authority in ADMCP-023.
 
-Next safe code step: implement ADMCP-023G as a local executable fixture and actual-server e2e runner. Keep fixture setup outside the MCP server, keep the automated path on the mock provider, and make any Windows real-provider run opt-in with explicit gates. Do not add raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
+Current executable e2e entry points:
+
+- `npm run test:e2e:fixture` starts the actual MCP server over stdio and drives the public compact desktop loop on the mock provider.
+- `fixtures/admcp-023g-local-fixture/index.html` is the reversible static manual fixture for opt-in Windows real-provider checks.
+
+Next safe code step: extend ADMCP-023G coverage with additional executable scenario variants only through the existing public protocol and existing artifact writer. Keep fixture setup outside the MCP server, keep automated tests on the mock provider unless explicitly gated, and keep any Windows real-provider run opt-in with explicit gates. Do not add raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
 
 ## Real Observation Manual Check
 

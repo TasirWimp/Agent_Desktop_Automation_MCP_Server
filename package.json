@@ -24,6 +24,7 @@
     "start": "node dist/index.js",
     "start:mcp": "node scripts/start-mcp.mjs",
     "test": "vitest run",
+    "test:e2e:fixture": "vitest run tests/e2e/admcp023gExecutableFixtureE2E.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run typecheck && npm run test && npm run build"

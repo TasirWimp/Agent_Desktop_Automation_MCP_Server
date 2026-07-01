@@ -108,9 +108,16 @@ npm run manual:probe:example
 npm run manual:navigation-probe:example
 npm run typecheck
 npm run test
+npm run test:e2e:fixture
 npm run build
 npm run start
 ```
+
+## ADMCP-023G Local Fixture E2E
+
+`npm run test:e2e:fixture` starts the actual MCP server process over stdio, drives the public desktop protocol on the CI-safe mock provider, and writes replayable ADMCP run artifacts during the test. It verifies the compact governed loop through observe, interaction evidence, relational movement, transition observation, click-candidate readiness, click, post-click observation, workflow postcondition, audit log, and artifact persistence.
+
+The manual real-provider counterpart is `fixtures/admcp-023g-local-fixture/index.html`. Open it outside the MCP server, focus the window, then use an app-scoped real-provider session with explicit real observation/move/click/type gates as needed. Fixture startup and focus remain outside the server; ADMCP-023G does not add shell execution, arbitrary launch paths, hidden polling, OCR, or new desktop authority.
 
 ## Governed Manual Probe Runner
 

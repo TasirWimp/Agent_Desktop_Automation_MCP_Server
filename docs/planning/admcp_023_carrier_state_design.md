@@ -651,12 +651,12 @@ Suggested ADMCP-023 sub-slices:
    - Tests exercise the existing ADMCP scenario contract, runner harness, carrier updates, closure gate, behavior labels, and provenance fields.
    - No OSWorld gated task, answer, evaluator, website, provider image, shell execution, live desktop action, OCR dependency, hidden polling, or new desktop authority is copied or introduced.
 
-7. **ADMCP-023G Executable Local Fixture E2E** - planned
-   - Add a reversible local fixture app with real UI states for same-label near misses, transient versus committed selection, delayed/no-op transitions, dynamic watched-source changes, multi-step checkpoints, ask-required missing input, and scope-exit pressure.
-   - Add an end-to-end runner that starts the actual MCP server process over stdio and drives the public protocol: `desktop_capabilities -> desktop_start_interaction_session -> desktop_observe -> desktop_submit_interaction_evidence -> desktop_move_mouse/click/type -> desktop_observe(transitionActionId) -> desktop_submit_interaction_evidence -> artifact write`.
-   - Provide two modes: an automated mock-provider e2e that can run in CI, and an opt-in Windows real-provider manual e2e that uses explicit real observation/move/click/type gates against the active scoped fixture window.
-   - Keep fixture preparation outside the MCP server. A test harness may start or focus the fixture, but the MCP server must not gain dev-server startup, shell execution, arbitrary app launch, hidden polling, OCR dependency, or new desktop authority for this slice.
-   - Persist ADMCP artifacts from the run so a reviewer can replay why the runner continued, repaired, asked, stopped, partially landed, or closed.
+7. **ADMCP-023G Executable Local Fixture E2E** - implemented
+   - Added `fixtures/admcp-023g-local-fixture/index.html`, a reversible static app-under-test with same-label near misses, transient versus committed executable selection, delayed/no-op transitions, watched-source changes, multi-step checkpoint pressure, ask-required missing input, and scope-exit pressure.
+   - Added `npm run test:e2e:fixture`, which starts the actual MCP server process over stdio and drives the public protocol: `desktop_capabilities -> desktop_start_interaction_session -> desktop_observe -> desktop_submit_interaction_evidence -> desktop_move_mouse -> desktop_observe(transitionActionId) -> desktop_submit_interaction_evidence with transition/candidate -> desktop_click -> desktop_observe(transitionActionId) -> desktop_submit_interaction_evidence postcondition -> artifact write`.
+   - The automated test uses the mock provider for CI-safe protocol coverage and asserts the server still exposes no shell execution, arbitrary launch paths, hidden polling, OCR dependency, or real desktop mutation authority.
+   - The fixture README documents the separate opt-in Windows real-provider manual path. Fixture startup, browser launch, window focus, and cleanup remain outside the MCP server.
+   - The e2e persists ADMCP artifacts through the artifact writer so a reviewer can replay scenario, carrier, cycles, observations, actions, audit events, closure gate, safety sidecar, and landfall/re-entry packet.
 
 ## Test Requirements
 

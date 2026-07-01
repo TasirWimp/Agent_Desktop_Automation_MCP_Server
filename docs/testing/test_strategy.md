@@ -190,7 +190,7 @@ OSWorld-inspired pressure fixtures should stay synthetic and local. They should 
 - scope exit and safety sidecar closure blocking,
 - external benchmark-style provenance without gated evaluator leakage.
 
-Executable local fixture e2e tests should add a real protocol layer above the synthetic pressure fixtures:
+Executable local fixture e2e tests add a real protocol layer above the synthetic pressure fixtures:
 
 - start the actual MCP server process over stdio and communicate through MCP tools,
 - run the same scenario contract through the public `desktop_*` protocol instead of in-memory helper calls,
@@ -201,9 +201,16 @@ Executable local fixture e2e tests should add a real protocol layer above the sy
 - prove that transient dropdown highlight cannot license committed execution, stale watched sources block commit/closure, no-op/wrong-target transitions carry residue, and `ask` is opened instead of guessing missing domain input,
 - confirm the server still exposes no arbitrary executable path launch, shell execution, hidden polling, OCR dependency, or broad desktop authority.
 
+Current ADMCP-023G coverage:
+
+- `npm run test:e2e:fixture` runs `tests/e2e/admcp023gExecutableFixtureE2E.test.ts`.
+- The test starts `src/index.ts` through `@modelcontextprotocol/sdk` stdio transport and uses the mock provider to complete the compact governed path.
+- The test writes ADMCP artifacts through `writeUiTestRunArtifacts` and asserts scenario, carrier, cycle, observation, action, audit, stop-condition, closure, landfall/re-entry, safety-sidecar, and manifest records.
+- `fixtures/admcp-023g-local-fixture/index.html` is the manual reversible real-window fixture for opt-in Windows provider checks.
+
 Manual checks:
 
-- local reversible Phaser/Vite fixture,
+- local reversible static HTML fixture at `fixtures/admcp-023g-local-fixture/index.html`,
 - app launch/dev-server performed outside the MCP server,
 - pass case witnesses declared protected outcome,
 - no-op and wrong-target cases do not close,
