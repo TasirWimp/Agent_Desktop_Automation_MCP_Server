@@ -1647,7 +1647,10 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
   - Wired guidance into `desktop_submit_interaction_evidence`, strict workflow-state claim failures, strict click-candidate readiness, `desktop_capabilities`, the first-use guide, and the pure ADMCP-023 runner harness.
   - Added tests for compact-helper guidance, strict-tool guidance, capabilities/first-use guide exposure, and runner blocked-plan guidance.
   - This slice adds no desktop mutation tool, OCR dependency, hidden polling, app launch authority, or policy bypass.
-  - Keep the local app manual runner and Phaser/Vite pressure fixture as future acceptance tracks for the governed harness and artifact writer.
+- ADMCP-023F OSWorld-Inspired Pressure Fixtures - implemented as test-only acceptance scaffolding.
+  - Added synthetic pressure cases inspired by OSWorld-V2 challenge families: visual-spatial precision, streaming interaction/no-op, dynamic and cross-source watched-source freshness, implicit committed state, multi-item tracking, tutorial postcondition discipline, ask-instead-of-guess, scope exit, safety sidecar blocking, and benchmark-style provenance without gated evaluator leakage.
+  - Kept the tests local to the ADMCP carrier/runner/closure layers; no OSWorld gated task, answer, evaluator, website, provider image, shell execution, live desktop action, OCR dependency, hidden polling, or new desktop authority is copied or introduced.
+  - Keep the local app manual runner and Phaser/Vite pressure fixture as future live/manual acceptance tracks for the governed harness and artifact writer.
 
 Acceptance criteria:
 

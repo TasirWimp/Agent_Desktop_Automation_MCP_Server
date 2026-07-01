@@ -309,10 +309,11 @@ Recommended split:
 - ADMCP-023C: implemented governed runner harness that composes existing MCP tools only, assembles action requests from carrier-held ids, and applies structured tool results back into the carrier.
 - ADMCP-023D: implemented artifact and safety sidecar writer for scenario, carrier, cycle packets, observations/actions, frame hashes, audit events, closure results, landfall/re-entry packets, replay manifest, and safety reports.
 - ADMCP-023E: implemented reusable `agentGuidance` for target mismatch, repair-digest carryover, missing workflow postcondition status, click-candidate movement binding, stale/unclean perception evidence, workflow revalidation, scope rebinds, and closed-loop landing assessment.
+- ADMCP-023F: implemented OSWorld-inspired synthetic pressure fixture tests for challenge-family behavior without copying gated benchmark tasks/evaluators or adding desktop authority.
 
 Do not add dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, arbitrary app launch, or new desktop mutation authority in ADMCP-023.
 
-Next safe code step: add a local manual acceptance track or fixture-driven pressure tests for the governed harness and artifact writer. Keep the slice bounded to local test assets and existing MCP tools; do not add raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
+Next safe code step: add a local manual acceptance track, for example a small Phaser/Vite or static fixture exercised through existing MCP tools and artifact writing. Keep the slice bounded to local test assets and existing MCP tools; do not add raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
 
 ## Real Observation Manual Check
 

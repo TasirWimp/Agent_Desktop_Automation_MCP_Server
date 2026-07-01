@@ -646,6 +646,11 @@ Suggested ADMCP-023 sub-slices:
    - Exposed guidance through the compact interaction-evidence helper, strict workflow-state claim failures, strict click-candidate readiness, capabilities/first-use guidance, and the pure runner harness.
    - Unit-tested the cold-agent traps without adding desktop mutation, hidden polling, OCR dependency, app launch authority, or policy bypass.
 
+6. **ADMCP-023F OSWorld-Inspired Pressure Fixtures** - implemented as test-only acceptance scaffolding
+   - Added synthetic fixture tests for the OSWorld-V2-style challenge families most relevant to ADMCP: visual-spatial precision, streaming interaction/no-op, dynamic environment, cross-source reasoning, implicit state, multi-item tracking, conflict disambiguation, tutorial following, proactive ask, and safety sidecar scope exit.
+   - Tests exercise the existing ADMCP scenario contract, runner harness, carrier updates, closure gate, behavior labels, and provenance fields.
+   - No OSWorld gated task, answer, evaluator, website, provider image, shell execution, live desktop action, OCR dependency, hidden polling, or new desktop authority is copied or introduced.
+
 ## Test Requirements
 
 Unit tests should cover:

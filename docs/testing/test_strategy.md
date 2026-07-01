@@ -178,6 +178,18 @@ Runner/protocol tests:
 - state-changing cycles require before observation, action id, after observation through `transitionActionId`, and transition classification,
 - artifact includes scenario contract, cycle packets, carrier, observations, actions, classifications, audit events, residue, closure gate result, and final status.
 
+OSWorld-inspired pressure fixtures should stay synthetic and local. They should use challenge-family structure and benchmark hygiene as inspiration while avoiding copied gated tasks, hidden answers, external evaluators, provider images, websites, credentials, shell setup, or live desktop authority. Required cases include:
+
+- visual-spatial near-miss between same-label controls,
+- streaming/no-op or delayed transition that remains open until lookback evidence supports progress,
+- dynamic or cross-source watched-source staleness before commit/closure,
+- implicit committed state where a transient highlight is insufficient,
+- multi-item tracking that permits partial landfall but blocks pass,
+- tutorial-following workflow evidence that requires explicit postcondition status,
+- proactive ask instead of guessing missing domain input,
+- scope exit and safety sidecar closure blocking,
+- external benchmark-style provenance without gated evaluator leakage.
+
 Manual checks:
 
 - local reversible Phaser/Vite fixture,
