@@ -190,6 +190,17 @@ OSWorld-inspired pressure fixtures should stay synthetic and local. They should 
 - scope exit and safety sidecar closure blocking,
 - external benchmark-style provenance without gated evaluator leakage.
 
+Executable local fixture e2e tests should add a real protocol layer above the synthetic pressure fixtures:
+
+- start the actual MCP server process over stdio and communicate through MCP tools,
+- run the same scenario contract through the public `desktop_*` protocol instead of in-memory helper calls,
+- use the mock provider for CI-safe automation,
+- provide a separate opt-in Windows real-provider manual path gated by real observation/movement/click/type environment variables,
+- keep fixture startup, dev-server management, and window focusing in the test harness or manual instructions, not inside the MCP server,
+- verify the produced ADMCP artifacts include scenario, carrier, observations, actions, transition classifications, safety sidecar, closure gate, and landfall/re-entry packet,
+- prove that transient dropdown highlight cannot license committed execution, stale watched sources block commit/closure, no-op/wrong-target transitions carry residue, and `ask` is opened instead of guessing missing domain input,
+- confirm the server still exposes no arbitrary executable path launch, shell execution, hidden polling, OCR dependency, or broad desktop authority.
+
 Manual checks:
 
 - local reversible Phaser/Vite fixture,

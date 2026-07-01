@@ -1650,7 +1650,12 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
 - ADMCP-023F OSWorld-Inspired Pressure Fixtures - implemented as test-only acceptance scaffolding.
   - Added synthetic pressure cases inspired by OSWorld-V2 challenge families: visual-spatial precision, streaming interaction/no-op, dynamic and cross-source watched-source freshness, implicit committed state, multi-item tracking, tutorial postcondition discipline, ask-instead-of-guess, scope exit, safety sidecar blocking, and benchmark-style provenance without gated evaluator leakage.
   - Kept the tests local to the ADMCP carrier/runner/closure layers; no OSWorld gated task, answer, evaluator, website, provider image, shell execution, live desktop action, OCR dependency, hidden polling, or new desktop authority is copied or introduced.
-  - Keep the local app manual runner and Phaser/Vite pressure fixture as future live/manual acceptance tracks for the governed harness and artifact writer.
+- ADMCP-023G Executable Local Fixture E2E - planned.
+  - Add a reversible local fixture app with real UI states for same-label near misses, transient versus committed selection, delayed/no-op transitions, dynamic watched-source changes, multi-step checkpoints, ask-required missing input, and scope-exit pressure.
+  - Add an end-to-end runner that launches the actual MCP server process over stdio and drives the public tool protocol, rather than calling in-memory helpers directly.
+  - Support an automated mock-provider e2e path for CI and an opt-in Windows real-provider manual path using explicit observation/move/click/type gates against the active scoped fixture window.
+  - Keep fixture setup outside the MCP server; the test harness may prepare or focus the fixture, but the server must not gain dev-server startup, shell execution, arbitrary app launch, hidden polling, OCR dependency, or new desktop authority.
+  - Persist ADMCP run artifacts so the executable run is replayable and shows why it continued, repaired, asked, stopped, partially landed, or closed.
 
 Acceptance criteria:
 
