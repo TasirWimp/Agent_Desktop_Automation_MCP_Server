@@ -104,9 +104,21 @@ function summarizeSession(snapshot: DesktopSessionSnapshot) {
     repairAttemptCount: snapshot.repairAttemptCount,
     auditEventCount: snapshot.auditEvents.length,
     observationCount: snapshot.observations.length,
+    appScopeBindingEvidenceCount: snapshot.appScopeBindingEvidenceClaims.length,
     actionRecordCount: snapshot.actions.length,
     stopConditionCount: snapshot.stopConditions.length
   };
+}
+
+function observationArtifactIndex(snapshot: DesktopSessionSnapshot) {
+  return snapshot.observations.map((observation) => ({
+    observationId: observation.observationId,
+    observedAt: observation.observedAt,
+    targetScope: observation.targetScope,
+    visualArtifacts: observation.frames
+      .map((frame) => frame.visualArtifact)
+      .filter((artifact) => artifact !== undefined)
+  }));
 }
 
 function sessionToolError(error: unknown) {
@@ -914,6 +926,7 @@ export function registerSessionTools(server: McpServer, runtime: SessionToolRunt
           sessionId: input.sessionId,
           session: summarizeSession(session),
           auditEvents: runtime.sessionStore.listAuditEvents(input.sessionId),
+          observationArtifacts: observationArtifactIndex(session),
           stopConditions: session.stopConditions,
           residue: ["Audit log read only. No desktop action occurred."]
         });

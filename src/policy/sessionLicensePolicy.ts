@@ -768,6 +768,46 @@ export const desktopAppScopeBindingSchema = z.object({
 
 export type DesktopAppScopeBinding = z.infer<typeof desktopAppScopeBindingSchema>;
 
+export const desktopAppScopeBindingEvidenceStatuses = [
+  "confirmed",
+  "suspect",
+  "wrong_window",
+  "uncertain"
+] as const;
+
+export const desktopSubmitAppScopeBindingEvidenceInputSchema = z.object({
+  sessionId: z.string().min(1),
+  observationId: z.string().min(1),
+  targetScope: desktopInteractionScopeSchema,
+  expectedApp: z.string().min(1).max(1000),
+  expectedWindow: z.string().min(1).max(1000),
+  bindingStatus: z.enum(desktopAppScopeBindingEvidenceStatuses),
+  windowIdentityEvidence: z.string().min(1).max(2000),
+  visualBindingEvidence: z.string().min(1).max(2000),
+  geometryEvidence: z.string().min(1).max(2000),
+  contradiction: z.string().min(1).max(2000).nullable(),
+  staleCarryoverReviewed: z.literal(true)
+});
+
+export type DesktopSubmitAppScopeBindingEvidenceInput = z.infer<
+  typeof desktopSubmitAppScopeBindingEvidenceInputSchema
+>;
+
+export const desktopAppScopeBindingEvidenceSchema =
+  desktopSubmitAppScopeBindingEvidenceInputSchema.extend({
+    appScopeBindingEvidenceId: z.string().min(1),
+    appScopeBindingId: z.string().min(1),
+    createdAt: z.string().min(1),
+    sourceObservationFrameHashes: z.array(z.string().min(1)).min(1),
+    observedWindowIdentity: z.string().min(1).optional(),
+    activeWindow: desktopWindowMetadataSchema.optional(),
+    status: z.literal("accepted")
+  });
+
+export type DesktopAppScopeBindingEvidence = z.infer<
+  typeof desktopAppScopeBindingEvidenceSchema
+>;
+
 export const desktopActionRiskSchema = z.object({
   credentialExposure: z.boolean(),
   destructive: z.boolean(),
@@ -902,6 +942,7 @@ export const desktopSessionAuditEventTypes = [
   "observation_recorded",
   "perception_digest_recorded",
   "workflow_state_claim_recorded",
+  "app_scope_binding_evidence_recorded",
   "action_requested",
   "action_allowed",
   "action_blocked",
@@ -967,6 +1008,10 @@ export const desktopSessionStopConditionTypes = [
   "licensed_app_scope_required",
   "app_scope_binding_required",
   "app_scope_binding_stale",
+  "app_scope_binding_evidence_required",
+  "app_scope_binding_evidence_stale",
+  "app_scope_binding_evidence_mismatch",
+  "app_scope_binding_evidence_suspect",
   "user_reversibility_declaration_required",
   "forbidden_boundary_declaration_required",
   "forbidden_boundary_detected",
@@ -1026,10 +1071,12 @@ export interface DesktopSessionActionPolicyContext {
   observations: DesktopObservationPacket[];
   perceptionDigests: DesktopPerceptionDigest[];
   workflowStateClaims: DesktopWorkflowStateClaim[];
+  appScopeBindingEvidenceClaims: DesktopAppScopeBindingEvidence[];
   actions: DesktopActionPacket[];
   transitionGates: DesktopActionPolicyTransitionGate[];
   stopConditions: DesktopSessionStopCondition[];
   boundAppScope?: DesktopAppScopeBinding;
+  realDesktopMutation?: boolean;
   now: string;
 }
 
@@ -1202,6 +1249,14 @@ function isAppScopeBindingFresh(
   return desktopEvidenceFresh(license, "app_scope_binding", binding.boundAt, now);
 }
 
+export function appScopeBindingEvidenceFresh(
+  license: DesktopInteractionSessionLicense,
+  evidence: DesktopAppScopeBindingEvidence,
+  now: string
+): boolean {
+  return desktopEvidenceFresh(license, "app_scope_binding", evidence.createdAt, now);
+}
+
 function observationMatchesBoundAppScope(
   binding: DesktopAppScopeBinding,
   observation: DesktopObservationPacket
@@ -1216,6 +1271,77 @@ function observationMatchesBoundAppScope(
   }
 
   return scopeMatches(binding.boundScope, observation.targetScope);
+}
+
+export function appScopeBindingEvidenceFrameHashesMatch(
+  evidence: DesktopAppScopeBindingEvidence,
+  observation: DesktopObservationPacket
+): boolean {
+  const observationHashes = observation.frames.map((frame) => frame.sha256);
+
+  return (
+    evidence.sourceObservationFrameHashes.length === observationHashes.length &&
+    evidence.sourceObservationFrameHashes.every(
+      (hash, index) => hash === observationHashes[index]
+    )
+  );
+}
+
+export function appScopeBindingEvidenceMatchesBinding(input: {
+  evidence: DesktopAppScopeBindingEvidence;
+  binding: DesktopAppScopeBinding;
+  observation: DesktopObservationPacket;
+  targetScope: DesktopInteractionScope;
+}): boolean {
+  const observationIdentity = observedWindowIdentity(input.observation.activeWindow);
+
+  if (input.evidence.appScopeBindingId !== input.binding.bindingId) {
+    return false;
+  }
+
+  if (input.evidence.observationId !== input.observation.observationId) {
+    return false;
+  }
+
+  if (!desktopInteractionScopesMatch(input.evidence.targetScope, input.targetScope)) {
+    return false;
+  }
+
+  if (!desktopInteractionScopesMatch(input.evidence.targetScope, input.observation.targetScope)) {
+    return false;
+  }
+
+  if (!appScopeBindingEvidenceFrameHashesMatch(input.evidence, input.observation)) {
+    return false;
+  }
+
+  if (
+    input.evidence.observedWindowIdentity !== undefined &&
+    observationIdentity !== undefined &&
+    normalize(input.evidence.observedWindowIdentity) !== normalize(observationIdentity)
+  ) {
+    return false;
+  }
+
+  return input.evidence.bindingStatus === "confirmed" &&
+    input.evidence.contradiction === null &&
+    input.evidence.staleCarryoverReviewed;
+}
+
+export function currentAppScopeBindingEvidenceFor(input: {
+  evidenceClaims: DesktopAppScopeBindingEvidence[];
+  binding: DesktopAppScopeBinding;
+  observation: DesktopObservationPacket;
+  targetScope: DesktopInteractionScope;
+}): DesktopAppScopeBindingEvidence | undefined {
+  return input.evidenceClaims.findLast((evidence) =>
+    appScopeBindingEvidenceMatchesBinding({
+      evidence,
+      binding: input.binding,
+      observation: input.observation,
+      targetScope: input.targetScope
+    })
+  );
 }
 
 function findObservation(
@@ -3093,6 +3219,58 @@ export function evaluateSessionActionPolicy(
           [...auditTags, "outside_allowed_scope", "bound_app_scope_mismatch"],
           [stop]
         );
+      }
+
+      if (context.realDesktopMutation === true) {
+        const bindingEvidence = currentAppScopeBindingEvidenceFor({
+          evidenceClaims: context.appScopeBindingEvidenceClaims,
+          binding: context.boundAppScope,
+          observation: preActionObservation,
+          targetScope: action.targetScope
+        });
+
+        if (bindingEvidence === undefined) {
+          const stop = stopCondition(
+            "app_scope_binding_evidence_required",
+            license.sessionId,
+            `${action.actionType} requires agent-authored binding evidence for the latest app-under-test observation before real provider execution.`,
+            action.actionId,
+            [
+              `preActionObservationId: ${preActionObservation.observationId}.`,
+              `appScopeBindingId: ${context.boundAppScope.bindingId}.`,
+              "Inspect the latest visual artifact and submit desktop_submit_interaction_evidence with bindingEvidence before clicking or typing.",
+              "The binding witness must confirm the screenshot shows the expected app/window surface, not only a tiny child surface, browser chrome, or an unrelated window."
+            ]
+          );
+
+          return result(
+            "block",
+            [stop.reason],
+            [...auditTags, "app_scope_binding_evidence_required"],
+            [stop]
+          );
+        }
+
+        if (!appScopeBindingEvidenceFresh(license, bindingEvidence, context.now)) {
+          const stop = stopCondition(
+            "app_scope_binding_evidence_stale",
+            license.sessionId,
+            "The app-under-test binding evidence is older than the app-scope binding freshness tier allows.",
+            action.actionId,
+            [
+              `appScopeBindingEvidenceId: ${bindingEvidence.appScopeBindingEvidenceId}.`,
+              `appScopeBindingEvidence.createdAt: ${bindingEvidence.createdAt}.`,
+              `appScopeBindingMaxAgeMs: ${desktopEvidenceFreshnessMaxAgeMs(license, "app_scope_binding")}.`
+            ]
+          );
+
+          return result(
+            "block",
+            [stop.reason],
+            [...auditTags, "app_scope_binding_evidence_stale"],
+            [stop]
+          );
+        }
       }
     }
 

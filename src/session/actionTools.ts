@@ -29,6 +29,7 @@ import type {
   DesktopProviderActionResult
 } from "../providers/desktopProvider.js";
 import { DesktopProviderError as DesktopProviderErrorClass } from "../providers/desktopProvider.js";
+import { buildDesktopAgentGuidance } from "./agentGuidance.js";
 import {
   createPendingInteractionTransitionGate,
   type InteractionTransitionGate
@@ -236,6 +237,23 @@ function appendStopConditions(
   for (const stopCondition of stopConditions) {
     runtime.sessionStore.appendStopCondition(stopCondition);
   }
+}
+
+function actionPolicyAgentGuidance(action: DesktopActionPacket, policyTags: string[]) {
+  if (
+    policyTags.includes("app_scope_binding_evidence_required") ||
+    policyTags.includes("app_scope_binding_evidence_stale")
+  ) {
+    return buildDesktopAgentGuidance({
+      code: "app_scope_binding_evidence_required",
+      sessionId: action.sessionId,
+      observationId: action.preActionObservationId,
+      targetScope: action.targetScope,
+      intendedTarget: action.intendedSemanticTarget
+    });
+  }
+
+  return undefined;
 }
 
 function credentialLikeText(text: string): boolean {
@@ -793,14 +811,17 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
       );
     }
 
+    const providerCapabilities = runtime.desktopProvider.getCapabilities();
     const context = runtime.sessionStore.getActionPolicyContext(input.sessionId, {
       now: requestedAt,
       phase: "preflight"
     });
+    context.realDesktopMutation = providerCapabilities.realDesktopMutation;
     const session = runtime.sessionStore.requireActiveSession(input.sessionId);
     const policy = evaluateSessionActionPolicy(session.license, action, context);
 
     if (policy.decision !== "allow") {
+      const agentGuidance = actionPolicyAgentGuidance(action, policy.auditTags);
       const eventType =
         policy.decision === "escalate" ? "escalation_required" : "action_blocked";
       const decisionAuditEvent = actionDecisionEvent(
@@ -820,6 +841,8 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
           status: policy.decision,
           action,
           policy,
+          agentGuidance,
+          nextRequiredStep: agentGuidance?.nextRequiredStep,
           auditEvents: [requestedAuditEvent, decisionAuditEvent],
           residue: [config.policyBlockedResidue]
         },
@@ -867,8 +890,6 @@ async function executeStateChangingAction<Input extends { sessionId: string }>(
         true
       );
     }
-
-    const providerCapabilities = runtime.desktopProvider.getCapabilities();
 
     if (!config.providerSupports(runtime.desktopProvider)) {
       const stopCondition: DesktopSessionStopCondition = {

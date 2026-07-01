@@ -29,7 +29,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
     requiredLoop: [
       "desktop_observe with includeImages: true",
       "inspect visualArtifacts[].path or the returned MCP image content block",
-      "desktop_submit_interaction_evidence with perception evidence and optional workflow/candidate/transition evidence",
+      "desktop_submit_interaction_evidence with bindingEvidence when app-scoped real mutation is possible, plus perception evidence and optional workflow/candidate/transition evidence",
       "desktop_move_mouse, desktop_click, or desktop_type_text with compact relational claim and returned evidence ids",
       "desktop_observe with transitionActionId",
       "desktop_submit_interaction_evidence for the follow-up observation with transitionAssessment and clickCandidate evidence",
@@ -39,6 +39,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "desktop_observe({ includeImages: true }) returns screenshot-bearing visualArtifacts[].path entries and MCP image content blocks.",
       "Raw frame dataBase64 is omitted from normal public JSON; request includeInlineBase64: true only for compatibility/debug use.",
       "desktop_submit_interaction_evidence is the preferred compact path; strict/debug clients may still call digest, workflow, transition assessment, and click-candidate tools separately.",
+      "For app-scoped real click/type sessions, submit bindingEvidence after inspecting the latest observation: confirm the expected app/window identity, visual app surface, plausible geometry, no contradiction, and staleCarryoverReviewed true.",
       "Use one canonical intendedTarget string across perception, workflow, transition assessment, click-candidate, click, and type; omit workflow.intendedElementTarget in the helper unless deliberately opening a different target track.",
       "Perception digests must reference the latest screenshot-bearing observation.",
       "Any newer desktop_observe invalidates older perception digests for future actions.",
@@ -52,12 +53,14 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
     ],
     scopeRules: [
       "Sessions with licensedAppScope bind the app-under-test during desktop_observe.",
+      "The provider binding is not enough for real mutation; the agent must verify the latest screenshot shows the intended app-under-test window surface, not a tiny child surface or unrelated window.",
       "scope_exit means the active window drifted away from the bound app-under-test; refocus the app or start a fresh session.",
       "Out-of-scope observations are not recorded as usable session evidence."
     ],
     realProviderRules: [
       "Real observation, movement, click, typing, and app launch are individually opt-in provider gates.",
       "Real click and typing require a reversible app-scoped session and current boundAppScope evidence.",
+      "Real click and typing also require current agent-authored app-scope binding evidence for the pre-action observation.",
       "The server performs no OCR or screenshot analysis; the client authors perception and workflow claims from the returned image."
     ],
     commonFailureRecovery: [
@@ -67,6 +70,7 @@ export function buildDesktopFirstUseGuide(): DesktopFirstUseGuide {
       "If workflow evidence references transitionActionId, include postconditionStatus satisfied, contradicted, or inconclusive; do not use not_applicable for a transition postcondition.",
       "If click-candidate readiness fails on workflow state, submit workflow evidence through desktop_submit_interaction_evidence or reuse an older workflowStateClaimId only when bounded revalidation applies.",
       "If click-candidate readiness reports missing movement evidence, resubmit with clickCandidate.movementActionId or include transitionAssessment.actionId in the same helper call.",
+      "If app-scope binding evidence is missing or suspect, inspect visualArtifacts[].path, refocus/restore the top-level app window if needed, observe again, and submit bindingEvidence before real click/type.",
       "If landing was wrong or inconclusive, stay in the closed loop: observe, submit repair evidence, move, observe transition, validate semantic landing, get hoverTargetWitnessId, then click.",
       "If scope_exit appears, bring the intended app back to the foreground before continuing or start a new bounded session."
     ],

@@ -76,14 +76,17 @@ Run these only after the user has granted a bounded session license for clicking
 3. Confirm `capabilities.closedLoopClickExecution` is `false`; ADMCP-022 repair classification is implemented, but ADMCP-023 runner orchestration is not.
 4. Start a session whose allowed actions include `observe` and `click`, with `licensedAppScope` set to the reversible app-under-test.
 5. Call `desktop_observe` and confirm it records `boundAppScope`.
-6. Inspect `visualArtifacts[].path`, then use the compact path: `desktop_submit_interaction_evidence` for perception/workflow evidence, relational move, follow-up `desktop_observe`, `desktop_submit_interaction_evidence` with transition assessment and click-candidate evidence, then `desktop_click` with the returned `perceptionDigestId`, `workflowStateClaimId`, and `hoverTargetWitnessId`. The click-candidate evidence must include `movementActionId`, or the helper must infer it from same-call `transitionAssessment.actionId`; do not call `desktop_click` until `hoverTargetWitnessId` is returned.
-7. Confirm the result has `executed: true`, `simulated: false`, `requiresPostActionObservation: true`, and a pending transition gate.
-8. Call `desktop_observe` with `transitionActionId` set to the click action id.
-9. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
-10. Attempt a second `desktop_click` before the post-click observation in a separate test session and confirm it is blocked by the pending transition gate.
-11. Attempt a click with a stale pre-action observation and confirm it is blocked before provider execution.
-12. Attempt a click outside the licensed app scope and confirm it is blocked before provider execution.
-13. Confirm shell, arbitrary app launch, command-line launch arguments, system change, external publishing, and broad desktop control remain unavailable.
+6. Inspect `visualArtifacts[].path` and confirm the artifact shows the intended app-under-test window, not a child surface, unrelated active window, browser chrome, or tiny/suspect crop.
+7. Use the compact path: `desktop_submit_interaction_evidence` with `bindingEvidence` plus perception/workflow evidence, relational move, follow-up `desktop_observe`, `desktop_submit_interaction_evidence` with refreshed `bindingEvidence`, transition assessment, and click-candidate evidence, then `desktop_click` with the returned `perceptionDigestId`, `workflowStateClaimId`, and `hoverTargetWitnessId`. The click-candidate evidence must include `movementActionId`, or the helper must infer it from same-call `transitionAssessment.actionId`; do not call `desktop_click` until `hoverTargetWitnessId` is returned.
+8. Confirm `desktop_session_audit_log.observationArtifacts` contains the exact local artifact path inspected for the click evidence.
+9. Confirm the result has `executed: true`, `simulated: false`, `requiresPostActionObservation: true`, and a pending transition gate.
+10. Call `desktop_observe` with `transitionActionId` set to the click action id.
+11. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
+12. Attempt a second `desktop_click` before the post-click observation in a separate test session and confirm it is blocked by the pending transition gate.
+13. Attempt a click with a stale pre-action observation and confirm it is blocked before provider execution.
+14. Attempt a click without current `bindingEvidence` and confirm it is blocked before provider execution.
+15. Attempt a click outside the licensed app scope and confirm it is blocked before provider execution.
+16. Confirm shell, arbitrary app launch, command-line launch arguments, system change, external publishing, and broad desktop control remain unavailable.
 
 ## Optional App-Scoped Typing Checks
 
@@ -93,15 +96,17 @@ Run these only after the user has granted a bounded session license for typing g
 2. Confirm `provider.supportsTyping`, `capabilities.realDesktopTyping`, `provider.realDesktopMutation`, and `capabilities.executeDesktopActions` are `true`.
 3. Start a session whose allowed actions include `observe` and `type_text`, with `licensedAppScope` set to the reversible app-under-test.
 4. Call `desktop_observe` and confirm it records `boundAppScope`.
-5. Ensure focus is in a reversible test input field inside the bound app.
-6. Inspect `visualArtifacts[].path`, call `desktop_submit_interaction_evidence` with perception and workflow evidence for the target input, then call `desktop_type_text` with generated test input, `sensitivityClassification: "test_input"`, the observation id as `preActionObservationId`, and the returned `perceptionDigestId` and `workflowStateClaimId`.
-7. Confirm the result has `executed: true`, `simulated: false`, `typedTextLength` equal to the generated input length, `requiresPostActionObservation: true`, and a pending transition gate.
-8. Confirm the returned action and audit events record text length/classification but not raw text content.
-9. Call `desktop_observe` with `transitionActionId` set to the typing action id.
-10. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
-11. Attempt credential-like text such as `password=example` and confirm it is blocked before provider execution and raw text is not stored.
-12. Attempt typing outside the licensed app scope and confirm it is blocked before provider execution.
-13. Confirm shell, arbitrary app launch, command-line launch arguments, system change, external publishing, and broad desktop control remain unavailable.
+5. Inspect `visualArtifacts[].path` and confirm the artifact shows the intended app-under-test window and target input context.
+6. Ensure focus is in a reversible test input field inside the bound app.
+7. Call `desktop_submit_interaction_evidence` with `bindingEvidence`, perception, and workflow evidence for the target input, then call `desktop_type_text` with generated test input, `sensitivityClassification: "test_input"`, the observation id as `preActionObservationId`, and the returned `perceptionDigestId` and `workflowStateClaimId`.
+8. Confirm the result has `executed: true`, `simulated: false`, `typedTextLength` equal to the generated input length, `requiresPostActionObservation: true`, and a pending transition gate.
+9. Confirm the returned action and audit events record text length/classification but not raw text content.
+10. Call `desktop_observe` with `transitionActionId` set to the typing action id.
+11. Confirm the follow-up observation audits the transition gate, includes `postActionClassification`, and that the active window remains inside `boundAppScope`.
+12. Attempt credential-like text such as `password=example` and confirm it is blocked before provider execution and raw text is not stored.
+13. Attempt typing without current `bindingEvidence` and confirm it is blocked before provider execution.
+14. Attempt typing outside the licensed app scope and confirm it is blocked before provider execution.
+15. Confirm shell, arbitrary app launch, command-line launch arguments, system change, external publishing, and broad desktop control remain unavailable.
 
 ## ADMCP-014 Witness Checks
 

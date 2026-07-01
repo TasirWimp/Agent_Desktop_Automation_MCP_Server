@@ -155,6 +155,44 @@ async function submitSupportedAssessment(
   });
 }
 
+async function submitBindingEvidence(client: Client, observationId: string) {
+  await client.callTool({
+    name: "desktop_submit_interaction_evidence",
+    arguments: {
+      sessionId: "session-click-candidate-001",
+      observationId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedTarget: "Submit button",
+      evidenceMode: "same_target",
+      bindingEvidence: {
+        expectedApp: "Generated Test App",
+        expectedWindow: "Generated Test App",
+        bindingStatus: "confirmed",
+        windowIdentityEvidence:
+          "Active-window metadata identifies the Generated Test App.",
+        visualBindingEvidence:
+          "The visual artifact shows the Generated Test App body.",
+        geometryEvidence:
+          "The observation frame is app-sized and not a tiny child surface.",
+        contradiction: null,
+        staleCarryoverReviewed: true
+      },
+      perception: {
+        currentScene: "Generated Test App main view.",
+        currentAnchor: "Submit row",
+        targetVisibility: "visible",
+        anchorVisibility: "visible",
+        contradictionToPriorClaim: null,
+        staleCarryoverReviewed: true,
+        currentEvidence: "The current screenshot shows the target row/control."
+      }
+    }
+  });
+}
+
 const startArguments = {
   sessionId: "session-click-candidate-001",
   userGoal: "Run the generated app UI test scenario.",
@@ -522,6 +560,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         followUpObservationId,
         followUpDigestId
       );
+      await submitBindingEvidence(client, followUpObservationId);
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
@@ -630,6 +669,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
       const followUpDigestId = await submitDigest(client, followUpObservationId);
 
       await submitSupportedAssessment(client, moveActionId, followUpDigestId);
+      await submitBindingEvidence(client, followUpObservationId);
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
@@ -745,6 +785,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
         revalidationObservationId,
         revalidationDigestId
       );
+      await submitBindingEvidence(client, revalidationObservationId);
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
@@ -855,6 +896,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           intendedActionMeaning: "click Submit row to commit the workflow precondition"
         }
       );
+      await submitBindingEvidence(client, followUpObservationId);
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",
@@ -942,6 +984,7 @@ describe("desktop_evaluate_click_candidate MCP tool", () => {
           intendedElementTarget: "Submit target"
         }
       );
+      await submitBindingEvidence(client, followUpObservationId);
 
       const result = await client.callTool({
         name: "desktop_evaluate_click_candidate",

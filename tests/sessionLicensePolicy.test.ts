@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type DesktopActionPacket,
   type DesktopAppScopeBinding,
+  type DesktopAppScopeBindingEvidence,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
   type DesktopPerceptionDigest,
@@ -243,6 +244,36 @@ function boundAppScopeFixture(
   };
 }
 
+function appScopeBindingEvidenceFixture(
+  observation: DesktopObservationPacket,
+  overrides: Partial<DesktopAppScopeBindingEvidence> = {}
+): DesktopAppScopeBindingEvidence {
+  return {
+    appScopeBindingEvidenceId: `binding-evidence-${observation.observationId}`,
+    sessionId: observation.sessionId,
+    observationId: observation.observationId,
+    targetScope: observation.targetScope,
+    expectedApp: "Generated Test App",
+    expectedWindow: "Generated Test App",
+    bindingStatus: "confirmed",
+    windowIdentityEvidence:
+      "Active window metadata identifies the Generated Test App process/title.",
+    visualBindingEvidence:
+      "The screenshot shows the Generated Test App body, not an unrelated window.",
+    geometryEvidence:
+      "The screenshot frame is full app-sized and not a tiny child surface.",
+    contradiction: null,
+    staleCarryoverReviewed: true,
+    appScopeBindingId: "binding-generated-app",
+    createdAt: "2026-05-27T10:00:01.950Z",
+    sourceObservationFrameHashes: observation.frames.map((frame) => frame.sha256),
+    observedWindowIdentity: "node:Generated Test App",
+    activeWindow: observation.activeWindow,
+    status: "accepted",
+    ...overrides
+  };
+}
+
 function actionFixture(
   actionType: DesktopSessionActionType,
   overrides: Partial<DesktopActionPacket> = {}
@@ -355,6 +386,11 @@ function contextFor(action: DesktopActionPacket, phase: "preflight" | "completio
               }
             )
           ],
+    appScopeBindingEvidenceClaims:
+      preActionObservation === undefined ||
+      (action.actionType !== "click" && action.actionType !== "type_text")
+        ? []
+        : [appScopeBindingEvidenceFixture(preActionObservation)],
     boundAppScope: boundAppScopeFixture(),
     now: "2026-05-27T10:00:03.000Z"
   };
@@ -649,6 +685,41 @@ describe("evaluateSessionActionPolicy", () => {
     expect(result.decision).toBe("block");
     expect(result.auditTags).toContain("app_scope_binding_stale");
     expect(result.stopConditions[0]?.condition).toBe("app_scope_binding_stale");
+  });
+
+  it("blocks click actions without current app-scope binding evidence", () => {
+    const action = actionFixture("click");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      realDesktopMutation: true,
+      appScopeBindingEvidenceClaims: []
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("app_scope_binding_evidence_required");
+    expect(result.stopConditions[0]?.condition).toBe(
+      "app_scope_binding_evidence_required"
+    );
+  });
+
+  it("blocks click actions when app-scope binding evidence is stale", () => {
+    const action = actionFixture("click");
+    const observation = observationFixture("obs-before-001");
+    const result = evaluateSessionActionPolicy(baseLicense, action, {
+      ...contextFor(action),
+      realDesktopMutation: true,
+      appScopeBindingEvidenceClaims: [
+        appScopeBindingEvidenceFixture(observation, {
+          createdAt: "2026-05-27T09:59:00.000Z"
+        })
+      ]
+    });
+
+    expect(result.decision).toBe("block");
+    expect(result.auditTags).toContain("app_scope_binding_evidence_stale");
+    expect(result.stopConditions[0]?.condition).toBe(
+      "app_scope_binding_evidence_stale"
+    );
   });
 
   it("escalates click actions when the pre-action observation no longer matches the bound app", () => {

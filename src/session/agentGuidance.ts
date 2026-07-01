@@ -9,6 +9,7 @@ export const desktopAgentGuidanceCodes = [
   "closed_loop_landing_assessment_required",
   "workflow_state_revalidation_required",
   "perception_digest_current_clean_required",
+  "app_scope_binding_evidence_required",
   "scope_rebind_required"
 ] as const;
 
@@ -238,6 +239,35 @@ export function buildDesktopAgentGuidance(input: {
         sourceDocs: sourceDocs()
       };
 
+    case "app_scope_binding_evidence_required":
+      return {
+        code: input.code,
+        summary:
+          "The app-under-test scope is provider-bound, but the agent has not verified that the latest screenshot is the intended app/window surface.",
+        immediateAction:
+          "Inspect the latest visual artifact and submit desktop_submit_interaction_evidence with bindingEvidence before click/type readiness or mutation.",
+        nextRequiredStep: {
+          tool: "desktop_submit_interaction_evidence",
+          instruction:
+            "Submit bindingEvidence with bindingStatus confirmed, current visual binding evidence, geometry evidence, staleCarryoverReviewed true, and contradiction null.",
+          arguments: compactRecord({
+            ...baseArguments,
+            bindingEvidence: {
+              bindingStatus: "confirmed",
+              contradiction: null,
+              staleCarryoverReviewed: true
+            }
+          })
+        },
+        checklist: [
+          "Confirm the screenshot shows the app-under-test body, not only browser chrome, a tab strip, or a tiny child/control surface.",
+          "Check the returned active-window metadata and window/frame size before trusting active_window binding.",
+          "If the binding is suspect, refocus or restore the top-level app window, observe again, then submit confirmed binding evidence."
+        ],
+        behaviorLabels: ["scope_drift", "gui_visual_grounding_issue"],
+        sourceDocs: sourceDocs()
+      };
+
     case "scope_rebind_required":
       return {
         code: input.code,
@@ -296,6 +326,10 @@ export function guidanceCodeForToolError(
     return "perception_digest_current_clean_required";
   }
 
+  if (errorCode.includes("app_scope_binding_evidence")) {
+    return "app_scope_binding_evidence_required";
+  }
+
   if (errorCode.includes("scope")) {
     return "scope_rebind_required";
   }
@@ -332,6 +366,10 @@ export function guidanceCodeForClickCandidateStatus(
 
   if (status === "scope_unbound" || status === "scope_mismatch") {
     return "scope_rebind_required";
+  }
+
+  if (status === "app_scope_binding_unverified") {
+    return "app_scope_binding_evidence_required";
   }
 
   return undefined;

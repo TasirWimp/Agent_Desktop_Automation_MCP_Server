@@ -1,18 +1,21 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  appScopeBindingEvidenceFresh,
   desktopEvidenceFresh,
   desktopEvidenceFreshnessMaxAgeMs,
   desktopInteractionScopeSchema,
   desktopInteractionScopesMatch,
   desktopPointSchema,
   desktopRectangleSchema,
+  currentAppScopeBindingEvidenceFor,
   evaluateWorkflowStateClaimRevalidation,
   formatNullableStringForAudit,
   isDesktopInteractionScopeAllowed,
   semanticTargetCanonicalForm,
   semanticTargetsEquivalent,
   type DesktopActionRisk,
+  type DesktopAppScopeBindingEvidence,
   type DesktopInteractionScope,
   type DesktopObservationPacket,
   type DesktopPerceptionDigest,
@@ -50,6 +53,7 @@ export const clickCandidateWitnessStatuses = [
   "insufficient_witness",
   "scope_unbound",
   "scope_mismatch",
+  "app_scope_binding_unverified",
   "stale_observation",
   "action_not_allowed",
   "risk_blocked",
@@ -180,6 +184,23 @@ interface ClickCandidateEvaluation {
     postconditionContradiction?: string;
     revalidationResidue?: string[];
     interveningActionIds?: string[];
+  };
+  appScopeBindingEvidence?: {
+    required: boolean;
+    appScopeBindingEvidenceId?: string;
+    appScopeBindingId?: string;
+    observationMatches: boolean;
+    scopeMatches: boolean;
+    frameHashesMatch: boolean;
+    bindingStatus?: DesktopAppScopeBindingEvidence["bindingStatus"];
+    contradiction?: string | null;
+    staleCarryoverReviewed?: boolean;
+    fresh: boolean;
+    maxAgeMs?: number;
+    expectedApp?: string;
+    expectedWindow?: string;
+    visualBindingEvidence?: string;
+    geometryEvidence?: string;
   };
   movementEvidence?: {
     actionType: string;
@@ -431,6 +452,9 @@ function chooseStatus(input: {
   workflowStatePerceptionDigestMatches: boolean;
   workflowStateFrameHashesMatch: boolean;
   workflowStateReady: boolean;
+  appScopeBindingEvidenceRequired: boolean;
+  appScopeBindingEvidenceFound: boolean;
+  appScopeBindingEvidenceFresh: boolean;
 }): ClickCandidateWitnessStatus {
   if (!input.clickAllowed) {
     return "action_not_allowed";
@@ -510,6 +534,13 @@ function chooseStatus(input: {
     return "insufficient_witness";
   }
 
+  if (
+    input.appScopeBindingEvidenceRequired &&
+    (!input.appScopeBindingEvidenceFound || !input.appScopeBindingEvidenceFresh)
+  ) {
+    return "app_scope_binding_unverified";
+  }
+
   return "candidate_ready";
 }
 
@@ -529,6 +560,7 @@ function buildResidue(input: {
   workflowStateRevalidatedByLatestObservation?: boolean;
   workflowStateRevalidationResidue?: string[];
   workflowStateRevalidationReason?: string;
+  appScopeBindingEvidence?: ClickCandidateEvaluation["appScopeBindingEvidence"];
   movementGate?: InteractionTransitionGate;
   movementRevalidatedByLatestObservation?: boolean;
   perceptionDigest?: DesktopPerceptionDigest;
@@ -556,6 +588,9 @@ function buildResidue(input: {
     residue.push("Active-window scope must be bound to a concrete observed identity before click targeting is considered ready.");
   } else if (input.status === "scope_mismatch") {
     residue.push("Candidate target scope does not match the licensed session scope or referenced observation scope.");
+  } else if (input.status === "app_scope_binding_unverified") {
+    residue.push("The current app-under-test binding has not been verified by agent-authored binding evidence for this observation.");
+    residue.push("nextRequiredStep: inspect the latest visual artifact and resubmit desktop_submit_interaction_evidence with bindingEvidence before clicking.");
   } else if (input.status === "stale_observation") {
     residue.push("Observation is older than the session cadence allows for a click candidate.");
   } else if (input.status === "action_not_allowed") {
@@ -681,6 +716,17 @@ function buildResidue(input: {
     }
   }
 
+  if (input.appScopeBindingEvidence !== undefined) {
+    residue.push(
+      `App-scope binding evidence required=${input.appScopeBindingEvidence.required}, id=${input.appScopeBindingEvidence.appScopeBindingEvidenceId ?? "missing"}, fresh=${input.appScopeBindingEvidence.fresh}.`
+    );
+    if (input.appScopeBindingEvidence.bindingStatus !== undefined) {
+      residue.push(
+        `App-scope binding status=${input.appScopeBindingEvidence.bindingStatus}, contradiction=${formatNullableStringForAudit(input.appScopeBindingEvidence.contradiction ?? null)}.`
+      );
+    }
+  }
+
   return residue;
 }
 
@@ -783,7 +829,8 @@ function evaluateClickCandidate(
   perceptionDigest: DesktopPerceptionDigest | undefined,
   workflowStateClaim: DesktopWorkflowStateClaim | undefined,
   input: ClickCandidateWitnessInput,
-  now: string
+  now: string,
+  realDesktopMutation: boolean
 ): ClickCandidateEvaluation {
   const candidatePoint = input.candidatePoint ?? (
     input.candidateBbox === undefined ? undefined : rectangleCenter(input.candidateBbox)
@@ -812,6 +859,10 @@ function evaluateClickCandidate(
   const workflowStateClaimMaxAgeMs = desktopEvidenceFreshnessMaxAgeMs(
     session.license,
     "workflow_state_claim"
+  );
+  const appScopeBindingEvidenceMaxAgeMs = desktopEvidenceFreshnessMaxAgeMs(
+    session.license,
+    "app_scope_binding"
   );
   const ageMs = observationAgeMs(observation.observedAt, now);
   const fresh =
@@ -920,6 +971,7 @@ function evaluateClickCandidate(
             observations: session.observations,
             perceptionDigests: session.perceptionDigests,
             workflowStateClaims: session.workflowStateClaims,
+            appScopeBindingEvidenceClaims: session.appScopeBindingEvidenceClaims,
             actions: session.actions,
             transitionGates: session.transitionGates,
             stopConditions: session.stopConditions,
@@ -995,6 +1047,24 @@ function evaluateClickCandidate(
     session.license.allowedActions.includes("click") &&
     !session.license.forbiddenActions.includes("click");
   const riskBlocked = isRiskBlocked(input.risk);
+  const appScopeBindingEvidenceRequired =
+    realDesktopMutation && session.license.licensedAppScope !== undefined;
+  const appScopeBindingEvidence =
+    session.boundAppScope === undefined
+      ? undefined
+      : currentAppScopeBindingEvidenceFor({
+          evidenceClaims: session.appScopeBindingEvidenceClaims,
+          binding: session.boundAppScope,
+          observation,
+          targetScope: input.targetScope
+        });
+  const appScopeBindingEvidenceIsFresh =
+    appScopeBindingEvidence !== undefined &&
+    appScopeBindingEvidenceFresh(
+      session.license,
+      appScopeBindingEvidence,
+      now
+    );
   const status = chooseStatus({
     activeWindowBound,
     sessionScopeAllowed,
@@ -1035,7 +1105,10 @@ function evaluateClickCandidate(
       workflowStateRevalidatedByLatestObservation,
     workflowStateFrameHashesMatch:
       workflowStateHashesMatch || workflowStateRevalidatedByLatestObservation,
-    workflowStateReady
+    workflowStateReady,
+    appScopeBindingEvidenceRequired,
+    appScopeBindingEvidenceFound: appScopeBindingEvidence !== undefined,
+    appScopeBindingEvidenceFresh: appScopeBindingEvidenceIsFresh
   });
   const guidanceCode = guidanceCodeForClickCandidateStatus(status);
   const agentGuidance =
@@ -1067,6 +1140,32 @@ function evaluateClickCandidate(
     workflowStateRevalidatedByLatestObservation,
     workflowStateRevalidationResidue: workflowStateRevalidation?.residue,
     workflowStateRevalidationReason: workflowStateRevalidation?.reason,
+    appScopeBindingEvidence: {
+      required: appScopeBindingEvidenceRequired,
+      appScopeBindingEvidenceId:
+        appScopeBindingEvidence?.appScopeBindingEvidenceId,
+      appScopeBindingId: appScopeBindingEvidence?.appScopeBindingId,
+      observationMatches:
+        appScopeBindingEvidence?.observationId === observation.observationId,
+      scopeMatches:
+        appScopeBindingEvidence !== undefined &&
+        desktopInteractionScopesMatch(
+          appScopeBindingEvidence.targetScope,
+          input.targetScope
+        ),
+      frameHashesMatch: appScopeBindingEvidence !== undefined,
+      bindingStatus: appScopeBindingEvidence?.bindingStatus,
+      contradiction: appScopeBindingEvidence?.contradiction,
+      staleCarryoverReviewed:
+        appScopeBindingEvidence?.staleCarryoverReviewed,
+      fresh: appScopeBindingEvidenceIsFresh,
+      maxAgeMs: appScopeBindingEvidenceMaxAgeMs,
+      expectedApp: appScopeBindingEvidence?.expectedApp,
+      expectedWindow: appScopeBindingEvidence?.expectedWindow,
+      visualBindingEvidence:
+        appScopeBindingEvidence?.visualBindingEvidence,
+      geometryEvidence: appScopeBindingEvidence?.geometryEvidence
+    },
     movementGate,
     movementRevalidatedByLatestObservation,
     perceptionDigest,
@@ -1206,6 +1305,32 @@ function evaluateClickCandidate(
       revalidationResidue: workflowStateRevalidation?.residue,
       interveningActionIds: workflowStateRevalidation?.interveningActionIds
     },
+    appScopeBindingEvidence: {
+      required: appScopeBindingEvidenceRequired,
+      appScopeBindingEvidenceId:
+        appScopeBindingEvidence?.appScopeBindingEvidenceId,
+      appScopeBindingId: appScopeBindingEvidence?.appScopeBindingId,
+      observationMatches:
+        appScopeBindingEvidence?.observationId === observation.observationId,
+      scopeMatches:
+        appScopeBindingEvidence !== undefined &&
+        desktopInteractionScopesMatch(
+          appScopeBindingEvidence.targetScope,
+          input.targetScope
+        ),
+      frameHashesMatch: appScopeBindingEvidence !== undefined,
+      bindingStatus: appScopeBindingEvidence?.bindingStatus,
+      contradiction: appScopeBindingEvidence?.contradiction,
+      staleCarryoverReviewed:
+        appScopeBindingEvidence?.staleCarryoverReviewed,
+      fresh: appScopeBindingEvidenceIsFresh,
+      maxAgeMs: appScopeBindingEvidenceMaxAgeMs,
+      expectedApp: appScopeBindingEvidence?.expectedApp,
+      expectedWindow: appScopeBindingEvidence?.expectedWindow,
+      visualBindingEvidence:
+        appScopeBindingEvidence?.visualBindingEvidence,
+      geometryEvidence: appScopeBindingEvidence?.geometryEvidence
+    },
     movementEvidence,
     hoverTargetWitness,
     riskEvidence: input.risk,
@@ -1292,7 +1417,8 @@ export function evaluateAndRecordClickCandidate(
     perceptionDigest,
     workflowStateClaim,
     parsedInput,
-    runtime.now()
+    runtime.now(),
+    providerCapabilities.realDesktopMutation
   );
   const hoverTargetWitness =
     evaluation.hoverTargetWitness === undefined
@@ -1401,7 +1527,8 @@ export function registerClickCandidateWitnessTools(
           perceptionDigest,
           workflowStateClaim,
           input,
-          runtime.now()
+          runtime.now(),
+          providerCapabilities.realDesktopMutation
         );
         const hoverTargetWitness =
           evaluation.hoverTargetWitness === undefined

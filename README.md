@@ -11,7 +11,7 @@ The current server exposes:
 - `desktop_start_interaction_session` - starts a bounded, user-confirmed interaction session license.
 - `desktop_open_application` - opens only a catalog allowlisted application ID or alias; no arbitrary executable paths or arguments.
 - `desktop_observe` - records a bounded observation frame session for an active interaction session.
-- `desktop_submit_interaction_evidence` - preferred compact mini-agent evidence helper; records a perception digest plus optional workflow claim, transition assessment, and click-candidate witness without observing or mutating the desktop.
+- `desktop_submit_interaction_evidence` - preferred compact mini-agent evidence helper; records a perception digest plus optional app-scope binding evidence, workflow claim, transition assessment, and click-candidate witness without observing or mutating the desktop.
 - `desktop_submit_perception_digest` - records an agent-authored digest for the latest screenshot-bearing observation; the server validates freshness/provenance, not pixels.
 - `desktop_move_mouse` - runs a bounded relational movement probe inside an active interaction session and requires follow-up observation plus semantic landing assessment.
 - `desktop_submit_transition_assessment` - records whether a follow-up screenshot supports, contradicts, or cannot conclude the stored relational movement claim.
@@ -19,7 +19,7 @@ The current server exposes:
 - `desktop_click` - runs a bounded app-scoped click only after hover-witness evidence and requires follow-up observation; real clicking is opt-in only.
 - `desktop_type_text` - runs bounded app-scoped generated test-text entry with relational evidence, without storing text content, and requires follow-up observation; real typing is opt-in only.
 - `desktop_end_interaction_session` - ends an active interaction session.
-- `desktop_session_audit_log` - reads the session lifecycle audit log.
+- `desktop_session_audit_log` - reads the session lifecycle audit log and exact observation artifact paths.
 
 Real desktop capture and pointer movement are disabled by default. The default provider is deterministic and mock-only: it does not capture the real desktop, move the real mouse, click the real desktop, type into the real desktop, launch real apps, or control the OS. Future real backends must start narrow, require a bounded interaction session when they change desktop state, and update the safety model before implementation.
 
@@ -27,7 +27,7 @@ The codebase also defines policy contracts for licensed desktop interaction sess
 
 Architecturally, ADMCP is a CRPM-compatible witness-bound navigation runtime: the agent inspects the current visual artifact and authors scene/workflow claims, while the server carries the global path through scope, freshness, transition gates, residue, and next required re-entry steps. The public protocol keeps operational names instead of requiring CRPM vocabulary from automation agents.
 
-Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. Real clicking and real typing additionally require their explicit Windows provider gates.
+Sessions that grant `click` or `type_text` must include `licensedAppScope`, declaring the reversible app-under-test, app-scoped allowed actions, forbidden boundaries, and scope-exit stop conditions. When present, `desktop_observe` binds that declared app-under-test to observed provider identity and returns it as `boundAppScope`. Later observations that drift outside the bound app return `status: "scope_exit"` and are not recorded as session observations. Real clicking and real typing additionally require their explicit Windows provider gates and fresh agent-authored app-scope binding evidence submitted through `desktop_submit_interaction_evidence.bindingEvidence`.
 
 ## Real Observation And Pointer Probe
 
@@ -61,7 +61,7 @@ $env:ADMCP_ENABLE_REAL_CLICK = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+With that gate enabled, `desktop_click` may click inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, fresh app-scope binding evidence, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, in-frame point, app-scoped `click` permission, and audit logging. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
 Real typing is a separate app-scoped generated-input gate:
 
@@ -72,25 +72,29 @@ $env:ADMCP_ENABLE_REAL_TYPING = "true"
 npm run dev
 ```
 
-With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
+With that gate enabled, `desktop_type_text` may type generated test input inside the bound app-under-test only after an active session, reversible `licensedAppScope`, recorded `boundAppScope`, fresh pre-action observation, fresh perception digest, fresh app-scope binding evidence, relational evidence, app-scoped `type_text` permission, non-sensitive/test-input classification, and audit logging. It records text length and classification, not raw text content. It returns a pending transition gate and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 
-For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect `visualArtifacts[].path` or the returned MCP image content block before calling `desktop_submit_interaction_evidence`. Normal observe JSON omits raw `frames[].dataBase64`; pass `includeInlineBase64: true` only for compatibility/debug use.
+For first-time use, call `desktop_first_use_guide` before starting a session or read `usageGuidance.firstUseGuide` from `desktop_capabilities`. `desktop_start_interaction_session` also returns `nextRequiredStep` pointing to the first `desktop_observe({ includeImages: true })` call. Agents must inspect `visualArtifacts[].path` or the returned MCP image content block before calling `desktop_submit_interaction_evidence`. For app-scoped real click/type work, include `bindingEvidence` after inspecting the latest artifact to confirm that the visible surface is the expected app/window, not just a mechanically bound provider identity. Normal observe JSON omits raw `frames[].dataBase64`; pass `includeInlineBase64: true` only for compatibility/debug use.
 
 Policy blocks and partial helper results may include `agentGuidance`. This guidance names the missing requirement, gives the next tool shape, and points to the relevant docs for target-string drift, repair digest carryover, missing workflow postcondition status, click-candidate movement binding, stale perception evidence, and scope rebinds. It is advisory recovery output; it does not bypass policy.
 
 The preferred compact click path is:
 
 ```text
-observe -> inspect visual artifact -> submit_interaction_evidence -> compact relational move -> observe transition -> submit_interaction_evidence with transition/candidate evidence -> click with returned digest/workflow/witness -> observe
+observe -> inspect visual artifact -> submit_interaction_evidence with digest/binding/workflow evidence -> compact relational move -> observe transition -> submit_interaction_evidence with digest/binding/transition/candidate evidence -> click with returned digest/workflow/witness -> observe
 ```
 
 Strict/debug clients may still use the expanded sequence: `observe -> perception digest -> workflow claim -> compact relational move -> observe transition -> perception digest -> semantic landing assessment -> evaluate click candidate -> click -> observe`.
+
+For real-provider app-scoped click/type sessions, `boundAppScope` is the provider's current binding and `bindingEvidence` is the agent's visual witness that the latest screenshot still shows the intended app-under-test. Use `bindingStatus: "confirmed"`, `contradiction: null`, and `staleCarryoverReviewed: true` only after inspecting the latest artifact. The real provider path rejects missing, stale, mismatched, contradicted, or geometrically suspect binding evidence before mutation.
 
 For click readiness, `hoverTargetWitnessId` is the required click token. When submitting `clickCandidate` through `desktop_submit_interaction_evidence`, provide `clickCandidate.movementActionId`; if it is omitted, the helper can infer it only from `transitionAssessment.actionId` in the same call. The strict `desktop_evaluate_click_candidate` tool does not accept inline `transitionAssessment`; record semantic landing first through the helper or `desktop_submit_transition_assessment`.
 
 Compact API clients should still prefer JSON `null` for `contradictionToPriorClaim` when no contradiction is visible. For smaller agents, exact safe sentinel strings such as `"none"`, `"null"`, `"n/a"`, `"not applicable"`, and `"no contradiction observed"` are normalized to `null` at digest recording. Semantic target checks compare conservative canonical forms, so generic UI wording may vary, such as `Run button on the right` versus `Run control on right`; distinct targets such as `Run button` versus `Delete button` remain mismatches.
 
 Catalog app bootstrap uses `config/desktop_applications.json`. Add apps by ID and aliases there; `desktop_open_application` rejects unknown apps, path-like launch strings, and command-line argument fields.
+
+`desktop_session_audit_log` returns `observationArtifacts`, a per-observation index of exact `visualArtifacts[].path` values. Use this for re-entry and debugging when an agent needs to prove which screenshot artifact supported a digest, binding claim, workflow claim, transition assessment, or click witness.
 
 For real Windows observation or movement sessions, prefer `riskLimits.maxDurationMs: 3600000`, `observationCadence.maxObservationGapMs: 180000`, and explicit `observationCadence.evidenceFreshness` tiers of 180000 ms for pre-action and click-candidate observations, and 300000 ms for perception digests, workflow-state claims, app-scope bindings, and hover witnesses. A single 5s or 60s freshness window is often too short for the current real provider because capture, helper startup, visual reasoning, workflow-state review, and post-action lookback can consume several seconds. These values keep sessions bounded; they do not permit hidden polling, background capture, stale digests, stale workflow claims, or blind action chains.
 

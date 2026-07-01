@@ -239,6 +239,48 @@ async function submitWorkflowStateClaim(
   return structured.workflowStateClaimId as string;
 }
 
+async function submitBindingEvidence(
+  client: Client,
+  observationId: string,
+  intendedTarget = "Submit button"
+) {
+  await client.callTool({
+    name: "desktop_submit_interaction_evidence",
+    arguments: {
+      sessionId: "session-real-observe-001",
+      observationId,
+      targetScope: {
+        kind: "window_title",
+        value: "Generated Test App"
+      },
+      intendedTarget,
+      evidenceMode: "same_target",
+      bindingEvidence: {
+        expectedApp: "Generated Test App",
+        expectedWindow: "Generated Test App",
+        bindingStatus: "confirmed",
+        windowIdentityEvidence:
+          "Active-window metadata identifies the Generated Test App.",
+        visualBindingEvidence:
+          "The visual artifact shows the generated app window body.",
+        geometryEvidence:
+          "The active window bounds and frame are 640x480, not a tiny child surface.",
+        contradiction: null,
+        staleCarryoverReviewed: true
+      },
+      perception: {
+        currentScene: "Generated Test App main view.",
+        currentAnchor: `${intendedTarget} area`,
+        targetVisibility: "visible",
+        anchorVisibility: "visible",
+        contradictionToPriorClaim: null,
+        staleCarryoverReviewed: true,
+        currentEvidence: `The current screenshot shows ${intendedTarget}.`
+      }
+    }
+  });
+}
+
 async function prepareHoverWitness(client: Client) {
   const initialDigestId = await submitDigest(client, "observation-fixed-2");
 
@@ -278,6 +320,7 @@ async function prepareHoverWitness(client: Client) {
     "observation-fixed-8",
     followUpDigestId
   );
+  await submitBindingEvidence(client, "observation-fixed-8");
   await client.callTool({
     name: "desktop_submit_transition_assessment",
     arguments: {
@@ -1251,6 +1294,7 @@ describe("desktop_observe with WindowsDesktopObservationProvider", () => {
           intendedActionMeaning: "type generated test input into Name input"
         }
       );
+      await submitBindingEvidence(client, "observation-fixed-2", "Name input");
       const result = await client.callTool({
         name: "desktop_type_text",
         arguments: {

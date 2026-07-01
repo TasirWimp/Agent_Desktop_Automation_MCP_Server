@@ -100,6 +100,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           freshPerceptionDigest: true,
           workflowStateClaims: true,
           interactionEvidenceHelper: true,
+          appScopeBindingEvidence: true,
           agentGuidance: true,
           firstUseGuide: true,
           observationVisualArtifacts: true,

@@ -1,5 +1,6 @@
 import {
   type DesktopActionPacket,
+  type DesktopAppScopeBindingEvidence,
   type DesktopAppScopeBinding,
   type DesktopInteractionSessionLicense,
   type DesktopObservationPacket,
@@ -9,6 +10,7 @@ import {
   type DesktopSessionStopCondition,
   type DesktopWorkflowStateClaim,
   desktopActionPacketSchema,
+  desktopAppScopeBindingEvidenceSchema,
   desktopAppScopeBindingSchema,
   desktopInteractionSessionLicenseSchema,
   desktopObservationPacketSchema,
@@ -40,6 +42,7 @@ export type SessionStoreErrorCode =
   | "observation_already_exists"
   | "perception_digest_already_exists"
   | "workflow_state_claim_already_exists"
+  | "app_scope_binding_evidence_already_exists"
   | "action_already_exists"
   | "transition_gate_already_exists"
   | "transition_gate_not_found"
@@ -69,6 +72,7 @@ export interface DesktopSessionSnapshot {
   observations: DesktopObservationPacket[];
   perceptionDigests: DesktopPerceptionDigest[];
   workflowStateClaims: DesktopWorkflowStateClaim[];
+  appScopeBindingEvidenceClaims: DesktopAppScopeBindingEvidence[];
   actions: DesktopActionPacket[];
   transitionGates: InteractionTransitionGate[];
   hoverTargetWitnesses: HoverTargetWitness[];
@@ -98,6 +102,7 @@ interface DesktopSessionEntry {
   observations: Map<string, DesktopObservationPacket>;
   perceptionDigests: Map<string, DesktopPerceptionDigest>;
   workflowStateClaims: Map<string, DesktopWorkflowStateClaim>;
+  appScopeBindingEvidenceClaims: Map<string, DesktopAppScopeBindingEvidence>;
   actions: Map<string, DesktopActionPacket>;
   transitionGates: Map<string, InteractionTransitionGate>;
   hoverTargetWitnesses: Map<string, HoverTargetWitness>;
@@ -136,6 +141,9 @@ function snapshotFromEntry(entry: DesktopSessionEntry): DesktopSessionSnapshot {
     observations: clone([...entry.observations.values()]),
     perceptionDigests: clone([...entry.perceptionDigests.values()]),
     workflowStateClaims: clone([...entry.workflowStateClaims.values()]),
+    appScopeBindingEvidenceClaims: clone([
+      ...entry.appScopeBindingEvidenceClaims.values()
+    ]),
     actions: clone([...entry.actions.values()]),
     transitionGates: clone([...entry.transitionGates.values()]),
     hoverTargetWitnesses: clone([...entry.hoverTargetWitnesses.values()]),
@@ -180,6 +188,7 @@ export class InMemoryDesktopSessionStore {
       observations: new Map(),
       perceptionDigests: new Map(),
       workflowStateClaims: new Map(),
+      appScopeBindingEvidenceClaims: new Map(),
       actions: new Map(),
       transitionGates: new Map(),
       hoverTargetWitnesses: new Map(),
@@ -338,6 +347,47 @@ export class InMemoryDesktopSessionStore {
 
   listWorkflowStateClaims(sessionId: string): DesktopWorkflowStateClaim[] {
     return clone([...this.requireEntry(sessionId).workflowStateClaims.values()]);
+  }
+
+  recordAppScopeBindingEvidence(
+    evidenceInput: DesktopAppScopeBindingEvidence
+  ): DesktopAppScopeBindingEvidence {
+    const evidence = desktopAppScopeBindingEvidenceSchema.parse(evidenceInput);
+    const entry = this.requireActiveEntry(evidence.sessionId);
+
+    if (
+      entry.appScopeBindingEvidenceClaims.has(
+        evidence.appScopeBindingEvidenceId
+      )
+    ) {
+      throw new SessionStoreError(
+        "app_scope_binding_evidence_already_exists",
+        `App scope binding evidence ${evidence.appScopeBindingEvidenceId} already exists.`
+      );
+    }
+
+    entry.appScopeBindingEvidenceClaims.set(
+      evidence.appScopeBindingEvidenceId,
+      clone(evidence)
+    );
+
+    return clone(evidence);
+  }
+
+  getAppScopeBindingEvidence(
+    sessionId: string,
+    appScopeBindingEvidenceId: string
+  ): DesktopAppScopeBindingEvidence | undefined {
+    const evidence = this.requireEntry(sessionId).appScopeBindingEvidenceClaims.get(
+      appScopeBindingEvidenceId
+    );
+    return evidence === undefined ? undefined : clone(evidence);
+  }
+
+  listAppScopeBindingEvidence(
+    sessionId: string
+  ): DesktopAppScopeBindingEvidence[] {
+    return clone([...this.requireEntry(sessionId).appScopeBindingEvidenceClaims.values()]);
   }
 
   bindAppScope(bindingInput: DesktopAppScopeBinding): DesktopAppScopeBinding {
@@ -543,6 +593,9 @@ export class InMemoryDesktopSessionStore {
       observations: clone([...entry.observations.values()]),
       perceptionDigests: clone([...entry.perceptionDigests.values()]),
       workflowStateClaims: clone([...entry.workflowStateClaims.values()]),
+      appScopeBindingEvidenceClaims: clone([
+        ...entry.appScopeBindingEvidenceClaims.values()
+      ]),
       actions: clone([...entry.actions.values()]),
       transitionGates: clone([...entry.transitionGates.values()]),
       stopConditions: clone(entry.stopConditions),

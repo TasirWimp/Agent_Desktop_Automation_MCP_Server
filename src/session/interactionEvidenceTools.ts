@@ -6,6 +6,7 @@ import {
   desktopInteractionScopeSchema,
   desktopPointSchema,
   desktopRectangleSchema,
+  desktopSubmitAppScopeBindingEvidenceInputSchema,
   desktopSubmitWorkflowStateClaimInputSchema,
   normalizeNoContradiction,
   type DesktopPerceptionDigest
@@ -16,6 +17,9 @@ import {
   guidanceCodeForClickCandidateStatus,
   guidanceCodeForToolError
 } from "./agentGuidance.js";
+import {
+  recordAppScopeBindingEvidence
+} from "./appScopeBindingEvidenceTools.js";
 import {
   evaluateAndRecordClickCandidate
 } from "./clickCandidateWitnessTools.js";
@@ -56,6 +60,12 @@ const perceptionEvidenceInputSchema = z.object({
   currentEvidence: z.string().min(1).max(2000)
 });
 
+const bindingEvidenceInputSchema = desktopSubmitAppScopeBindingEvidenceInputSchema.omit({
+  sessionId: true,
+  observationId: true,
+  targetScope: true
+});
+
 const workflowEvidenceInputSchema = desktopSubmitWorkflowStateClaimInputSchema
   .omit({
     sessionId: true,
@@ -87,6 +97,7 @@ const submitInteractionEvidenceInputSchema = z.object({
   targetScope: desktopInteractionScopeSchema,
   intendedTarget: z.string().min(1).max(1000),
   evidenceMode: z.enum(interactionEvidenceModes),
+  bindingEvidence: bindingEvidenceInputSchema.optional(),
   perception: perceptionEvidenceInputSchema,
   workflow: workflowEvidenceInputSchema.optional(),
   transitionAssessment: transitionEvidenceInputSchema.optional(),
@@ -198,6 +209,7 @@ function nextRequiredStepFor(input: {
   targetScope: SubmitInteractionEvidenceInput["targetScope"];
   intendedTarget: string;
   perceptionDigestId?: string;
+  appScopeBindingEvidenceId?: string;
   workflowStateClaimId?: string;
   hoverTargetWitnessId?: string;
   failedStep?: string;
@@ -245,6 +257,7 @@ function nextRequiredStepFor(input: {
         preActionObservationId: input.observationId,
         targetScope: input.targetScope,
         perceptionDigestId: input.perceptionDigestId,
+        appScopeBindingEvidenceId: input.appScopeBindingEvidenceId,
         workflowStateClaimId: input.workflowStateClaimId,
         hoverTargetWitnessId: input.hoverTargetWitnessId
       }
@@ -366,6 +379,67 @@ export function registerInteractionEvidenceTools(
           `evidenceMode: ${parsedInput.evidenceMode}.`,
           ...contradictionCheck.residue
         ];
+        let appScopeBindingEvidenceId: string | undefined;
+
+        if (parsedInput.bindingEvidence !== undefined) {
+          const bindingEvidenceResult = recordAppScopeBindingEvidence(
+            {
+              ...runtime,
+              requirePlausibleBindingGeometry:
+                runtime.desktopProvider.getCapabilities().realDesktopMutation
+            },
+            {
+              ...parsedInput.bindingEvidence,
+              sessionId: parsedInput.sessionId,
+              observationId: parsedInput.observationId,
+              targetScope: parsedInput.targetScope
+            }
+          );
+
+          if (bindingEvidenceResult.ok) {
+            created.appScopeBindingEvidence =
+              bindingEvidenceResult.appScopeBindingEvidence;
+            created.appScopeBindingEvidenceAuditEvent =
+              bindingEvidenceResult.auditEvent;
+            appScopeBindingEvidenceId =
+              bindingEvidenceResult.appScopeBindingEvidenceId;
+            residue.push(...bindingEvidenceResult.residue);
+          } else {
+            return structuredResult(
+              {
+                sessionId: parsedInput.sessionId,
+                status: "blocked",
+                error: bindingEvidenceResult.error,
+                failures: [
+                  {
+                    step: "app_scope_binding_evidence",
+                    error: bindingEvidenceResult.error,
+                    residue: bindingEvidenceResult.residue
+                  }
+                ],
+                agentGuidance: buildDesktopAgentGuidance({
+                  code:
+                    guidanceCodeForToolError(bindingEvidenceResult.error.code) ??
+                    "scope_rebind_required",
+                  sessionId: parsedInput.sessionId,
+                  observationId: parsedInput.observationId,
+                  targetScope: parsedInput.targetScope,
+                  intendedTarget: parsedInput.intendedTarget
+                }),
+                nextRequiredStep: nextRequiredStepFor({
+                  status: "partial",
+                  sessionId: parsedInput.sessionId,
+                  observationId: parsedInput.observationId,
+                  targetScope: parsedInput.targetScope,
+                  intendedTarget: parsedInput.intendedTarget,
+                  failedStep: "app_scope_binding_evidence"
+                }),
+                residue: bindingEvidenceResult.residue
+              },
+              true
+            );
+          }
+        }
 
         const digestResult = recordPerceptionDigest(runtime, {
           sessionId: parsedInput.sessionId,
@@ -564,6 +638,7 @@ export function registerInteractionEvidenceTools(
           sessionId: parsedInput.sessionId,
           status,
           evidenceMode: parsedInput.evidenceMode,
+          appScopeBindingEvidenceId,
           perceptionDigestId,
           workflowStateClaimId,
           hoverTargetWitnessId,
@@ -578,6 +653,7 @@ export function registerInteractionEvidenceTools(
             targetScope: parsedInput.targetScope,
             intendedTarget: parsedInput.intendedTarget,
             perceptionDigestId,
+            appScopeBindingEvidenceId,
             workflowStateClaimId,
             hoverTargetWitnessId,
             failedStep: failures[0]?.step,

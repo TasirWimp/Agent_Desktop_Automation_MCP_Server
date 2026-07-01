@@ -57,7 +57,7 @@ Real click gate:
 
 - Additional opt-in only with `ADMCP_ENABLE_REAL_CLICK=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_click`; no separate raw click tool exists.
-- Requires an active session, `click` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, fresh perception digest, matching app scope, `hover_witness` point provenance, a stored hover target witness, and a point inside the active-window capture frame.
+- Requires an active session, `click` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, fresh perception digest, fresh app-scope binding evidence, matching app scope, `hover_witness` point provenance, a stored hover target witness, and a point inside the active-window capture frame.
 - Treats the point as active-window frame coordinates and converts it to screen coordinates inside the provider.
 - Creates the same transition gate as mock clicking and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
 - Does not enable real typing, shell, app launch, system changes, external publishing, or broad desktop control.
@@ -66,7 +66,7 @@ Real typing gate:
 
 - Additional opt-in only with `ADMCP_ENABLE_REAL_TYPING=true` while the Windows real-observation provider is enabled.
 - Uses `desktop_type_text`; no separate raw keyboard tool exists.
-- Requires an active session, `type_text` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, fresh perception digest, matching app scope, generated test input, and non-sensitive/test-input classification.
+- Requires an active session, `type_text` in the session license, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, fresh perception digest, fresh app-scope binding evidence, matching app scope, generated test input, and non-sensitive/test-input classification.
 - Records text length and sensitivity classification, not raw text content, in action and audit packets.
 - Blocks credential-like, secret-like, private, or non-test input before provider execution.
 - Creates the same transition gate as mock typing and requires `desktop_observe` with `transitionActionId` before any next non-observe action.
@@ -96,6 +96,8 @@ Use the session tools to create a bounded task license, record mock observation 
 10. Treat observation output as mock evidence unless `desktop_capabilities.provider.providerKind` is `real`.
 11. After any screenshot-bearing observation that will support an action or assessment, inspect `visualArtifacts[].path` or the returned MCP image content block and call `desktop_submit_interaction_evidence`.
     - The helper records the same agent-authored perception digest as the strict tool path; the server does not analyze the screenshot.
+    - For real-provider app-scoped click/type work, include `bindingEvidence` after inspecting the latest artifact. This confirms the visible app/window surface as the intended app-under-test and hardens `boundAppScope`; it is required before real click/type mutation.
+    - Binding evidence must reference the same latest screenshot-bearing observation, use `bindingStatus: "confirmed"`, set `contradiction: null`, and set `staleCarryoverReviewed: true`. Real-mutation providers reject missing, stale, mismatched, contradicted, or geometrically suspect binding evidence before mutation.
     - Use `evidenceMode: "new_target"` when switching to a freshly inspected target, `same_target` when refreshing the same target after hover/move, and `repair_target` for repair/probe navigation.
     - The digest must be for the latest observation. A newer `desktop_observe` invalidates previous digests for future actions.
     - Include `workflow` when preparing click/type readiness; include `transitionAssessment` after movement; include `clickCandidate` when a click witness should be evaluated.
@@ -108,15 +110,15 @@ Use the session tools to create a bounded task license, record mock observation 
 17. Include `clickCandidate` in the same helper call when a future click is being considered. The helper returns `hoverTargetWitnessId` only when the current evidence is click-ready.
 18. Strict/debug clients may instead call `desktop_submit_perception_digest`, `desktop_submit_workflow_state_claim`, `desktop_submit_transition_assessment`, and `desktop_evaluate_click_candidate` separately. Do not pass inline `transitionAssessment` to `desktop_evaluate_click_candidate`; record semantic landing first.
 19. Click-candidate readiness checks active session, allowed click action, fresh observation, fresh perception digest, workflow-state readiness, frame evidence, scope match, cursor/candidate proximity, supported semantic landing assessment, no contradiction, and low-risk packet. It can reuse an older workflow-state claim only when the latest digest/scope/target revalidate it and only observations or audited non-contradicted mouse movements occurred since the claim. It records a `click_candidate_evaluated` audit event, returns a hover target witness when ready, and never clicks.
-20. Call `desktop_click` only after a fresh observation, current perception digest, current `boundAppScope`, app-scoped `click` permission, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, and no prior transition gate is pending. If the helper did not return `hoverTargetWitnessId`, do not click; follow `nextRequiredStep`. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
-21. Call `desktop_type_text` only after a fresh observation, current perception digest, current `boundAppScope`, app-scoped `type_text` permission, relational evidence, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
+20. Call `desktop_click` only after a fresh observation, current perception digest, current `boundAppScope`, current app-scope binding evidence for real providers, app-scoped `click` permission, `compactRelationalClaim.pointProvenance: "hover_witness"`, matching `hoverTargetWitnessId`, and no prior transition gate is pending. If the helper did not return `hoverTargetWitnessId`, do not click; follow `nextRequiredStep`. If the real click gate is enabled, this can perform a real click inside the bound app-under-test.
+21. Call `desktop_type_text` only after a fresh observation, current perception digest, current `boundAppScope`, current app-scope binding evidence for real providers, app-scoped `type_text` permission, relational evidence, and no prior transition gate is pending. If the real typing gate is enabled, this can type generated test input inside the bound app-under-test.
 22. For `desktop_type_text`, use generated test input only. The tool records text length and classification but not text content.
 23. After every click or typing probe, call `desktop_observe` with `transitionActionId` set to the action id.
 24. Do not call another non-observe action until the transition gate is complete or a supported semantic landing assessment has made the next probe/click path ready.
-25. Use `desktop_session_audit_log` to inspect the session trace.
+25. Use `desktop_session_audit_log` to inspect the session trace. Its `observationArtifacts` index exposes the exact local artifact paths for recorded observations.
 26. Use `desktop_end_interaction_session` when the task license should stop.
 
-The current implementation records session lifecycle, mock observation, compact interaction evidence, perception digests, workflow-state claims, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, click-candidate witness evaluations, tiered evidence freshness, hover-witness revalidation, and bounded workflow-claim revalidation. It can exercise `observe -> inspect visual artifact -> submit_interaction_evidence -> compact relational move -> observe transitionActionId -> submit_interaction_evidence with transition/candidate evidence -> click/type with returned digest/workflow/witness -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
+The current implementation records session lifecycle, mock observation, compact interaction evidence, app-scope binding evidence, perception digests, workflow-state claims, mock movement, mock click, mock typing, catalog app bootstrap, real observation, opt-in real movement, opt-in app-scoped real click, opt-in app-scoped real generated-input typing, licensed app-scope binding, scope-exit stop conditions, cursor witness, hover-witness uncertainty, cursor-annotated frame metadata, movement telemetry, semantic landing assessments, click-candidate witness evaluations, tiered evidence freshness, hover-witness revalidation, bounded workflow-claim revalidation, and audit-log observation artifact paths. It can exercise `observe -> inspect visual artifact -> submit_interaction_evidence with digest/binding/workflow evidence -> compact relational move -> observe transitionActionId -> submit_interaction_evidence with digest/binding/transition/candidate evidence -> click/type with returned digest/workflow/witness -> observe transitionActionId` against the real active window when the relevant real provider gates are enabled.
 
 ## Stop Or Escalate
 
@@ -231,7 +233,7 @@ ADMCP-018 licensed app scope model is implemented at the session-policy layer.
 - App scope can use window title, process name, workspace path, observed window identity, local URL, local origin, or provisional active-window scope.
 - `click` and `type_text` actions are scoped to the declared app-under-test before provider execution.
 - Click-candidate evidence remains useful as targeting-quality evidence, but it is not the main safety gate.
-- Real click and real typing require explicit provider gates and bound app scope.
+- Real click and real typing require explicit provider gates, bound app scope, and current agent-authored app-scope binding evidence for the latest screenshot-bearing observation.
 
 ADMCP-019 scope binding runtime is implemented.
 
@@ -240,13 +242,14 @@ ADMCP-019 scope binding runtime is implemented.
 - Later observations refresh the binding when they still match.
 - If focus drifts or the observed active-window identity no longer matches, `desktop_observe` returns `scope_exit`, appends an `outside_allowed_scope` stop condition, appends an `escalation_required` audit event, and does not record the out-of-scope frame.
 - App-scoped click/type policy blocks unbound, stale, or mismatched app scope before provider execution.
+- For real-mutation providers, app-scoped click/type policy also blocks missing, stale, mismatched, contradicted, or geometrically suspect `bindingEvidence`.
 - Real click and real typing are available only behind separate provider gates.
 
 ADMCP-020 app-scoped real click gate is implemented.
 
 - Enable only with `ADMCP_ENABLE_REAL_CLICK=true` while the Windows real-observation provider is enabled.
 - `desktop_capabilities` reports `realDesktopClick: true`, `executeDesktopActions: true`, and `closedLoopClickExecution: false` only when the click provider gate is active.
-- `desktop_click` requires active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, relational `hover_witness` provenance, stored hover target witness, in-frame target point, app-scoped `click`, audit logging, and post-click observation.
+- `desktop_click` requires active session, reversible `licensedAppScope`, current `boundAppScope`, current app-scope binding evidence, fresh pre-action observation, relational `hover_witness` provenance, stored hover target witness, in-frame target point, app-scoped `click`, audit logging, and post-click observation.
 - The provider checks active-window scope before clicking and reports post-click active-window residue for the follow-up observation.
 - Real typing requires the separate provider gate; shell, app launch, system changes, external publishing, and broad desktop clicking remain unavailable.
 
@@ -254,7 +257,7 @@ ADMCP-021 app-scoped type text gate is implemented.
 
 - Enable only with `ADMCP_ENABLE_REAL_TYPING=true` while the Windows real-observation provider is enabled.
 - `desktop_capabilities` reports `realDesktopTyping: true` and `executeDesktopActions: true` only when the typing provider gate is active.
-- `desktop_type_text` requires active session, reversible `licensedAppScope`, current `boundAppScope`, fresh pre-action observation, relational evidence, generated/synthetic input classification, audit logging, and post-type observation.
+- `desktop_type_text` requires active session, reversible `licensedAppScope`, current `boundAppScope`, current app-scope binding evidence, fresh pre-action observation, relational evidence, generated/synthetic input classification, audit logging, and post-type observation.
 - The provider checks active-window scope before typing and reports post-typing active-window residue for the follow-up observation.
 - Credentials, secrets, private data, external publishing, shell, app launch, system changes, and broad desktop control remain blocked or unavailable.
 

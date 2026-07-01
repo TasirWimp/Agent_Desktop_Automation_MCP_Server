@@ -189,6 +189,22 @@ function workflowEvidence(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function bindingEvidence() {
+  return {
+    expectedApp: "ADMCP-023G Local Fixture",
+    expectedWindow: "ADMCP-023G Local Fixture",
+    bindingStatus: "confirmed",
+    windowIdentityEvidence:
+      "Active-window metadata identifies the ADMCP-023G local fixture.",
+    visualBindingEvidence:
+      "The inspected artifact shows the ADMCP-023G fixture body and carrier state panels.",
+    geometryEvidence:
+      "The observation frame is a plausible app-sized fixture surface, not a tiny child or browser-chrome-only surface.",
+    contradiction: null,
+    staleCarryoverReviewed: true
+  };
+}
+
 function compactClaim(
   sourceObservationId: string,
   pointProvenance:
@@ -864,6 +880,7 @@ describe("ADMCP-023G executable local fixture e2e", () => {
           targetScope,
           intendedTarget: canonicalTarget,
           evidenceMode: "same_target",
+          bindingEvidence: bindingEvidence(),
           perception: perceptionEvidence(
             "Follow-up screenshot artifact was inspected; hover remains on toolbar Run tied to committed BodySlide selector."
           ),

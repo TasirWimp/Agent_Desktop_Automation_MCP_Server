@@ -150,6 +150,22 @@ function workflowEvidence() {
   };
 }
 
+function bindingEvidence() {
+  return {
+    expectedApp: "Generated Test App",
+    expectedWindow: "Generated Test App",
+    bindingStatus: "confirmed",
+    windowIdentityEvidence:
+      "Active-window metadata identifies the Generated Test App.",
+    visualBindingEvidence:
+      "The visual artifact shows the Generated Test App body.",
+    geometryEvidence:
+      "The observation frame is app-sized and not a tiny child surface.",
+    contradiction: null,
+    staleCarryoverReviewed: true
+  };
+}
+
 describe("desktop_submit_interaction_evidence MCP tool", () => {
   it("returns repair guidance when clean evidence carries a contradiction", async () => {
     const { client, server } = await createConnectedClient();
@@ -193,6 +209,43 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
             path: "docs/process/codex_desktop_interaction_reentry.md"
           })
         ])
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("blocks suspect app-scope binding evidence before recording target evidence", async () => {
+    const { client, server } = await createConnectedClient();
+
+    try {
+      const observation = await startAndObserve(client);
+      const observationId = observation.observationId as string;
+      const result = await client.callTool({
+        name: "desktop_submit_interaction_evidence",
+        arguments: {
+          sessionId: "session-interaction-evidence-001",
+          observationId,
+          targetScope,
+          intendedTarget: "Submit button",
+          evidenceMode: "new_target",
+          bindingEvidence: {
+            ...bindingEvidence(),
+            bindingStatus: "suspect"
+          },
+          perception: perceptionEvidence("Initial screenshot shows the Submit control.")
+        }
+      });
+      const evidence = parseStructuredContent(result);
+
+      expect(result.isError).toBe(true);
+      expect(evidence.status).toBe("blocked");
+      expect(evidence.error).toMatchObject({
+        code: "app_scope_binding_evidence_suspect"
+      });
+      expect(evidence.nextRequiredStep).toMatchObject({
+        tool: "desktop_submit_interaction_evidence"
       });
     } finally {
       await client.close();
@@ -259,6 +312,7 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
           targetScope,
           intendedTarget: "Submit button",
           evidenceMode: "same_target",
+          bindingEvidence: bindingEvidence(),
           perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
           workflow: workflowEvidence(),
           transitionAssessment: {
@@ -286,6 +340,9 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
 
       expect(evidenceResult.isError).not.toBe(true);
       expect(evidence.status).toBe("accepted");
+      expect(evidence.appScopeBindingEvidenceId).toEqual(
+        expect.stringMatching(/^app-scope-binding-evidence-/u)
+      );
       expect(evidence.perceptionDigestId).toEqual(expect.stringMatching(/^perception-digest-/u));
       expect(evidence.workflowStateClaimId).toEqual(expect.stringMatching(/^workflow-state-/u));
       expect(evidence.hoverTargetWitnessId).toEqual(expect.stringMatching(/^hover-witness-/u));
@@ -367,6 +424,7 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
           targetScope,
           intendedTarget: "Submit button",
           evidenceMode: "same_target",
+          bindingEvidence: bindingEvidence(),
           perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
           transitionAssessment: {
             actionId: moveActionId,
@@ -494,6 +552,7 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
           targetScope,
           intendedTarget: "Submit button",
           evidenceMode: "same_target",
+          bindingEvidence: bindingEvidence(),
           perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
           transitionAssessment,
           workflow: {
@@ -544,6 +603,7 @@ describe("desktop_submit_interaction_evidence MCP tool", () => {
           targetScope,
           intendedTarget: "Submit button",
           evidenceMode: "same_target",
+          bindingEvidence: bindingEvidence(),
           perception: perceptionEvidence("Follow-up screenshot confirms Submit hover target."),
           transitionAssessment,
           workflow: {

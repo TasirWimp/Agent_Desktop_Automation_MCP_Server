@@ -137,6 +137,7 @@ describe("desktop_observe MCP tool", () => {
         tieredEvidenceFreshness: true,
         hoverWitnessRevalidation: true,
         interactionEvidenceHelper: true,
+        appScopeBindingEvidence: true,
         agentGuidance: true,
         firstUseGuide: true
       });
@@ -148,10 +149,11 @@ describe("desktop_observe MCP tool", () => {
           requiredLoop: expect.arrayContaining([
             "desktop_observe with includeImages: true",
             "inspect visualArtifacts[].path or the returned MCP image content block",
-            "desktop_submit_interaction_evidence with perception evidence and optional workflow/candidate/transition evidence"
+            expect.stringContaining("desktop_submit_interaction_evidence with bindingEvidence")
           ]),
           evidenceRules: expect.arrayContaining([
             expect.stringContaining("visualArtifacts[].path"),
+            expect.stringContaining("bindingEvidence"),
             expect.stringContaining("one canonical intendedTarget"),
             expect.stringContaining("latest screenshot-bearing observation"),
             expect.stringContaining("newer desktop_observe invalidates older"),
@@ -399,6 +401,26 @@ describe("desktop_observe MCP tool", () => {
       expect(
         sessionStore.listObservations("session-observe-001")[0]?.frames[0]?.dataBase64
       ).toEqual(expect.any(String));
+
+      const auditResult = await client.callTool({
+        name: "desktop_session_audit_log",
+        arguments: {
+          sessionId: "session-observe-001"
+        }
+      });
+      const audit = parseStructuredContent(auditResult);
+      const observationArtifacts = audit.observationArtifacts as Array<{
+        observationId: string;
+        visualArtifacts: Array<Record<string, unknown>>;
+      }>;
+
+      expect(auditResult.isError).not.toBe(true);
+      expect(observationArtifacts).toEqual([
+        expect.objectContaining({
+          observationId: observation.observationId,
+          visualArtifacts: [expect.objectContaining({ path: artifactPath })]
+        })
+      ]);
     } finally {
       await client.close();
       await server.close();
