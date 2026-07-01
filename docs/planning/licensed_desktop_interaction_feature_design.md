@@ -911,6 +911,7 @@ ADMCP-023 implementation guardrails:
 - Treat `scope_exit`, `risk_prompt`, `uninterpretable_state`, and repair-limit exhaustion as stop/escalation conditions.
 - Require a final landfall/re-entry packet before claiming test closure.
 - Preserve enough artifact data for a later Codex agent to re-enter without hidden session memory.
+- Preserve one canonical target string across evidence/action packets, require a clean digest after repair evidence, require workflow postcondition status for transition-linked workflow claims, and carry helper-returned ids through runner state so cold agents do not reconstruct the protocol from memory.
 
 The runner owns these local artifacts:
 
@@ -1190,11 +1191,11 @@ Recommended ADMCP-023 split:
 
 The slice labels are normalized by `docs/planning/admcp_023_carrier_state_design.md`. Mock, local manual, and Phaser/Vite pressure-test coverage remain required, but the implementation sequence should use ADMCP-023A-E:
 
-- ADMCP-023A Scenario Contract And Carrier Schemas: validate scenario, target registry, structured protected outcomes, tool-to-cycle-kind matrix, cycle, carrier, safety report, closure, and landfall/re-entry schemas without executing desktop actions.
-- ADMCP-023B Carrier Update Library: add pure target-canonical, evidence-phase, route-carrier, residue, protected-outcome, and closure-decision functions.
-- ADMCP-023C Governed Runner Harness: compose existing MCP tools only, prefer `desktop_submit_interaction_evidence`, and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts against mock/provider fixtures.
+- ADMCP-023A Scenario Contract And Carrier Schemas: validate scenario, target registry, structured protected outcomes, cold-agent protocol guards, tool-to-cycle-kind matrix, cycle, carrier, safety report, closure, and landfall/re-entry schemas without executing desktop actions.
+- ADMCP-023B Carrier Update Library: add pure target-canonical, evidence-phase, repair-exit, route-carrier, residue, helper-id carry-forward, protected-outcome, and closure-decision functions.
+- ADMCP-023C Governed Runner Harness: compose existing MCP tools only, prefer `desktop_submit_interaction_evidence`, assemble action requests from carrier-held ids and canonical target state, and verify carrier updates, residue carry-forward, closure gates, and replayable artifacts against mock/provider fixtures.
 - ADMCP-023D Artifact And Safety Sidecar Writer: persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, audit events, closure result, and safety report without secrets, raw typed text, gated evaluators, or hidden answers.
-- ADMCP-023E Guidance Refinement: add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, and click-candidate movement binding.
+- ADMCP-023E Guidance Refinement: add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
 
 Implementation readiness:
 

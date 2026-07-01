@@ -1308,6 +1308,7 @@ Design center:
 - The runner must support real-world UI tests where the path is longer than one action and where canvas, animation, hover state, delayed transitions, or ambiguous visual deltas make a single-cycle assertion insufficient.
 - For Phaser/Vite apps, the runner should assume DOM/accessibility witnesses may be weak or unavailable; bounded frame evidence and transition classifications are first-class witnesses.
 - The runner must keep residue visible and carry it into the next cycle rather than smoothing it into a prose summary.
+- The runner must make cold-agent protocol traps hard to repeat: exact canonical target reuse, fresh clean digest after repair evidence, explicit workflow postcondition status for transition-linked workflow claims, and carrier-held evidence ids for action assembly.
 
 Status:
 
@@ -1325,6 +1326,10 @@ Required behavior:
 - Run a bounded app-under-test session from a first-class scenario contract with explicit user confirmation, visible-content acknowledgement, reversible app-under-test declaration, allowed actions, forbidden boundaries, protected test outcome, max cycles, max actions, max duration, and observation cadence.
 - Execute multi-cycle governed test steps using only existing MCP tools: `desktop_start_interaction_session`, `desktop_observe`, `desktop_submit_interaction_evidence`, `desktop_move_mouse`, `desktop_evaluate_click_candidate`, `desktop_click`, `desktop_type_text`, `desktop_session_audit_log`, and `desktop_end_interaction_session`.
 - Prefer `desktop_submit_interaction_evidence` as the consistency hub before movement and after movement, so perception, workflow, transition assessment, and click-candidate evidence stay on one carrier path.
+- Keep one scenario-declared canonical target string across digest, workflow, transition assessment, click-candidate, click, and type unless the runner deliberately opens a new target track.
+- After a failed landing, record the contradiction with `repair_target`, require a fresh non-contradicted `new_target` or `same_target` digest for the corrected target, and only then resume normal move/click/type.
+- Require explicit `postconditionStatus` for every workflow claim that references `transitionActionId`.
+- Carry current observation, scope, intended target, movement action id, digest id, workflow id, and hover witness id in runner state so later action requests are assembled from carrier state rather than free-form agent memory.
 - Preserve the cycle shape `goal -> active cut -> observe -> licensed action/probe -> observe transitionActionId -> classify delta -> carry residue -> continue/repair/ask/close`.
 - Record a required cycle packet for every runner cycle with test goal, cycle kind, active cut, current pressure, licensed probe/action, observations, transition classification when applicable, residue, next re-entry pressure, and cycle decision.
 - Separate observation-only cycles from action-bearing cycles: `observation_only` cycles may omit action and after-observation fields, while `state_changing_action` cycles require before observation, action id, after observation through `transitionActionId`, and transition classification.
@@ -1617,20 +1622,21 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
 
 - ADMCP-023A Scenario Contract And Carrier Schemas.
   - Add schema modules for scenario contract, target registry, cycle packet, carrier, safety report, closure gate, and landfall/re-entry artifact.
-  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, structured protected outcome declaration with acceptable evidence, evidence-strength defaults, tool-to-cycle-kind matrix, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, safety sidecar fields, and artifact replay fields.
+  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, structured protected outcome declaration with acceptable evidence, evidence-strength defaults, tool-to-cycle-kind matrix, cold-agent protocol guards, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, safety sidecar fields, and artifact replay fields.
   - Execute no desktop action in this slice.
   - ADMCP-023A is the next implementation target; do not start runner orchestration in ADMCP-023A.
 - ADMCP-023B Carrier Update Library.
-  - Add pure functions for target canonical checks, evidence phase transitions, route-carrier promotion/demotion, residue carry-forward, protected-outcome status, and closure decisions.
+  - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, protected-outcome status, and closure decisions.
   - Unit-test local-event versus route-carrier versus landfall boundaries.
 - ADMCP-023C Governed Runner Harness.
   - Compose existing MCP/server tool paths only, preferring `desktop_submit_interaction_evidence` as the normal consistency hub.
+  - Assemble action requests from the carrier-held canonical target and returned evidence ids instead of asking the agent to restate them from memory.
   - Cover expected delta with protected outcome satisfied, expected delta with outcome unresolved, no-op, wrong-target, repair-needed, uninterpretable, repair-limit, and closure-gate behavior against mock/provider-backed deterministic fixtures.
 - ADMCP-023D Artifact And Safety Sidecar Writer.
   - Persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, audit events, closure result, and safety report.
   - Do not persist secrets, raw typed text, gated evaluators, hidden answers, or unrelated desktop artifacts.
 - ADMCP-023E Guidance Refinement.
-  - Add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, and click-candidate movement binding.
+  - Add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
   - Keep the local app manual runner and Phaser/Vite pressure fixture as acceptance tracks for the governed harness and artifact writer.
 
 Acceptance criteria:
@@ -1639,6 +1645,9 @@ Acceptance criteria:
 - Multi-cycle runs produce cycle packets that carry residue forward as next re-entry pressure.
 - The runner stops on scope exit, forbidden boundaries, uninterpretable state, repair-limit exhaustion, or missing domain authority.
 - A visible change alone is not accepted as success unless the final landfall packet ties it to the protected test goal.
+- A cold-agent first miss is handled as a normal repair cycle: wrong landing residue is recorded, a clean corrected digest is required, and retry stays within repair budget.
+- Target string shortening or drift is blocked before click/type unless a deliberate new target track is opened.
+- Transition-linked workflow evidence without `postconditionStatus` blocks closure and action continuation.
 - Tests cover expected delta, no-op, wrong-target, repair-needed, scope-exit, risk-prompt, uninterpretable-state, repair-limit, pending-transition, and closure-gate behavior.
 - Artifacts are sufficient for a later reviewer or Codex agent to recover why the runner continued, repaired, asked, stopped, or closed.
 - The runner does not add shell, deployment, external publishing, app launching, hidden polling, OCR, semantic localization, or cross-app authority.

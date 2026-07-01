@@ -16,6 +16,7 @@ This refinement uses four input families:
    - Source-supported signal: witnesses are not source state; local events are not route carriers; route carriers require lookback and residue; landfall requires recoverable re-entry geometry.
 4. Agent-run feedback from use of ADMCP tools.
    - Operational signal: the runner must reduce ID drift and evidence mismatch by preserving one canonical target string, using `desktop_submit_interaction_evidence` as the consistency hub, minting a fresh clean digest after repair evidence, and requiring explicit workflow postcondition status when workflow evidence references a transition.
+   - Cold-agent signal: a fresh agent can discover the protocol from docs after the fact, but ADMCP-023 must encode the common traps in the runner/carrier path before action: plausible coordinate mislocalization, target string drift, contradicted repair evidence reused as clean evidence, and omitted workflow postcondition status.
 
 ## Design Cut
 
@@ -37,6 +38,21 @@ The runner's responsibility is not to infer visual truth. It should preserve the
 - what changed after a probe/action,
 - what remained unresolved,
 - why the run continued, repaired, asked, partially landed, or closed.
+
+## Cold-Agent Protocol Pressure
+
+Cold-agent feedback should be treated as a design input, not as user training material. In a fresh chat with no prior exposure to the server docs, the agent's hardest failures were not raw clicking. They were precise visual targeting and satisfying the evidence protocol after a first bad landing.
+
+ADMCP-023 should therefore make these rules runner-owned invariants:
+
+- preserve one exact canonical `intendedTarget` across perception, workflow, transition assessment, click-candidate evaluation, click, and type,
+- omit `workflow.intendedElementTarget` by default so the helper inherits the canonical target unless a scenario deliberately opens a narrower target track,
+- treat coordinate mislocalization as an expected repair cycle, not as a reason to weaken coordinate policy,
+- after a failed landing, record the contradiction with `repair_target`, carry it as residue, then require a fresh non-contradicted `new_target` or `same_target` digest before the next normal move/click/type,
+- require explicit `postconditionStatus` whenever workflow evidence references `transitionActionId`,
+- keep `desktop_submit_interaction_evidence` as the normal consistency hub so the runner carries the current observation id, target scope, intended target, movement action id, digest id, workflow id, and hover witness id instead of asking the agent to reconstruct them from memory.
+
+The server should still not analyze screenshots. The runner may structure, preserve, and validate the agent-authored evidence path; the agent remains responsible for inspecting visual artifacts and authoring visual claims.
 
 ## Non-Goals
 
@@ -99,6 +115,7 @@ ui_test_scenario_contract:
       surface_label_hints: []
       forbidden_aliases: []
       target_scope:
+      field_reuse_policy: exact_reuse_across_digest_workflow_transition_candidate_action
   protected_outcomes:
     - outcome_id:
       description:
@@ -144,6 +161,12 @@ ui_test_scenario_contract:
       - pending_or_unassessed_transition
       - hidden_state_unrecovered
       - scope_exit_or_forbidden_boundary
+  cold_agent_protocol_guards:
+    canonical_target_exact_reuse: true
+    workflow_target_inherits_helper_target_by_default: true
+    transition_workflow_postcondition_required: true
+    repair_digest_requires_fresh_clean_exit_digest: true
+    runner_carries_current_ids: true
 ```
 
 ### Run Carrier
@@ -178,10 +201,15 @@ ui_test_run_carrier:
   target_registry:
     active_target_key:
     canonical_intended_target:
+    canonical_target_source:
+    workflow_target_policy: inherit_helper_target | deliberately_narrowed
     last_perception_digest_id:
     last_workflow_state_claim_id:
     last_hover_target_witness_id:
     target_drift_status: stable | drifted | repaired | unresolved
+    repair_exit_required: true | false
+    last_clean_digest_id:
+    last_contradicted_digest_id:
   cycle_ids: []
   transition_action_ids: []
   protected_outcome_status:
@@ -221,6 +249,7 @@ Rules:
 3. Workflow evidence should omit `workflow.intendedElementTarget` unless it intentionally narrows the target; omission lets `desktop_submit_interaction_evidence` inherit the helper's `intendedTarget`.
 4. Surface wording variants belong in `surface_label_hints`, `currentEvidence`, `scene`, `anchor`, or residue, not in the canonical target field.
 5. If the runner detects a target mismatch block, it should not invent a new target string. It should emit `target_canonical_drift`, ask for a corrected canonical target if needed, or restart the target track with an explicit new `target_key`.
+6. A fresh agent's natural label shortening is not a safe target migration. For example, `New project button` and a longer target phrase may be semantically close to a human, but the runner should either reuse the canonical target exactly or open a deliberate new target track.
 
 This preserves the explicit-claim safety model while reducing accidental mismatch between perception digest, workflow claim, hover witness, and click request.
 
@@ -281,6 +310,8 @@ A contradicted repair digest may explain the miss. It must not be carried into t
 
 After a miss, the runner should record the contradiction with `repair_target`, observe again, then mint a fresh clean digest for the corrected target before requesting the next normal movement or click.
 
+The carrier must make `repair_exit_required` explicit after a contradicted repair digest. The next normal action is blocked until the active target has a fresh clean digest id with `contradictionToPriorClaim: null`, visible target state, and consistent or not-applicable continuity.
+
 ## Workflow Postcondition Discipline
 
 Any workflow evidence that references `transitionActionId` must include an explicit postcondition status:
@@ -311,6 +342,8 @@ The future runner should prefer the compact helper path to reduce ID drift:
 ```
 
 Strict/debug tools remain valid, but ADMCP-023 should treat the helper as the normal consistency hub because it keeps perception, workflow, transition, and click-candidate evidence in one request/response carrier.
+
+The governed runner should carry the returned ids forward. A successful helper response should update the carrier with the current `perceptionDigestId`, `workflowStateClaimId`, optional `transitionActionId`, optional `clickCandidateStatus`, and optional `hoverTargetWitnessId`. A later click or type request should be assembled from this carrier state, not from free-form agent recollection.
 
 ## CRPM Ladder Mapping
 
@@ -404,6 +437,8 @@ ADMCP-023 should reduce avoidable protocol mistakes with explicit guidance:
 - On `perception_digest_contradicted` after a repair observation, tell the client to submit a fresh non-contradicted `new_target` or `same_target` digest for the corrected target before the next normal move/click/type.
 - On `workflow_postcondition_status_required`, tell the client to resubmit workflow evidence with `postconditionStatus: satisfied`, `contradicted`, or `inconclusive`.
 - On click-candidate partial failure, keep returning the next helper call shape with the current `sessionId`, `observationId`, `targetScope`, `intendedTarget`, and movement binding requirement.
+- On first failed landing or wrong-target repair, state that the click path is closed-loop: observe, submit evidence, move, observe transition, validate landing, get hover witness, click, observe again.
+- On plausible coordinate mislocalization, do not ask the client to prove coordinates directly. Ask it to re-ground against the latest visual artifact and submit relational/semantic landing evidence.
 
 This guidance can start as runner-side normalization/checklist logic before becoming server-side `agentGuidance` output.
 
@@ -413,19 +448,20 @@ Suggested ADMCP-023 sub-slices:
 
 1. **ADMCP-023A Scenario Contract And Carrier Schemas**
    - Add scenario contract, target registry, carrier, cycle packet, safety report, and closure gate schemas.
-   - Unit-test schema validation and blocked closure states.
+   - Unit-test schema validation, cold-agent protocol guards, and blocked closure states.
 2. **ADMCP-023B Carrier Update Library**
-   - Add pure functions for target canonical checks, evidence phase transitions, route-carrier promotion, residue carry-forward, and closure decisions.
+   - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, route-carrier promotion, residue carry-forward, id carry-forward, and closure decisions.
    - Unit-test CRPM ladder demotions and OSWorld-style provenance fields.
 3. **ADMCP-023C Governed Runner Harness**
    - Compose existing MCP tools only.
    - Prefer `desktop_submit_interaction_evidence` before movement and after movement.
+   - Assemble action requests from carrier-held ids and canonical target state instead of relying on the agent to restate them from memory.
    - No new desktop mutation tools.
 4. **ADMCP-023D Artifact And Safety Sidecar Writer**
    - Persist scenario, carrier, cycle packets, observations/actions, frame hashes, audit events, closure result, and safety report.
    - Do not persist secrets, raw typed text, gated evaluators, or hidden answers.
 5. **ADMCP-023E Guidance Refinement**
-   - Add client-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, and click-candidate movement binding.
+   - Add client-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, click-candidate movement binding, and closed-loop repair after a failed landing.
 
 ## Test Requirements
 
@@ -435,7 +471,10 @@ Unit tests should cover:
 - canonical target registry validation,
 - helper target inheritance when workflow target is omitted,
 - explicit workflow target mismatch producing target-canonical residue,
+- natural-language target shortening blocked unless a new target track is opened,
 - repair digest followed by required clean digest before normal action,
+- contradicted repair digest setting `repair_exit_required`,
+- carrier id state updating from helper output,
 - missing transition workflow postcondition status blocking closure,
 - CRPM ladder promotion/demotion: local event is not route carrier, route carrier is not landfall,
 - `complete_for_P_only` producing partial landfall, not passed,
@@ -449,6 +488,8 @@ Runner/protocol tests should cover:
 - target string drift between digest/workflow/click blocked before click,
 - contradiction repair path requires clean digest before next normal move,
 - workflow postcondition status required when `transitionActionId` is set,
+- cold-agent first miss: wrong landing produces repair residue, fresh visual re-grounding, clean digest, and retry within repair budget,
+- runner-assembled click uses carrier-held digest/workflow/hover witness ids after helper returns `candidate_ready`,
 - pending transition gate blocks the next non-observe action,
 - closure blocked by unresolved protected outcome residue,
 - scope exit stops and writes safety sidecar residue,
