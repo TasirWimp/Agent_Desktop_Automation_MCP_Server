@@ -1298,6 +1298,8 @@ Verification:
 
 Goal: Provide a repeatable governed UI test cycle runner for local UI development projects such as Phaser/Vite apps using the app-under-test session model.
 
+Detailed carrier-state refinement: `docs/planning/admcp_023_carrier_state_design.md`. This MVP entry remains the implementation sequencing and acceptance gate; the carrier-state design is the detailed ADMCP-023 design reference.
+
 Design center:
 
 - The runner is not a blind scripted click/type utility.
@@ -1321,7 +1323,8 @@ Depends on:
 Required behavior:
 
 - Run a bounded app-under-test session from a first-class scenario contract with explicit user confirmation, visible-content acknowledgement, reversible app-under-test declaration, allowed actions, forbidden boundaries, protected test outcome, max cycles, max actions, max duration, and observation cadence.
-- Execute multi-cycle governed test steps using only existing MCP tools: `desktop_start_interaction_session`, `desktop_observe`, `desktop_move_mouse`, `desktop_evaluate_click_candidate`, `desktop_click`, `desktop_type_text`, `desktop_session_audit_log`, and `desktop_end_interaction_session`.
+- Execute multi-cycle governed test steps using only existing MCP tools: `desktop_start_interaction_session`, `desktop_observe`, `desktop_submit_interaction_evidence`, `desktop_move_mouse`, `desktop_evaluate_click_candidate`, `desktop_click`, `desktop_type_text`, `desktop_session_audit_log`, and `desktop_end_interaction_session`.
+- Prefer `desktop_submit_interaction_evidence` as the consistency hub before movement and after movement, so perception, workflow, transition assessment, and click-candidate evidence stay on one carrier path.
 - Preserve the cycle shape `goal -> active cut -> observe -> licensed action/probe -> observe transitionActionId -> classify delta -> carry residue -> continue/repair/ask/close`.
 - Record a required cycle packet for every runner cycle with test goal, cycle kind, active cut, current pressure, licensed probe/action, observations, transition classification when applicable, residue, next re-entry pressure, and cycle decision.
 - Separate observation-only cycles from action-bearing cycles: `observation_only` cycles may omit action and after-observation fields, while `state_changing_action` cycles require before observation, action id, after observation through `transitionActionId`, and transition classification.
@@ -1610,22 +1613,25 @@ ui_test_landfall:
 
 Recommended implementation split:
 
-- ADMCP-023A Scenario Contract And Artifact Schemas.
-  - Add schema modules for scenario contract, cycle packet, carrier, closure gate, and landfall artifact.
-  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, structured protected outcome declaration with acceptable evidence, evidence-strength defaults, tool-to-cycle-kind matrix, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, and artifact replay fields.
+These slice labels are normalized by `docs/planning/admcp_023_carrier_state_design.md`. The older mock/local/Phaser pressure-test concerns remain required acceptance coverage, but they should not replace the ADMCP-023A-E implementation sequence.
+
+- ADMCP-023A Scenario Contract And Carrier Schemas.
+  - Add schema modules for scenario contract, target registry, cycle packet, carrier, safety report, closure gate, and landfall/re-entry artifact.
+  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, structured protected outcome declaration with acceptable evidence, evidence-strength defaults, tool-to-cycle-kind matrix, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, safety sidecar fields, and artifact replay fields.
   - Execute no desktop action in this slice.
   - ADMCP-023A is the next implementation target; do not start runner orchestration in ADMCP-023A.
-- ADMCP-023B Mock Cycle Runner.
-  - Use existing MCP/server tool paths against mock/provider-backed deterministic fixtures.
-  - Cover expected delta with protected outcome satisfied, expected delta with outcome unresolved, no-op, wrong-target, repair-needed, uninterpretable, repair-limit, and closure-gate behavior.
-  - Produce replayable artifacts.
-- ADMCP-023C Local App Manual Runner.
-  - Use real observation/click/type only behind existing gates and user-granted app-under-test scope.
-  - Require the user or outer Codex workflow to launch the app/dev server outside this MCP server.
-  - Stop on scope exit and forbidden boundaries; save compact screenshots or frame references, hashes, classifications, audit log, and residue.
-- ADMCP-023D Phaser/Vite Fixture Pressure Test.
-  - Use a deliberately small fixture with a start/menu screen, a click-to-gameplay transition, optional HUD/state evidence, a no-op/wrong-target case, a delayed transition case, and a scope-exit case.
-  - Verify that visible change alone does not close unless the protected outcome is satisfied or residualized.
+- ADMCP-023B Carrier Update Library.
+  - Add pure functions for target canonical checks, evidence phase transitions, route-carrier promotion/demotion, residue carry-forward, protected-outcome status, and closure decisions.
+  - Unit-test local-event versus route-carrier versus landfall boundaries.
+- ADMCP-023C Governed Runner Harness.
+  - Compose existing MCP/server tool paths only, preferring `desktop_submit_interaction_evidence` as the normal consistency hub.
+  - Cover expected delta with protected outcome satisfied, expected delta with outcome unresolved, no-op, wrong-target, repair-needed, uninterpretable, repair-limit, and closure-gate behavior against mock/provider-backed deterministic fixtures.
+- ADMCP-023D Artifact And Safety Sidecar Writer.
+  - Persist scenario, carrier, cycle packets, observations/actions, frame hashes or artifact paths, audit events, closure result, and safety report.
+  - Do not persist secrets, raw typed text, gated evaluators, hidden answers, or unrelated desktop artifacts.
+- ADMCP-023E Guidance Refinement.
+  - Add runner-side or server-side guidance for target mismatch, contradicted repair carryover, missing workflow postcondition status, and click-candidate movement binding.
+  - Keep the local app manual runner and Phaser/Vite pressure fixture as acceptance tracks for the governed harness and artifact writer.
 
 Acceptance criteria:
 
