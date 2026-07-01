@@ -623,9 +623,10 @@ These labels should be generated from carrier evidence and residue. They are use
 
 Suggested ADMCP-023 sub-slices:
 
-1. **ADMCP-023A Scenario Contract And Carrier Schemas**
-   - Add scenario contract, challenge phenomena, watched source, checkpoint, target registry, carrier, cycle packet, safety report, behavior label, and closure gate schemas.
-   - Unit-test schema validation, cold-agent protocol guards, checkpoint closure, semantic freshness, ask state, safety sidecar fields, and blocked closure states.
+1. **ADMCP-023A Scenario Contract And Carrier Schemas** - implemented
+   - Added scenario contract, challenge phenomena, watched source, checkpoint, target registry, carrier, cycle packet, safety report, behavior label, closure gate, and landfall/re-entry schemas.
+   - Unit-tested schema validation, challenge-driven guard defaults, checkpoint closure, semantic freshness, ask state, safety sidecar fields, cycle kind boundaries, blocked closure states, and pass versus partial-landfall distinctions.
+   - This slice remains schema/pure-validation only; it does not execute desktop actions or add runner orchestration.
 2. **ADMCP-023B Carrier Update Library**
    - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion, residue carry-forward, id carry-forward, behavior labels, and closure decisions.
    - Unit-test CRPM ladder demotions and OSWorld-style provenance fields.

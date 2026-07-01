@@ -1625,11 +1625,10 @@ Recommended implementation split:
 
 These slice labels are normalized by `docs/planning/admcp_023_carrier_state_design.md`. The older mock/local/Phaser pressure-test concerns remain required acceptance coverage, but they should not replace the ADMCP-023A-E implementation sequence.
 
-- ADMCP-023A Scenario Contract And Carrier Schemas.
-  - Add schema modules for scenario contract, challenge phenomena, watched sources, protected outcome checkpoints, target registry, cycle packet, carrier, behavior labels, safety report, closure gate, and landfall/re-entry artifact.
-  - Add schema tests for app-under-test contract, session-license fields, allowed actions versus allowed probes, forbidden boundaries, max cycles/actions/time, structured protected outcome declaration with acceptable evidence, evidence-strength defaults, tool-to-cycle-kind matrix, cold-agent protocol guards, challenge-driven guard defaults, checkpoint closure, semantic freshness, ask state, closure-gate pass versus partial-landfall distinctions, observation-only versus state-changing cycle packets, expanded safety sidecar fields, behavior labels, and artifact replay fields.
-  - Execute no desktop action in this slice.
-  - ADMCP-023A is the next implementation target; do not start runner orchestration in ADMCP-023A.
+- ADMCP-023A Scenario Contract And Carrier Schemas - implemented.
+  - Added `src/session/uiTestCarrierSchemas.ts` with scenario contract, challenge phenomena, watched sources, protected outcome checkpoints, target registry, cycle packet, carrier, behavior labels, safety report, closure gate, and landfall/re-entry artifact schemas.
+  - Added schema tests for app-under-test contract fields, allowed actions versus allowed probes, protected outcome evidence-strength defaults, challenge-driven guard defaults, checkpoint closure, semantic freshness, ask state, closure-gate pass versus partial-landfall distinctions, observation-only/probe/state-changing cycle packets, expanded safety sidecar fields, and artifact replay fields.
+  - This slice executes no desktop action and adds no runner orchestration.
 - ADMCP-023B Carrier Update Library.
   - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
   - Unit-test local-event versus route-carrier versus landfall boundaries.
