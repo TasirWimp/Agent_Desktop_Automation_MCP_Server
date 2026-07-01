@@ -627,9 +627,10 @@ Suggested ADMCP-023 sub-slices:
    - Added scenario contract, challenge phenomena, watched source, checkpoint, target registry, carrier, cycle packet, safety report, behavior label, closure gate, and landfall/re-entry schemas.
    - Unit-tested schema validation, challenge-driven guard defaults, checkpoint closure, semantic freshness, ask state, safety sidecar fields, cycle kind boundaries, blocked closure states, and pass versus partial-landfall distinctions.
    - This slice remains schema/pure-validation only; it does not execute desktop actions or add runner orchestration.
-2. **ADMCP-023B Carrier Update Library**
-   - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion, residue carry-forward, id carry-forward, behavior labels, and closure decisions.
-   - Unit-test CRPM ladder demotions and OSWorld-style provenance fields.
+2. **ADMCP-023B Carrier Update Library** - implemented
+   - Added pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, id carry-forward, behavior labels, protected-outcome status, and closure decisions.
+   - Unit-tested target drift, repair-exit discipline, watched-source freshness, ask-state transitions, checkpoint/protected-outcome updates, local-event versus route-carrier versus landfall boundaries, and premature closure labeling.
+   - This slice remains pure carrier-state logic; it does not compose MCP tools or execute desktop actions.
 3. **ADMCP-023C Governed Runner Harness**
    - Compose existing MCP tools only.
    - Prefer `desktop_submit_interaction_evidence` before movement and after movement.

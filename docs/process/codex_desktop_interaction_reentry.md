@@ -305,14 +305,14 @@ ADMCP-023 implementation must start with local runner artifacts:
 Recommended split:
 
 - ADMCP-023A: implemented scenario contract, cycle, carrier, closure, safety sidecar, and landfall schemas; no desktop actions and no runner orchestration.
-- ADMCP-023B: next carrier update library slice for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
-- ADMCP-023C: governed runner harness that composes existing MCP tools only and assembles action requests from carrier-held ids.
+- ADMCP-023B: implemented carrier update library for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
+- ADMCP-023C: next governed runner harness slice that composes existing MCP tools only and assembles action requests from carrier-held ids.
 - ADMCP-023D: artifact and safety sidecar writer for scenario, carrier, cycle packets, observations/actions, frame hashes, audit events, closure results, and safety reports.
 - ADMCP-023E: guidance refinement and acceptance tracks for local manual runs plus Phaser/Vite pressure fixtures with pass, no-op, wrong-target, delayed-transition, and scope-exit cases.
 
 Do not add dev-server management, shell execution, deployment, external publishing, hidden polling, OCR dependency, semantic localization prerequisite, arbitrary app launch, or new desktop mutation authority in ADMCP-023.
 
-Next safe code step: implement ADMCP-023B only. Do not start runner orchestration until the carrier update library is complete and tested.
+Next safe code step: implement ADMCP-023C only. The runner harness must compose existing MCP tools and carrier-update helpers; it must not add raw desktop control, hidden polling, OCR dependency, shell execution, or new real-provider authority.
 
 ## Real Observation Manual Check
 

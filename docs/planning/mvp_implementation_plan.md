@@ -1629,9 +1629,10 @@ These slice labels are normalized by `docs/planning/admcp_023_carrier_state_desi
   - Added `src/session/uiTestCarrierSchemas.ts` with scenario contract, challenge phenomena, watched sources, protected outcome checkpoints, target registry, cycle packet, carrier, behavior labels, safety report, closure gate, and landfall/re-entry artifact schemas.
   - Added schema tests for app-under-test contract fields, allowed actions versus allowed probes, protected outcome evidence-strength defaults, challenge-driven guard defaults, checkpoint closure, semantic freshness, ask state, closure-gate pass versus partial-landfall distinctions, observation-only/probe/state-changing cycle packets, expanded safety sidecar fields, and artifact replay fields.
   - This slice executes no desktop action and adds no runner orchestration.
-- ADMCP-023B Carrier Update Library.
-  - Add pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
-  - Unit-test local-event versus route-carrier versus landfall boundaries.
+- ADMCP-023B Carrier Update Library - implemented.
+  - Added `src/session/uiTestCarrierUpdates.ts` with pure functions for target canonical checks, evidence phase transitions, repair-exit gating, watched-source freshness, ask-state transitions, checkpoint status, route-carrier promotion/demotion, residue carry-forward, helper id carry-forward, behavior labels, protected-outcome status, and closure decisions.
+  - Added unit tests for target drift, contradicted repair carryover, clean repair exit, helper id carry-forward, watched-source freshness, ask-state transitions, checkpoint/protected-outcome updates, route-carrier promotion/demotion, and premature closure labeling.
+  - This slice executes no desktop action and adds no runner orchestration.
 - ADMCP-023C Governed Runner Harness.
   - Compose existing MCP/server tool paths only, preferring `desktop_submit_interaction_evidence` as the normal consistency hub.
   - Assemble action requests from the carrier-held canonical target and returned evidence ids instead of asking the agent to restate them from memory.
